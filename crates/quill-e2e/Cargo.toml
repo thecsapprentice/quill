@@ -1,0 +1,25 @@
+[package]
+name = "quill-e2e"
+description = "End-to-end tests: real server, real Postgres, driven through quill-core."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+quill-core.workspace = true
+quill-proto.workspace = true
+quill-server.workspace = true
+
+anyhow.workspace = true
+axum.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+reqwest = { workspace = true, features = ["rustls"] }
+
+[lints]
+workspace = true

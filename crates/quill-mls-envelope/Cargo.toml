@@ -1,0 +1,13 @@
+[package]
+name = "quill-mls-envelope"
+description = "Reads MLS framing headers (group ID, epoch, content type) without any ability to decrypt. Used by the server."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

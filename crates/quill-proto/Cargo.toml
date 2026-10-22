@@ -1,0 +1,20 @@
+[package]
+name = "quill-proto"
+description = "Shared wire types and validation for the Quill client API and federation. Contains no cryptography."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
