@@ -8,6 +8,7 @@ edition = "2024"
 # Matches rust-toolchain.toml: the only toolchain CI builds and tests.
 rust-version = "1.97"
 publish = false
+license = "AGPL-3.0-only"
 repository = "https://github.com/thecsapprentice/quill"
 
 [workspace.lints.rust]

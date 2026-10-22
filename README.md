@@ -79,6 +79,13 @@ in CI).
 
 ## Design
 
-The architecture plan and protocol draft are maintained outside the repo for
-now; see [`docs/`](docs/README.md). Security reports: see
-[SECURITY.md](SECURITY.md).
+- [Architecture and implementation plan](docs/plan.md)
+- [Protocol draft v0.1](docs/protocol-draft.md)
+
+Security reports: see [SECURITY.md](SECURITY.md).
+
+## Licence
+
+Quill is licensed under the [GNU Affero General Public License v3.0](LICENSE)
+(`AGPL-3.0-only`). If you run a modified Quill server for others, the AGPL
+requires you to offer its users the source code of your version.

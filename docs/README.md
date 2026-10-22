@@ -1,17 +1,16 @@
 # Design documents
 
-The design currently lives in two shared documents maintained alongside this
-repository:
+- [**Architecture and implementation plan**](plan.md): threat model,
+  architecture, prompt and tag model, session cryptography (MLS), multi-device
+  identity, federation, library choices, GUI framework choice, roadmap and
+  readiness checklist.
+- [**Protocol draft v0.1**](protocol-draft.md): the `wr:` ActivityPub
+  vocabulary, the session request lifecycle, encrypted payload fields, binary
+  formats, client API outline, prompt reports and conformance artifacts.
 
-- **Architecture and implementation plan:** threat model, architecture, prompt
-  and tag model, session cryptography (MLS), multi-device identity, federation,
-  library choices, GUI framework choice, roadmap and readiness checklist.
-- **Protocol draft v0.1:** the `wr:` ActivityPub vocabulary, the session
-  request lifecycle, encrypted payload fields, binary formats, client API
-  outline, prompt reports and conformance artifacts.
-
-Markdown snapshots will be added to this folder so contributors can review the
-design next to the code.
+Both are snapshots of a shared design document, exported on 2026-10-22.
+Design changes should be made here by pull request from now on, so the design
+and the code are reviewed together.
 
 ## Phase 0 scope
 
