@@ -32,12 +32,14 @@ quill-server = { path = "crates/quill-server" }
 # Shared third-party dependencies
 anyhow = "1"
 argon2 = { version = "0.6", features = ["zeroize"] }
+ammonia = "4"
 axum = "0.8"
 base64 = "0.23"
 clap = { version = "4", features = ["derive", "env"] }
 directories = "6"
 getrandom = "0.4"
-reqwest = { version = "0.13", default-features = false, features = ["json"] }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query"] }
 rpassword = "7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -49,6 +51,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal
 tower-http = { version = "0.7", features = ["limit"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-normalization = "0.1"
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["v7", "serde"] }
 zeroize = { version = "1", features = ["derive", "serde"] }

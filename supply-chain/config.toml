@@ -26,6 +26,10 @@ url = "https://raw.githubusercontent.com/zcash/rust-ecosystem/main/supply-chain/
 version = "1.1.5"
 criteria = "safe-to-deploy"
 
+[[exemptions.ammonia]]
+version = "4.2.4"
+criteria = "safe-to-deploy"
+
 [[exemptions.anstream]]
 version = "1.0.0"
 criteria = "safe-to-deploy"
@@ -210,6 +214,14 @@ criteria = "safe-to-deploy"
 version = "0.15.7"
 criteria = "safe-to-deploy"
 
+[[exemptions.dtoa]]
+version = "1.0.11"
+criteria = "safe-to-deploy"
+
+[[exemptions.dtoa-short]]
+version = "0.3.5"
+criteria = "safe-to-deploy"
+
 [[exemptions.either]]
 version = "1.19.0"
 criteria = "safe-to-deploy"
@@ -228,7 +240,7 @@ criteria = "safe-to-deploy"
 
 [[exemptions.fastrand]]
 version = "2.5.0"
-criteria = "safe-to-run"
+criteria = "safe-to-deploy"
 
 [[exemptions.find-msvc-tools]]
 version = "0.1.15"
@@ -296,6 +308,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.hmac]]
 version = "0.13.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.html5ever]]
+version = "0.40.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.http]]
@@ -434,6 +450,14 @@ criteria = "safe-to-deploy"
 version = "0.4.34"
 criteria = "safe-to-deploy"
 
+[[exemptions.maplit]]
+version = "1.0.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.markup5ever]]
+version = "0.40.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.matchit]]
 version = "0.8.4"
 criteria = "safe-to-deploy"
@@ -452,6 +476,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.mio]]
 version = "1.2.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.new_debug_unreachable]]
+version = "1.0.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.once_cell]]
@@ -482,6 +510,22 @@ criteria = "safe-to-deploy"
 version = "0.6.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.phf]]
+version = "0.14.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.phf_codegen]]
+version = "0.14.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.phf_generator]]
+version = "0.14.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.phf_shared]]
+version = "0.14.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.pin-project-lite]]
 version = "0.2.17"
 criteria = "safe-to-deploy"
@@ -496,6 +540,14 @@ criteria = "safe-to-deploy"
 
 [[exemptions.proc-macro2]]
 version = "1.0.107"
+criteria = "safe-to-deploy"
+
+[[exemptions.pulldown-cmark]]
+version = "0.13.5"
+criteria = "safe-to-deploy"
+
+[[exemptions.pulldown-cmark-escape]]
+version = "0.11.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.quinn]]
@@ -642,6 +694,10 @@ criteria = "safe-to-deploy"
 version = "1.2.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.siphasher]]
+version = "1.0.4"
+criteria = "safe-to-deploy"
+
 [[exemptions.slab]]
 version = "0.4.12"
 criteria = "safe-to-deploy"
@@ -690,6 +746,14 @@ criteria = "safe-to-deploy"
 version = "1.2.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.string_cache]]
+version = "0.11.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.string_cache_codegen]]
+version = "0.11.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.stringprep]]
 version = "0.1.5"
 criteria = "safe-to-deploy"
@@ -704,6 +768,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.synstructure]]
 version = "0.14.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.tendril]]
+version = "0.5.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.thiserror]]
@@ -778,6 +846,10 @@ criteria = "safe-to-deploy"
 version = "1.20.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.unicase]]
+version = "2.10.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.unicode-ident]]
 version = "1.0.27"
 criteria = "safe-to-deploy"
@@ -832,6 +904,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.web-sys]]
 version = "0.3.106"
+criteria = "safe-to-deploy"
+
+[[exemptions.web_atoms]]
+version = "0.3.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.webpki-root-certs]]

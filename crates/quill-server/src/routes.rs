@@ -36,6 +36,8 @@ pub fn api() -> Router<AppState> {
             "/personas/{id}",
             patch(update_persona).delete(delete_persona),
         )
+        .merge(crate::prompts::router())
+        .merge(crate::reports::router())
 }
 
 async fn instance(State(state): State<AppState>) -> Json<InstanceInfo> {
@@ -49,6 +51,8 @@ async fn instance(State(state): State<AppState>) -> Json<InstanceInfo> {
             .collect(),
         registration_open: state.config.registration_open,
         email_recovery: false,
+        tag_policy: state.config.tag_policy,
+        default_maturity_max: quill_proto::board::Maturity::DEFAULT_MAX,
         limits: state.config.limits,
     })
 }

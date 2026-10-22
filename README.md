@@ -7,9 +7,10 @@ messages but can never read them: sessions use
 [Messaging Layer Security (RFC 9420)](https://www.rfc-editor.org/rfc/rfc9420.html),
 and servers federate over ActivityPub.
 
-> **Status: Phase 0 (foundations).** Accounts, personas, the client API
-> skeleton and CI are in place. Prompts, encrypted sessions and federation
-> come in later phases. Not ready for real use.
+> **Status: Phase 1 (prompt board) in progress.** Accounts, personas, prompts,
+> tags, search, reports and the admin inbox work through the API and CLI; the
+> web board is next. Encrypted sessions and federation come in later phases.
+> Not ready for real use.
 
 ## Workspace
 
@@ -45,6 +46,17 @@ cargo run -p quill -- server http://localhost:8080
 cargo run -p quill -- register yourname
 cargo run -p quill -- persona new your_handle --display-name "Your Name"
 cargo run -p quill -- persona list
+
+# Post and search prompts (Markdown bodies; tags as namespace:name).
+cargo run -p quill -- prompt post --as your_handle --title "The ledger" \
+  --body "A keeper finds *entries* in her own hand." \
+  --maturity teen --tag genre:horror --tag "theme:Lighthouses"
+cargo run -p quill -- prompt list --include genre:horror --exclude content-warning:gore
+cargo run -p quill -- tags list --namespace genre
+
+# Make an account a server administrator, then work the report inbox.
+QUILL_DATABASE_URL=... cargo run -p quill-server -- make-admin yourname
+cargo run -p quill -- admin reports
 ```
 
 Server configuration (environment variables):
@@ -57,6 +69,7 @@ Server configuration (environment variables):
 | `QUILL_REGISTRATION_OPEN` | `true` | Allow new accounts |
 | `QUILL_MAX_PERSONAS` | `20` | Personas per account |
 | `QUILL_TOKEN_TTL_DAYS` | `30` | Login token lifetime |
+| `QUILL_TAG_POLICY` | `both` | `curated` (admin tags only), `user` or `both` |
 
 The CLI stores its server and login token in a profile file readable only by
 you (`~/.config/quill/profile.json` on Linux; override with `QUILL_PROFILE` or

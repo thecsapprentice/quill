@@ -1,0 +1,405 @@
+//! Types for the prompt board: prompts, tags, account settings, reports and
+//! the admin inbox.
+
+use std::{fmt, str::FromStr};
+
+use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
+use uuid::Uuid;
+
+macro_rules! string_enum {
+    ($(#[$meta:meta])* $name:ident {
+        $($(#[$vmeta:meta])* $variant:ident => $text:literal),+ $(,)?
+    }) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        pub enum $name {
+            $($(#[$vmeta])* #[serde(rename = $text)] $variant),+
+        }
+
+        impl $name {
+            pub const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            pub fn as_str(self) -> &'static str {
+                match self { $(Self::$variant => $text),+ }
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(self.as_str())
+            }
+        }
+
+        impl FromStr for $name {
+            type Err = UnknownValue;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s { $($text => Ok(Self::$variant),)+ _ => Err(UnknownValue(s.to_owned())) }
+            }
+        }
+    };
+}
+
+/// Returned when parsing an unknown enum value.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("unknown value {0:?}")]
+pub struct UnknownValue(pub String);
+
+string_enum! {
+    /// Content rating, ordered from least to most mature.
+    Maturity {
+        General => "general",
+        Teen => "teen",
+        Mature => "mature",
+        Explicit => "explicit",
+    }
+}
+
+impl Maturity {
+    /// Cap for anonymous visitors and new accounts.
+    pub const DEFAULT_MAX: Self = Self::Teen;
+}
+
+string_enum! {
+    /// Whether a prompt's author is taking session requests.
+    PromptState {
+        Open => "open",
+        Busy => "busy",
+        Closed => "closed",
+    }
+}
+
+string_enum! {
+    /// Which tags users may attach to prompts.
+    TagPolicy {
+        /// Only tags an administrator created.
+        Curated => "curated",
+        /// Users may create tags in any unlocked namespace.
+        User => "user",
+        /// Curated tags plus user tags in unlocked namespaces.
+        Both => "both",
+    }
+}
+
+impl TagPolicy {
+    pub fn allows_user_tags(self) -> bool {
+        !matches!(self, Self::Curated)
+    }
+}
+
+string_enum! {
+    TagOrigin {
+        Server => "server",
+        User => "user",
+    }
+}
+
+string_enum! {
+    ReportReason {
+        Illegal => "illegal",
+        Spam => "spam",
+        Harassment => "harassment",
+        WrongMaturity => "wrong-maturity",
+        Other => "other",
+    }
+}
+
+string_enum! {
+    Resolution {
+        /// Close the report; the prompt is untouched.
+        Discard => "discard",
+        /// Remove the prompt from the board.
+        Delete => "delete",
+    }
+}
+
+// ---- Tags ----------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagNamespace {
+    pub name: String,
+    pub display: String,
+    pub locked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tag {
+    pub namespace: String,
+    pub slug: String,
+    pub display: String,
+    pub origin: TagOrigin,
+}
+
+impl Tag {
+    /// The `namespace:slug` form used in filters.
+    pub fn key(&self) -> String {
+        format!("{}:{}", self.namespace, self.slug)
+    }
+}
+
+/// `GET /tags` query.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    /// Matches the start of the slug or display name, case-insensitively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// `POST /tags`: a user creates a tag in an unlocked namespace.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTag {
+    pub namespace: String,
+    pub display: String,
+}
+
+/// `POST /admin/tag-namespaces`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateNamespace {
+    pub name: String,
+    pub display: String,
+    #[serde(default)]
+    pub locked: bool,
+}
+
+/// `PATCH /admin/tags/{namespace}/{slug}`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTag {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<String>,
+    /// `namespace:slug` of the tag this one becomes an alias of. Prompts
+    /// using it are moved to the target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias_of: Option<String>,
+}
+
+// ---- Prompts -------------------------------------------------------------
+
+/// The public identity that posted a prompt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptAuthor {
+    pub id: Uuid,
+    pub handle: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Prompt {
+    pub id: Uuid,
+    pub author: PromptAuthor,
+    pub title: String,
+    /// Markdown source.
+    pub body: String,
+    /// Sanitized HTML rendered by the server from `body`.
+    pub body_html: String,
+    pub maturity: Maturity,
+    pub state: PromptState,
+    pub tags: Vec<Tag>,
+    /// True once the author can receive session requests (from Phase 2,
+    /// when they have published encryption keys). Always false in Phase 1.
+    pub accepting_sessions: bool,
+    /// Set only in the author's own view of a prompt an administrator removed.
+    #[serde(default)]
+    pub removed: bool,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
+}
+
+/// `POST /prompts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePrompt {
+    /// Persona (owned by the caller) the prompt is posted as.
+    pub persona: Uuid,
+    pub title: String,
+    /// Markdown.
+    pub body: String,
+    pub maturity: Maturity,
+    /// `namespace:value`, where value is a tag's display name or slug.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<PromptState>,
+}
+
+/// `PATCH /prompts/{id}`. Absent fields are unchanged; `tags` replaces the
+/// whole set.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePrompt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maturity: Option<Maturity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<PromptState>,
+}
+
+/// `GET /prompts` query. Tag lists are comma-separated `namespace:slug`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptQuery {
+    /// Prompts must carry every one of these tags.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include: Option<String>,
+    /// Prompts must carry none of these tags.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclude: Option<String>,
+    /// Lower the maturity cap for this query. It can never exceed the
+    /// caller's account setting (or [`Maturity::DEFAULT_MAX`] when anonymous).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maturity_max: Option<Maturity>,
+    /// Full-text search over title and body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q: Option<String>,
+    /// A persona handle, or `me` for all of the caller's personas (including
+    /// removed prompts and ignoring the maturity cap).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// `open`, `busy` or `closed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<PromptState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// One page of prompts, newest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptPage {
+    pub items: Vec<Prompt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+// ---- Account settings ----------------------------------------------------
+
+/// `GET /account`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSettings {
+    pub maturity_max: Maturity,
+    pub is_admin: bool,
+}
+
+/// `PATCH /account`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAccountSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maturity_max: Option<Maturity>,
+}
+
+// ---- Reports and the admin inbox -----------------------------------------
+
+/// `POST /reports`. Anyone may report, signed in or not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateReport {
+    pub prompt: Uuid,
+    pub reason: ReportReason,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+}
+
+/// A Review Message in the administrators' inbox.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Report {
+    pub id: Uuid,
+    /// `None` once the prompt itself has been deleted by its author.
+    #[serde(default)]
+    pub prompt: Option<Prompt>,
+    pub reason: ReportReason,
+    #[serde(default)]
+    pub details: Option<String>,
+    /// Hex SHA-256 of the prompt as it was when reported.
+    pub prompt_hash: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub resolved_at: Option<OffsetDateTime>,
+    #[serde(default)]
+    pub resolution: Option<Resolution>,
+}
+
+/// `GET /admin/reports` query.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportQuery {
+    /// `open` (default) or `all`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+}
+
+/// `POST /admin/reports/{id}/resolve`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveReport {
+    pub action: Resolution,
+}
+
+/// One row of the append-only admin log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminLogEntry {
+    pub id: i64,
+    #[serde(with = "time::serde::rfc3339")]
+    pub at: OffsetDateTime,
+    /// `report_received`, `discard` or `delete_prompt`.
+    pub action: String,
+    #[serde(default)]
+    pub report_id: Option<Uuid>,
+    #[serde(default)]
+    pub prompt_id: Option<Uuid>,
+    /// Hex SHA-256 of the prompt as reported.
+    pub prompt_hash: String,
+    pub reason: ReportReason,
+    /// Account id of the acting administrator, if any.
+    #[serde(default)]
+    pub admin: Option<Uuid>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maturity_orders_and_round_trips() {
+        assert!(Maturity::General < Maturity::Teen);
+        assert!(Maturity::Mature < Maturity::Explicit);
+        for m in Maturity::ALL {
+            assert_eq!(m.as_str().parse::<Maturity>().unwrap(), *m);
+            assert_eq!(serde_json::to_value(m).unwrap(), m.as_str());
+        }
+        assert!("adult".parse::<Maturity>().is_err());
+    }
+
+    #[test]
+    fn report_reason_uses_kebab_case() {
+        assert_eq!(
+            serde_json::to_value(ReportReason::WrongMaturity).unwrap(),
+            "wrong-maturity"
+        );
+    }
+}

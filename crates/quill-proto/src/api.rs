@@ -14,6 +14,10 @@ pub struct InstanceInfo {
     pub protocol_versions: Vec<String>,
     pub registration_open: bool,
     pub email_recovery: bool,
+    /// Which tags users may attach to prompts.
+    pub tag_policy: crate::board::TagPolicy,
+    /// Maturity cap for anonymous visitors and new accounts.
+    pub default_maturity_max: crate::board::Maturity,
     pub limits: Limits,
 }
 
@@ -152,6 +156,8 @@ mod tests {
             protocol_versions: vec!["0.1".into()],
             registration_open: true,
             email_recovery: false,
+            tag_policy: crate::board::TagPolicy::Both,
+            default_maturity_max: crate::board::Maturity::Teen,
             limits: Limits::default(),
         };
         let json = serde_json::to_value(&info).unwrap();

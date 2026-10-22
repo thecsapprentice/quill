@@ -1,8 +1,15 @@
 //! Typed client for the `/api/v1` client API.
 
-use quill_proto::api::{
-    CreatePersona, Credentials, InstanceInfo, PROBLEM_CONTENT_TYPE, Persona, Problem,
-    TokenResponse, UpdatePersona,
+use quill_proto::{
+    api::{
+        CreatePersona, Credentials, InstanceInfo, PROBLEM_CONTENT_TYPE, Persona, Problem,
+        TokenResponse, UpdatePersona,
+    },
+    board::{
+        AccountSettings, AdminLogEntry, CreateNamespace, CreatePrompt, CreateReport, CreateTag,
+        Prompt, PromptPage, PromptQuery, Report, ReportQuery, Resolution, ResolveReport, Tag,
+        TagNamespace, TagQuery, UpdateAccountSettings, UpdatePrompt, UpdateTag,
+    },
 };
 use reqwest::{Method, RequestBuilder, Response, StatusCode, header};
 use serde::{Serialize, de::DeserializeOwned};
@@ -220,6 +227,136 @@ impl Client {
 
     pub async fn delete_persona(&self, id: Uuid) -> Result<(), CoreError> {
         Self::empty(self.authed(Method::DELETE, &format!("/personas/{id}"))?).await
+    }
+
+    /// Sends the token if this client has one; otherwise anonymous.
+    fn maybe_authed(&self, method: Method, path: &str) -> Result<RequestBuilder, CoreError> {
+        match &self.token {
+            Some(token) => Ok(self.request(method, path)?.bearer_auth(token.as_str())),
+            None => self.request(method, path),
+        }
+    }
+
+    // ---- Account settings -----------------------------------------------
+
+    pub async fn account(&self) -> Result<AccountSettings, CoreError> {
+        Self::json(self.authed(Method::GET, "/account")?).await
+    }
+
+    pub async fn update_account(
+        &self,
+        body: &UpdateAccountSettings,
+    ) -> Result<AccountSettings, CoreError> {
+        let builder = self.authed(Method::PATCH, "/account")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    // ---- Prompts --------------------------------------------------------
+
+    pub async fn prompts(&self, query: &PromptQuery) -> Result<PromptPage, CoreError> {
+        Self::json(self.maybe_authed(Method::GET, "/prompts")?.query(query)).await
+    }
+
+    pub async fn prompt(&self, id: Uuid) -> Result<Prompt, CoreError> {
+        Self::json(self.maybe_authed(Method::GET, &format!("/prompts/{id}"))?).await
+    }
+
+    pub async fn create_prompt(&self, body: &CreatePrompt) -> Result<Prompt, CoreError> {
+        let builder = self.authed(Method::POST, "/prompts")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn update_prompt(&self, id: Uuid, body: &UpdatePrompt) -> Result<Prompt, CoreError> {
+        let builder = self.authed(Method::PATCH, &format!("/prompts/{id}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn delete_prompt(&self, id: Uuid) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::DELETE, &format!("/prompts/{id}"))?).await
+    }
+
+    // ---- Tags -----------------------------------------------------------
+
+    pub async fn tag_namespaces(&self) -> Result<Vec<TagNamespace>, CoreError> {
+        Self::json(self.request(Method::GET, "/tag-namespaces")?).await
+    }
+
+    pub async fn tags(&self, query: &TagQuery) -> Result<Vec<Tag>, CoreError> {
+        Self::json(self.request(Method::GET, "/tags")?.query(query)).await
+    }
+
+    pub async fn create_tag(&self, body: &CreateTag) -> Result<Tag, CoreError> {
+        let builder = self.authed(Method::POST, "/tags")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    // ---- Reports --------------------------------------------------------
+
+    /// Files a report. Works signed in or anonymously.
+    pub async fn report(&self, body: &CreateReport) -> Result<(), CoreError> {
+        let builder = self.maybe_authed(Method::POST, "/reports")?;
+        Self::empty(Self::with_json(builder, body)).await
+    }
+
+    // ---- Administration -------------------------------------------------
+
+    pub async fn admin_reports(&self, all: bool) -> Result<Vec<Report>, CoreError> {
+        let query = ReportQuery {
+            state: Some(if all { "all" } else { "open" }.to_owned()),
+        };
+        Self::json(self.authed(Method::GET, "/admin/reports")?.query(&query)).await
+    }
+
+    pub async fn resolve_report(&self, id: Uuid, action: Resolution) -> Result<Report, CoreError> {
+        let builder = self.authed(Method::POST, &format!("/admin/reports/{id}/resolve"))?;
+        Self::json(Self::with_json(builder, &ResolveReport { action })).await
+    }
+
+    pub async fn admin_log(
+        &self,
+        before: Option<i64>,
+        limit: Option<u32>,
+    ) -> Result<Vec<AdminLogEntry>, CoreError> {
+        let mut query: Vec<(&str, String)> = Vec::new();
+        if let Some(b) = before {
+            query.push(("before", b.to_string()));
+        }
+        if let Some(l) = limit {
+            query.push(("limit", l.to_string()));
+        }
+        Self::json(self.authed(Method::GET, "/admin/log")?.query(&query)).await
+    }
+
+    pub async fn admin_create_namespace(
+        &self,
+        body: &CreateNamespace,
+    ) -> Result<TagNamespace, CoreError> {
+        let builder = self.authed(Method::POST, "/admin/tag-namespaces")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn admin_create_tag(&self, body: &CreateTag) -> Result<Tag, CoreError> {
+        let builder = self.authed(Method::POST, "/admin/tags")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn admin_update_tag(
+        &self,
+        namespace: &str,
+        slug: &str,
+        body: &UpdateTag,
+    ) -> Result<Tag, CoreError> {
+        let mut url = self.url("/admin/tags")?;
+        url.path_segments_mut()
+            .map_err(|()| CoreError::Url(url::ParseError::RelativeUrlWithCannotBeABaseBase))?
+            .push(namespace)
+            .push(slug);
+        let builder = self.http.request(Method::PATCH, url);
+        let builder = match &self.token {
+            Some(token) => builder.bearer_auth(token.as_str()),
+            None => return Err(CoreError::NotLoggedIn),
+        };
+        Self::json(Self::with_json(builder, body)).await
     }
 }
 

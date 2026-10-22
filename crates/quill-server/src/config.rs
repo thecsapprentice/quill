@@ -3,7 +3,7 @@
 use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
-use quill_proto::api::Limits;
+use quill_proto::{api::Limits, board::TagPolicy};
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -14,6 +14,8 @@ pub struct Config {
     pub registration_open: bool,
     pub max_personas_per_account: i64,
     pub token_ttl_days: i64,
+    /// Which tags users may attach to prompts.
+    pub tag_policy: TagPolicy,
     pub limits: Limits,
 }
 
@@ -30,6 +32,7 @@ impl Config {
             registration_open: parse_or("QUILL_REGISTRATION_OPEN", true)?,
             max_personas_per_account: parse_or("QUILL_MAX_PERSONAS", 20)?,
             token_ttl_days: parse_or("QUILL_TOKEN_TTL_DAYS", 30)?,
+            tag_policy: parse_or("QUILL_TAG_POLICY", TagPolicy::Both)?,
             limits: Limits::default(),
         })
     }
@@ -43,6 +46,7 @@ impl Config {
             registration_open: true,
             max_personas_per_account: 20,
             token_ttl_days: 30,
+            tag_policy: TagPolicy::Both,
             limits: Limits::default(),
         }
     }

@@ -6,6 +6,7 @@
 //! server and every client enforce identical limits.
 
 pub mod api;
+pub mod board;
 pub mod limits;
 pub mod validate;
 

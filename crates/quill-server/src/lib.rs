@@ -4,6 +4,10 @@
 pub mod auth;
 pub mod config;
 pub mod error;
+mod markdown;
+mod prompts;
+mod ratelimit;
+mod reports;
 mod routes;
 
 use std::sync::Arc;
@@ -21,6 +25,7 @@ pub struct AppState {
     /// Hash of a random password, verified against when a login names an
     /// unknown account so response timing doesn't reveal which accounts exist.
     dummy_hash: Arc<String>,
+    limiter: Arc<ratelimit::RateLimiter>,
 }
 
 impl AppState {
@@ -37,6 +42,7 @@ impl AppState {
             pool,
             config: Arc::new(config),
             dummy_hash: Arc::new(dummy),
+            limiter: Arc::default(),
         })
     }
 }
@@ -53,6 +59,18 @@ pub async fn connect_and_migrate(database_url: &str) -> Result<PgPool> {
         .await
         .context("running migrations")?;
     Ok(pool)
+}
+
+/// Grants or revokes administrator rights by login name. Returns false if no
+/// such account exists.
+pub async fn set_admin(pool: &PgPool, login_name: &str, admin: bool) -> Result<bool> {
+    let login = quill_proto::validate::username(login_name).unwrap_or_default();
+    let result = sqlx::query("UPDATE accounts SET is_admin = $2 WHERE login_name = $1")
+        .bind(login)
+        .bind(admin)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() == 1)
 }
 
 /// The full HTTP application.
