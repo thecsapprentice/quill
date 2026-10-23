@@ -7,6 +7,7 @@
 
 pub mod activity;
 pub mod attachments;
+pub mod backup;
 pub mod client;
 pub mod devices;
 pub mod history;
