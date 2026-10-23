@@ -632,6 +632,28 @@ impl Client {
         Self::empty(Self::with_json(builder, body)).await
     }
 
+    pub async fn send_rejoin(&self, session: &str, request: String) -> Result<(), CoreError> {
+        let builder = self.authed_segments(Method::POST, "/sessions", &[session, "rejoin"])?;
+        Self::empty(Self::with_json(
+            builder,
+            &quill_proto::sessions::SendRejoin { request },
+        ))
+        .await
+    }
+
+    pub async fn rejoin_done(&self, session: &str, rejoin: Uuid) -> Result<(), CoreError> {
+        let rejoin = rejoin.to_string();
+        let builder =
+            self.authed_segments(Method::DELETE, "/sessions", &[session, "rejoins", &rejoin])?;
+        Self::empty(builder).await
+    }
+
+    /// Drops the login's device group, so a restored device can start it
+    /// again.
+    pub async fn drop_device_group(&self) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::DELETE, "/account/device-group")?).await
+    }
+
     pub async fn leave_session(&self, session: &str) -> Result<(), CoreError> {
         let builder = self.authed_segments(Method::POST, "/sessions", &[session, "leave"])?;
         Self::empty(builder).await

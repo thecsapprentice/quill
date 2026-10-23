@@ -157,6 +157,10 @@ struct Dir {
     known: HashSet<Vec<u8>>,
     /// Revoked or superseded: to be removed from sessions.
     stale: HashSet<Vec<u8>>,
+    /// The persona's identity key and its version (pinned, or this
+    /// device's own).
+    identity: Vec<u8>,
+    identity_version: u32,
 }
 
 impl Dir {
@@ -199,6 +203,8 @@ impl Dir {
             valid: HashMap::new(),
             known: HashSet::new(),
             stale: HashSet::new(),
+            identity: key.clone(),
+            identity_version: version,
         };
         for d in checked.devices {
             match d.status {
@@ -329,6 +335,7 @@ fn apply(
     if !sender_dir.known.contains(&sender_key) {
         return Err(err("a message from a device the directory doesn't list"));
     }
+    let aad = processed.aad().to_vec();
     match processed.into_content() {
         ProcessedMessageContent::ApplicationMessage(app) => {
             let plain = Zeroizing::new(app.into_bytes());
@@ -351,23 +358,63 @@ fn apply(
             })
         }
         ProcessedMessageContent::StagedCommitMessage(staged) => {
-            // A writer adds and removes only their own persona's devices.
+            // A writer adds and removes only their own persona's devices,
+            // except for a rejoin: a device of the other persona, with its
+            // request signed by that persona's identity key carried in the
+            // commit (2j).
+            let mut rejoin: Option<(String, quill_certs::RejoinRequest)> = None;
             for add in staged.add_proposals() {
-                let leaf = add.add_proposal().key_package().leaf_node();
-                let ok = identity(leaf.credential()).as_deref() == Some(sender.as_str())
-                    && sender_dir
+                let package = add.add_proposal().key_package();
+                let leaf = package.leaf_node();
+                let who = identity(leaf.credential()).unwrap_or_default();
+                if who == sender {
+                    if !sender_dir
                         .valid
-                        .contains_key(leaf.signature_key().as_slice());
-                if !ok {
+                        .contains_key(leaf.signature_key().as_slice())
+                    {
+                        return Err(err(
+                            "a commit added a device the directory doesn't list: refused",
+                        ));
+                    }
+                    continue;
+                }
+                let Some(dir) = dirs.of(&who) else {
+                    return Err(err("a commit added a device of neither writer: refused"));
+                };
+                let request = quill_certs::RejoinRequest::verify(&aad, &who, gid, &dir.identity)
+                    .map_err(|_| {
+                        err("a commit added a device that isn't one of the committer's own: refused")
+                    })?;
+                let encoded = MlsMessageOut::from(package.clone())
+                    .tls_serialize_detached()
+                    .map_err(|e| mls_err("encoding", e))?;
+                if encoded != request.key_package
+                    || !dir.valid.contains_key(leaf.signature_key().as_slice())
+                {
                     return Err(err(
-                        "a commit added a device that isn't one of the committer's own: refused",
+                        "a rejoin commit added another device than asked: refused",
                     ));
                 }
+                rejoin = Some((who, request));
             }
             for remove in staged.remove_proposals() {
                 let removed = remove.remove_proposal().removed();
-                let whose = group.member(removed).and_then(identity);
-                if whose.as_deref() != Some(sender.as_str()) {
+                let member = group.member_at(removed);
+                let whose = member.as_ref().and_then(|m| identity(&m.credential));
+                if whose.as_deref() == Some(sender.as_str()) {
+                    continue;
+                }
+                let asked = match (&rejoin, &member) {
+                    (Some((who, request)), Some(m)) => {
+                        whose.as_deref() == Some(who.as_str())
+                            && request
+                                .remove_keys
+                                .iter()
+                                .any(|k| k.as_slice() == m.signature_key.as_slice())
+                    }
+                    _ => false,
+                };
+                if !asked {
                     return Err(err(
                         "a commit removed a device that isn't one of the committer's own: refused",
                     ));
@@ -680,6 +727,8 @@ pub struct SyncReport {
     /// This persona's devices added to sessions, and removed.
     pub added: usize,
     pub removed: usize,
+    /// The other writer's restored devices let back in (2j).
+    pub rejoined: usize,
     /// Sessions this device couldn't sync, by id, with why.
     pub problems: Vec<(String, String)>,
 }
@@ -804,6 +853,7 @@ async fn sync_one(
     let (added, gone) = tend(store, client, &gid, &dirs, &me).await?;
     report.added += added;
     report.removed += gone;
+    report.rejoined += accept_rejoins(store, client, s, &gid, &dirs, &me).await?;
     Ok(Standing::Joined)
 }
 
@@ -1684,4 +1734,172 @@ pub fn verified(store: &Store, s: &Session) -> Result<bool, CoreError> {
         return Ok(false);
     }
     is_verified(store, &partner.actor_uri, &pin[4..])
+}
+
+// ---- Rejoining (2j) ------------------------------------------------------------------------
+
+/// How old a rejoin request may be and still be acted on.
+const REJOIN_MAX_AGE_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+
+/// Lets the other writer's restored devices back in: each signed request is
+/// checked against their pinned identity key and the directory, then the
+/// device is added (and the lost devices it names removed) in one commit
+/// carrying the request, so every member can check it too.
+async fn accept_rejoins(
+    store: &Store,
+    client: &Client,
+    s: &Session,
+    gid: &[u8],
+    dirs: &Dirs,
+    me: &Me,
+) -> Result<usize, CoreError> {
+    let mut done = 0;
+    for r in s.rejoins.iter().filter(|r| r.actor_uri == dirs.partner.uri) {
+        let Some(bytes) = unb64(&r.request) else {
+            continue;
+        };
+        let Ok(request) = quill_certs::RejoinRequest::verify(
+            &bytes,
+            &dirs.partner.uri,
+            gid,
+            &dirs.partner.identity,
+        ) else {
+            // Not signed by the persona's (pinned) identity key: ignored.
+            continue;
+        };
+        if keys::now_ms().saturating_sub(request.created_at) > REJOIN_MAX_AGE_MS {
+            continue;
+        }
+        // The KeyPackage must be a valid device of the persona's.
+        let found = dirs.partner.valid.iter().find_map(|(key, id)| {
+            crate::mls::check_key_package(
+                &request.key_package,
+                &crate::mls::PackageExpect {
+                    actor_uri: &dirs.partner.uri,
+                    identity_key: &dirs.partner.identity,
+                    identity_key_version: dirs.partner.identity_version,
+                    device_key: key,
+                    now_ms: keys::now_ms(),
+                },
+            )
+            .ok()
+            .map(|p| (p, *id))
+        });
+        let Some((package, device)) = found else {
+            continue;
+        };
+        let added_key = package.leaf_node().signature_key().as_slice().to_vec();
+        let committed = commit(store, client, gid, dirs, |p, group| {
+            if group.members().any(|m| m.signature_key == added_key) {
+                return Ok(None);
+            }
+            let leaves: Vec<LeafNodeIndex> = group
+                .members()
+                .filter(|m| identity(&m.credential).as_deref() == Some(dirs.partner.uri.as_str()))
+                .filter(|m| {
+                    request
+                        .remove_keys
+                        .iter()
+                        .any(|k| k.as_slice() == m.signature_key.as_slice())
+                })
+                .map(|m| m.index)
+                .collect();
+            group.set_aad(bytes.clone());
+            let bundle = group
+                .commit_builder()
+                .propose_adds([package.clone()])
+                .propose_removals(leaves)
+                .load_psks(p.storage())
+                .map_err(|e| mls_err("letting a device rejoin", e))?
+                .build(p.rand(), p.crypto(), &me.signer(), |_| true)
+                .map_err(|e| mls_err("letting a device rejoin", e))?
+                .stage_commit(p)
+                .map_err(|e| mls_err("letting a device rejoin", e))?;
+            group.set_aad(Vec::new());
+            let (commit, welcome, _) = bundle.into_messages();
+            let welcome = welcome.ok_or_else(|| err("no Welcome for the rejoining device"))?;
+            Ok(Some((commit, encode(&welcome)?)))
+        })
+        .await?;
+        if let Some((seq, welcome)) = committed {
+            client
+                .leave_welcome(
+                    &s.id,
+                    &LeaveWelcome {
+                        device,
+                        welcome: b64(&welcome),
+                        from_seq: seq,
+                    },
+                )
+                .await?;
+            done += 1;
+        }
+        client.rejoin_done(&s.id, r.id).await?;
+    }
+    Ok(done)
+}
+
+/// On a restored device: asks to be let back into a session, removing the
+/// persona's other (lost) devices from it.
+pub async fn request_rejoin(store: &Store, client: &Client, s: &Session) -> Result<(), CoreError> {
+    let gid = unb64(&s.id).ok_or_else(|| err("bad session id"))?;
+    let mine = s
+        .members
+        .iter()
+        .find(|m| m.persona.is_some())
+        .ok_or_else(|| err("you're not in this session"))?;
+    let persona = mine.persona.unwrap_or_default();
+    let device = keys::load_device(store, persona)?
+        .filter(|d| d.id.is_some())
+        .ok_or_else(|| requests::not_set_up(&mine.handle))?;
+    let identity =
+        keys::load_identity(store, persona)?.ok_or_else(|| requests::not_set_up(&mine.handle))?;
+    let published = keys::check_published(
+        &client.actor_keys(&mine.handle).await?,
+        &mine.actor_uri,
+        keys::now_ms(),
+    )?;
+    let me = device.public();
+    let remove_keys: Vec<[u8; 32]> = published
+        .devices
+        .iter()
+        .filter_map(|d| <[u8; 32]>::try_from(d.device_key.as_slice()).ok())
+        .filter(|k| *k != me)
+        .take(quill_certs::MAX_REJOIN_REMOVALS)
+        .collect();
+    let package = crate::mls::make_key_packages(
+        store,
+        &mine.actor_uri,
+        &device,
+        1,
+        false,
+        keys::now_ms() / 1000,
+    )?
+    .pop()
+    .ok_or_else(|| err("no KeyPackage made"))?;
+    let request = quill_certs::RejoinRequest {
+        actor_uri: mine.actor_uri.clone(),
+        group_id: gid,
+        key_package: package,
+        certificate: device.certificate.clone(),
+        remove_keys,
+        created_at: keys::now_ms(),
+    }
+    .issue(identity.signing_key())?;
+    client.send_rejoin(&s.id, b64(&request)).await
+}
+
+/// On a restored device: asks to rejoin every session it isn't in yet.
+/// Returns how many it asked for.
+pub async fn rejoin_all(store: &Store, client: &Client) -> Result<usize, CoreError> {
+    let mut asked = 0;
+    for s in client.sessions().await? {
+        let gid = unb64(&s.id).unwrap_or_default();
+        if s.ended || note(&Provider::new(store), &gid)?.is_some() {
+            continue;
+        }
+        request_rejoin(store, client, &s).await?;
+        asked += 1;
+    }
+    Ok(asked)
 }
