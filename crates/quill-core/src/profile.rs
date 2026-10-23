@@ -1,8 +1,9 @@
-//! The local profile: which server this client talks to and its login token.
+//! The legacy plain profile file: which server this client talked to and its
+//! login token.
 //!
-//! Phase 0 stores the token in a file readable only by the current user.
-//! Phase 2 moves it, along with all key material, into the encrypted local
-//! store (SQLCipher, keyed from the OS keychain).
+//! Superseded in 2a by the encrypted local store ([`crate::store`]). Kept
+//! only so a new store can import an existing profile, after which the file
+//! is deleted.
 
 use std::{
     fs,

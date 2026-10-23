@@ -42,6 +42,8 @@ pub enum CoreError {
     NotLoggedIn,
     #[error("profile error: {0}")]
     Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Store(#[from] crate::store::StoreError),
 }
 
 impl CoreError {

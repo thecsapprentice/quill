@@ -4,12 +4,13 @@
 //! later phase adds the commands that exercise its server features.
 
 mod board;
+mod local;
 
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
-use quill_core::{Client, Profile};
+use quill_core::{Client, Profile, Store};
 use quill_proto::api::{CreatePersona, Credentials, UpdatePersona};
 use serde::Serialize;
 use uuid::Uuid;
@@ -22,9 +23,9 @@ const PASSWORD_ENV: &str = "QUILL_PASSWORD";
 #[derive(Parser)]
 #[command(name = "quill", version, about = "Quill command-line client")]
 struct Cli {
-    /// Profile file (default: platform config dir, or $QUILL_PROFILE).
+    /// Encrypted local store (default: platform data dir, or $QUILL_STORE).
     #[arg(long, global = true)]
-    profile: Option<PathBuf>,
+    store: Option<PathBuf>,
 
     /// Print results as JSON.
     #[arg(long, global = true)]
@@ -73,6 +74,9 @@ enum Command {
     /// Administrator tools: reports, the admin log and tags.
     #[command(subcommand)]
     Admin(board::AdminCommand),
+    /// The encrypted local store holding this client's login and keys.
+    #[command(subcommand)]
+    Store(local::StoreCommand),
 }
 
 #[derive(Args)]
@@ -106,28 +110,21 @@ enum PersonaCommand {
 }
 
 pub struct Ctx {
-    path: PathBuf,
-    profile: Profile,
+    store: Store,
     json: bool,
 }
 
 impl Ctx {
     fn client(&self) -> Result<Client> {
         let server = self
-            .profile
-            .server
-            .as_deref()
+            .store
+            .server()?
             .context("no server set; run `quill server <url>` first")?;
-        let client = Client::new(server)?;
-        Ok(match &self.profile.token {
+        let client = Client::new(&server)?;
+        Ok(match self.store.token()? {
             Some(token) => client.with_token(token.as_str()),
             None => client,
         })
-    }
-
-    fn save(&self) -> Result<()> {
-        self.profile.save(&self.path)?;
-        Ok(())
     }
 
     fn print<T: Serialize>(&self, value: &T, human: impl FnOnce(&T)) -> Result<()> {
@@ -174,20 +171,22 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> Result<()> {
-    let path = match cli.profile {
+    let path = match cli.store {
         Some(p) => p,
-        None => Profile::default_path()?,
+        None => quill_core::store::default_path()?,
     };
-    let profile = Profile::load(&path)?;
+    // Earlier versions kept the server and token in a plain profile file;
+    // a new store takes them over.
+    let legacy = Profile::default_path().ok();
+    let store = local::open(&path, legacy)?;
     let mut ctx = Ctx {
-        path,
-        profile,
+        store,
         json: cli.json,
     };
 
     match cli.command {
         Command::Server { url: None } => {
-            let server = ctx.profile.server.clone().unwrap_or_default();
+            let server = ctx.store.server()?.unwrap_or_default();
             ctx.print(&server, |s| {
                 if s.is_empty() {
                     println!("no server set");
@@ -198,12 +197,9 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Command::Server { url: Some(url) } => {
             quill_core::client::check_server_url(&url)?;
-            if ctx.profile.server.as_deref() != Some(url.as_str()) {
-                // A token is only valid on the server that issued it.
-                ctx.profile.token = None;
-            }
-            ctx.profile.server = Some(url);
-            ctx.save()?;
+            // A different server also forgets the token: only the server
+            // that issued it accepts it.
+            ctx.store.set_server(&url)?;
         }
         Command::Instance => {
             let info = ctx.client()?.instance().await?;
@@ -222,8 +218,7 @@ async fn run(cli: Cli) -> Result<()> {
                 password: password.as_str().to_owned(),
             };
             let token = ctx.client()?.register(&creds).await?;
-            ctx.profile.token = Some(Zeroizing::new(token.token));
-            ctx.save()?;
+            ctx.store.set_token(Some(&token.token))?;
             if !ctx.json {
                 println!("registered and logged in");
             }
@@ -235,18 +230,16 @@ async fn run(cli: Cli) -> Result<()> {
                 password: password.as_str().to_owned(),
             };
             let token = ctx.client()?.login(&creds).await?;
-            ctx.profile.token = Some(Zeroizing::new(token.token));
-            ctx.save()?;
+            ctx.store.set_token(Some(&token.token))?;
             if !ctx.json {
                 println!("logged in");
             }
         }
         Command::Logout => {
-            if ctx.profile.token.is_some() {
+            if ctx.store.token()?.is_some() {
                 // Forget the token locally even if the server is unreachable.
                 let result = ctx.client()?.logout().await;
-                ctx.profile.token = None;
-                ctx.save()?;
+                ctx.store.set_token(None)?;
                 result?;
             }
             if !ctx.json {
@@ -263,6 +256,7 @@ async fn run(cli: Cli) -> Result<()> {
             details,
         } => board::report(&ctx, prompt, reason, details).await?,
         Command::Admin(cmd) => board::admin(&ctx, cmd).await?,
+        Command::Store(cmd) => local::command(&mut ctx, cmd)?,
     }
     Ok(())
 }

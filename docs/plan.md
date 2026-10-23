@@ -14,7 +14,7 @@ Key decisions:
 - **Pseudonymous by default.** Accounts are per-server pseudonyms with no email or phone requirement; a user can mint a fresh pseudonym per prompt or per session to avoid linkability.
 - **Workspace of small crates.** Shared protocol types, a server binary, and a CLI test client that exercises every endpoint, plus a two-instance federation test harness.
 
-* **One identity, many devices.** Each client is its own MLS member, certified by a user identity key; devices link to each other in any order, with an encrypted recovery backup.
+* **One identity per persona, many devices.** Each client is its own MLS member, certified by the identity key of the persona it acts as; devices link to each other in any order, with an encrypted recovery backup.
 * **One UI framework everywhere.** Dioxus drives the server's public prompt board (server-rendered, works without JavaScript), the desktop GUI and the future web client.
 
 ## Requirements and threat model
@@ -38,7 +38,7 @@ The security target is: a fully malicious server operator, or anyone who steals 
 2. **Actively malicious server.** Can drop, reorder, replay or withhold messages, and can try *key substitution*: hand a user a KeyPackage the server controls, so the server becomes a silent member. MLS defeats drop/reorder/replay (epochs, generation counters, signed transcripts). Key substitution is the real risk and is addressed with safety-number verification and key transparency (see Writing session cryptography).
 3. **Malicious federated peer.** Same powers as above, limited to its own users and anything relayed through it. Plus spam and malformed-payload attacks against our parser.
 4. **Database thief / backup leak.** Gets ciphertext, pseudonymous account rows and password hashes. No session keys are ever stored server-side, so past content stays safe.
-5. **Compromised client device.** Out of scope for confidentiality of that user's own sessions, but MLS post-compromise security heals the group once the device rotates keys or is removed. A compromised full device also exposes the user identity key, letting an attacker certify rogue devices until the identity key is rotated; limited devices (no identity key) shrink this risk.
+5. **Compromised client device.** Out of scope for confidentiality of that user's own sessions, but MLS post-compromise security heals the group once the device rotates keys or is removed. A compromised full device also exposes its personas' identity keys, letting an attacker certify rogue devices until the identity key is rotated; limited devices (no identity key) shrink this risk.
 6. Deniability for server operators. Other than what is exposed publicly, the server operators should have no ability to claim they know what the writing sessions contain, content wise. The topics and content, other than the prompts, are entirely the private conversations between the writing collaborators.
 
 ### Non-goals (state these to users)
@@ -177,7 +177,7 @@ The server controls which KeyPackages it hands out, so a malicious server could 
 
 1. **Trust-on-first-use pinning.** Clients store the first identity key seen per actor and show a blocking warning if it changes.
 2. **Safety numbers.** Each session shows a short fingerprint derived from both parties' identity keys plus the MLS `epoch_authenticator`, for out-of-band comparison. Matching values prove no hidden member and no MITM.
-3. **Group-membership checks.** Clients refuse any group whose roster contains a leaf they cannot attribute to a known participant; every leaf must carry a device certificate signed by one of the participants' user identity keys.
+3. **Group-membership checks.** Clients refuse any group whose roster contains a leaf they cannot attribute to a known participant; every leaf must carry a device certificate signed by one of the participating personas' identity keys.
 
 Key transparency (an append-only, auditable log of identity keys) is the long-term fix and is listed under open questions.
 
@@ -256,20 +256,21 @@ Every limit is server configuration, enforced on raw bytes before parsing, so ba
 
 ### Client-side key storage
 
-- MLS state via OpenMLS's SQLite storage provider, inside a SQLCipher-encrypted database.
-- Database key from the OS keychain (`keyring` crate) or, for headless use, from a passphrase via Argon2id (`argon2` crate).
+- Everything (keys, pins, MLS state via an OpenMLS storage adapter, history) in one encrypted local store: redb, a pure-Rust embedded database, over a storage layer that seals each 4 KiB page with XChaCha20-Poly1305 and writes pages atomically. All access goes through a small table interface with a shared conformance test, so the backend can be swapped (SQLCipher on native, IndexedDB on the web) without touching callers. Decided over SQLCipher on 2026-10-22: see the [roadmap](roadmap.md#decisions).
+- The store's random data key is wrapped by a key from the OS keychain (`keyring-core` with each platform's store) or, for headless use, from a passphrase via Argon2id (`argon2` crate).
 - All secret-bearing types use `zeroize`; no secret ever appears in logs (OpenMLS's `crypto-debug` and `content-debug` features stay off in every build).
 - New devices get history by linking from an existing device or restoring an encrypted backup (see Multiple devices and state transfer).
 
 ### Multiple devices and state transfer
 
-Every client a user runs (CLI, desktop, web) is its own MLS member, all vouched for by one **user identity key**; new devices are linked by an existing device and receive history over an encrypted channel, with an optional recovery-key backup for when no device is left. MLS state itself is never copied between devices: cloning leaf keys breaks forward secrecy and causes group forks. This follows the multi-client model in the MLS architecture document (RFC 9750) and the same pattern Signal (linked devices) and Matrix (cross-signing) use.
+Every client a user runs (CLI, desktop, web) is its own MLS member, vouched for by the **identity key of each persona** it acts as; new devices are linked by an existing device and receive history over an encrypted channel, with an optional recovery-key backup for when no device is left. MLS state itself is never copied between devices: cloning leaf keys breaks forward secrecy and causes group forks. This follows the multi-client model in the MLS architecture document (RFC 9750) and the same pattern Signal (linked devices) and Matrix (cross-signing) use.
 
-#### Identity: one user key, many device keys
+#### Identity: one key per persona, many device keys
 
-- On first client setup, the client generates a long-term **user identity key** (Ed25519). Each device also has its own MLS signature key.
-- The identity key signs a **device certificate** for each device key. The certificate travels in an MLS leaf-node extension, and peers' clients verify it before accepting a leaf.
-- **Safety numbers and TOFU pins use the user identity key**, so adding a device does not change them or trigger warnings. A new identity key does.
+- Each persona that takes part in sessions has its own long-term **identity key** (Ed25519), generated on the client the first time the persona is used for a session. A single key shared by all of a login's personas would be published on every one of them and link them publicly, which the anonymity measures forbid (decided 2026-10-22). Only the home server knows which personas share a login, as for everything else.
+- Each device has its own MLS signature key **per persona**, for the same reason. The persona's identity key signs a **device certificate** for each of them. The certificate travels in an MLS leaf-node extension, and peers' clients verify it before accepting a leaf.
+- **Safety numbers and TOFU pins use the persona's identity key**, so adding a device does not change them or trigger warnings. A new identity key does.
+- The personal device group (below) is per login and carries every persona's identity key to newly linked devices; it is visible only to the user's own devices and home server, which already knows the link.
 - This hardens key-substitution defense: a server-inserted fake device has no valid certificate, so peers reject it.
 - The two-writer cap counts **people (actors), not devices**; each writer may have several leaves.
 - Must ship in Phase 2, before any real sessions exist; retrofitting it later would change every safety number.
@@ -278,7 +279,7 @@ Every client a user runs (CLI, desktop, web) is its own MLS member, all vouched 
 
 1. The new device (say, desktop) signs in and generates its device key and KeyPackages.
 2. It shows a QR code or a short code containing a fingerprint of its device key. The user scans or types it on an existing device (say, the web client). This out-of-band step means the server cannot substitute a key.
-3. The existing device sends the new one the identity key and a device certificate, and adds the new device to every active session with an MLS commit. Peers' clients see a certified leaf and accept it silently.
+3. The existing device sends the new one the personas' identity keys and a device certificate per persona, and adds the new device to every active session with an MLS commit. Peers' clients see a certified leaf and accept it silently.
 4. History, drafts, TOFU pins, personas and settings sync over a **personal device group**: an MLS group containing only the user's own devices. Large history goes as encrypted blobs using the attachment mechanism.
 
 After linking, all devices receive every new message directly. The server fans each delivery out to every device of the recipient actor and keeps ciphertext until every device acknowledges it.
@@ -287,7 +288,7 @@ After linking, all devices receive every new message directly. The server fans e
 
 The web client is the risky case, because clearing site data deletes everything. So clients offer an **encrypted backup**:
 
-- **Contents:** the user identity key, decrypted history, drafts, pins and settings. Never MLS leaf keys; a restored device joins as a new device.
+- **Contents:** the personas' identity keys, decrypted history, drafts, pins and settings. Never MLS leaf keys; a restored device joins as a new device.
 - **Encryption:** the `age` file format (Rust `age` crate), keyed by a client-generated recovery code of at least 128 bits shown once as words. A user-chosen password alone is not offered: the server holds the ciphertext and could guess weak passwords offline.
 - **Storage:** the server stores the backup as an opaque blob under the account, updated incrementally.
 - **Rejoining sessions:** the restored device has the identity key but isn't yet in any group. It sends a signed rejoin request in each session; the peer's client sees a valid certificate and adds it on its next sync. History before the restore comes from the backup.
@@ -396,7 +397,7 @@ Use protocol-level libraries (OpenMLS, rustls) so the project never touches prim
 | Password hashing | argon2 (RustCrypto) | MIT / Apache-2.0 | Argon2id per RFC 9106. |
 | Signatures / X25519 if needed directly | ed25519-dalek 2.x, x25519-dalek 2.x | BSD-3 | Widely reviewed; prefer not to call directly. |
 | Secret hygiene | zeroize, secrecy | MIT / Apache-2.0 | Wipe on drop; redact in Debug. |
-| Client DB encryption | rusqlite with SQLCipher (`bundled-sqlcipher`) | MIT / BSD | SQLCipher is long-established; key from `keyring` or Argon2id. |
+| Client local store | redb + project page encryption (chacha20poly1305) | MIT / Apache-2.0 | redb is pure Rust with a stable format; the page-encryption layer is project code and in scope for the external review. Key from `keyring-core` or Argon2id. SQLCipher was the first choice; see the roadmap decision. |
 | Randomness | getrandom / rand\_core::OsRng | MIT / Apache-2.0 | OS CSPRNG only. |
 
 ### Server framework and data
@@ -433,7 +434,7 @@ Accepted trade-off: a server-delivered web client can be subverted by an operato
 2. **Integrity checks.** Subresource Integrity on every script, and the .wasm module fetched with fetch()'s integrity option before instantiation; the release manifest signs the hashes of the .wasm, the wasm-bindgen glue and the loader. Reproducible wasm builds need a pinned toolchain (rust-toolchain.toml), the exact wasm-bindgen CLI version matching the crate, a pinned wasm-opt, path remapping, and a containerized build; a tiny bootstrap page whose hash is published; an optional verifier browser extension (like WhatsApp Web's Code Verify) that checks served code against the manifest.
 3. **Independent hosting.** The same static bundle can be loaded from a project-controlled origin or self-hosted, and pointed at any server's API, so users need not trust their server for code.
 4. **Origin isolation.** The key-holding client runs on its own origin, separate from the API and from any federated prompt content. Strict Content Security Policy: no inline script, no `eval` (only `wasm-unsafe-eval`), `connect-src` limited to the API origin. Trusted Types on; decrypted HTML sanitized and rendered in a sandboxed frame.
-5. **Rust end to end.** The web client, including its UI (e.g. Leptos or Dioxus), is written in Rust and compiled to WebAssembly, sharing `quill-core` with the CLI. JavaScript is limited to the `wasm-bindgen` glue and a small loader; no protocol logic is reimplemented. The web build uses the RustCrypto provider (aws-lc-rs does not target the browser), `getrandom`'s browser backend, and an IndexedDB implementation of `quill-core`'s storage trait in place of SQLCipher.
+5. **Rust end to end.** The web client, including its UI (e.g. Leptos or Dioxus), is written in Rust and compiled to WebAssembly, sharing `quill-core` with the CLI. JavaScript is limited to the `wasm-bindgen` glue and a small loader; no protocol logic is reimplemented. The web build uses the RustCrypto provider (aws-lc-rs does not target the browser), `getrandom`'s browser backend, and a browser implementation of `quill-core`'s storage interface (IndexedDB, or redb's page layer over the browser's file storage) in place of the native file.
 6. **Key storage.** MLS state in IndexedDB, wrapped by a non-extractable WebCrypto key, optionally unlocked by passphrase (Argon2id in WebAssembly). Request persistent storage so the browser is less likely to evict it.
 7. **Update pinning.** A service worker that keeps the installed version and asks the user before switching to a new one. Browsers still re-check the service-worker script itself, so this narrows the window rather than closing it.
 8. **Honest UI.** A clear notice that the web client is weaker against a malicious operator than the CLI or a native app; the same safety-number verification; a warning that clearing site data deletes sessions. High-risk users are pointed to the CLI or native apps.
@@ -491,7 +492,7 @@ Recommendation: use **Dioxus** for every UI surface — the server's public prom
 
 - **Same components everywhere.** One `rsx!` component crate targets the desktop webview renderer and the web (wasm) renderer, which directly serves "GUI mirrored to the web client".
 - **Better key isolation on desktop.** Dioxus desktop runs the app logic, including `quill-core`, as native Rust and only sends DOM updates to the webview. Keys and decryption never enter webview JavaScript. With Leptos + Tauri, the Leptos code runs as wasm *inside* the webview, so crypto would either live there too or move to Tauri commands, splitting desktop and web code paths.
-- **Native-only advantages stay available on desktop:** SQLCipher, the OS keychain and aws-lc-rs, while the web build swaps in IndexedDB and RustCrypto behind `quill-core`'s traits.
+- **Native-only advantages stay available on desktop:** the OS keychain and aws-lc-rs, while the web build swaps in IndexedDB and RustCrypto behind `quill-core`'s traits.
 - **Modern look via plain CSS:** Tailwind works, and Dioxus Primitives provides accessible Radix-style components.
 
 ### Risks and fallback
@@ -535,7 +536,7 @@ Posting is part of `quill-board-ui`, so the server's board and every client use 
 | --- | --- | --- |
 | `quill-board-ui` | Prompt board components (list, filters, prompt view, tags, prompt posting and editing, persona picker); depends only on `quill-proto` | Phase 1 |
 | `quill-ui` | Session, editor, channel and attachment components; depends on `quill-core` | GUI phase |
-| `quill-gui` | Desktop binary: both UI crates + native `quill-core` (SQLCipher, keychain) | GUI phase |
+| `quill-gui` | Desktop binary: both UI crates + native `quill-core` (encrypted store, keychain) | GUI phase |
 | `quill-web` | Wasm entry point: both UI crates + web `quill-core` (IndexedDB, RustCrypto) | Web-client phase |
 
 Phase 1 builds the board on Dioxus fullstack, which validates the SSR path early. A one-week spike at the start of the GUI phase should then build the session view (channels, long-form editor, image attachment) in Dioxus on both targets and test IME, spellcheck and screen-reader behavior before committing.
@@ -548,7 +549,7 @@ Build single-server encryption before federation, so the hardest property (serve
 flowchart TD
   P0["<b>Phase 0 · Foundations</b><br/>workspace, CI with cargo-deny / audit / vet, protocol spec,<br/>Postgres schema, accounts and personas, quill CLI skeleton"]
   P1["<b>Phase 1 · Prompt board</b><br/>prompts, tag policies, filters, full-text search, prompt-to-session rules,<br/>SSR board (quill-board-ui): sign-in, posting, personas, reports, admin inbox"]
-  P2["<b>Phase 2 · Encrypted sessions on one server</b><br/>identity key, device certificates, linking, backup; KeyPackages, Welcome flow;<br/>channels, attachments, limits, epoch sequencer, HLC ordering, SSE, safety numbers"]
+  P2["<b>Phase 2 · Encrypted sessions on one server</b><br/>encrypted local store, identity keys per persona, device certificates, linking, backup; KeyPackages, Welcome flow;<br/>channels, attachments, limits, epoch sequencer, HLC ordering, SSE, safety numbers"]
   P3["<b>Phase 3 · Federation</b><br/>actors, HTTP Signatures, board follows, cross-server sessions<br/>sequenced by the prompt author's server, two-instance harness"]
   P4["<b>Phase 4 · Hardening and review</b><br/>malicious-server suite, parser fuzzing, external review,<br/>operations runbook, disclosure policy, Tor onion service"]
   P5["<b>Phase 5 · Desktop GUI (later)</b><br/>quill-gui on Dioxus desktop, shared quill-ui, native key storage"]

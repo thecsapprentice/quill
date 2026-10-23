@@ -55,6 +55,45 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo test --locked --workspace
 
+  # The client's keychain code differs per platform; build it and run the
+  # store's tests on each (no Postgres needed).
+  client-platforms:
+    name: client on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: cargo clippy -p quill-core -p quill
+        shell: bash
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          set -o pipefail
+          cargo clippy --locked -p quill-core -p quill --all-targets -- -D warnings 2>&1 | tee clippy.log || {
+            grep -E -A6 "^(error|warning)" clippy.log | head -60 | tr '\n' ' ' | sed 's/^/::error::/'
+            echo
+            exit 1
+          }
+      - name: cargo test -p quill-core
+        shell: bash
+        env:
+          CARGO_TERM_COLOR: never
+        # Failing tests are also reported as annotations, readable without
+        # downloading the log.
+        run: |
+          set -o pipefail
+          cargo test --locked -p quill-core 2>&1 | tee test.log || {
+            grep -E "panicked at|^test .* FAILED|^---- " test.log | head -20 | sed 's/^/::error::/'
+            exit 1
+          }
+
   supply-chain:
     name: supply chain
     runs-on: ubuntu-latest

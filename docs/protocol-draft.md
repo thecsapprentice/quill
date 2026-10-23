@@ -24,7 +24,7 @@ The project's protocol is three layers: standard ActivityPub and Activity Stream
 
 ## 2. Actor extensions
 
-An actor carries two kinds of keys that must never be confused: the **server-held federation key** (HTTP Signatures, standard `assertionMethod`) and the **client-held user identity key** (`identityKey`), which the server publishes but can never use.
+An actor carries two kinds of keys that must never be confused: the **server-held federation key** (HTTP Signatures, standard `assertionMethod`) and the **client-held identity key** (`identityKey`), which the server publishes but can never use. Each persona (actor) has its own identity key and its own device keys, never shared with the login's other personas, so the keys can't be used to link personas.
 
 ```json
 {
