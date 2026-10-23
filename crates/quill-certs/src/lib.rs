@@ -26,6 +26,8 @@ use tls_codec::{
 pub const CERT_LABEL: &str = "wr device cert v1";
 /// Label for device revocations.
 pub const REVOKE_LABEL: &str = "wr device revoke v1";
+/// Label of the signature on a rejoin request (protocol draft, section 6).
+pub const REJOIN_LABEL: &str = "wr rejoin v1";
 /// Prefix MLS's `SignWithLabel` puts before every label.
 const MLS_PREFIX: &[u8] = b"MLS 1.0 ";
 
@@ -399,6 +401,119 @@ impl DeviceRevocation {
             return Err(CertError::WrongActor);
         }
         Ok(revocation)
+    }
+}
+
+// ---- Rejoin requests ---------------------------------------------------------
+
+#[derive(TlsSerialize, TlsDeserialize, TlsSize)]
+struct RejoinTbsWire {
+    actor_uri: VLBytes,
+    group_id: VLBytes,
+    key_package: VLBytes,
+    certificate: VLBytes,
+    remove_keys: Vec<VLBytes>,
+    created_at: u64,
+}
+
+#[derive(TlsSerialize, TlsDeserialize, TlsSize)]
+struct RejoinWire {
+    tbs: RejoinTbsWire,
+    signature: VLBytes,
+}
+
+/// A restored device asking to be let back into a session: signed with the
+/// persona's identity key, so the other writer's client can add a device
+/// that isn't its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RejoinRequest {
+    pub actor_uri: String,
+    pub group_id: Vec<u8>,
+    /// The restored device's KeyPackage (an `MLSMessage`).
+    pub key_package: Vec<u8>,
+    /// Its device certificate.
+    pub certificate: Vec<u8>,
+    /// Device keys of the persona's lost devices, to remove from the group.
+    pub remove_keys: Vec<[u8; KEY_LEN]>,
+    /// Milliseconds since the Unix epoch.
+    pub created_at: u64,
+}
+
+/// The most devices a rejoin request can ask to remove.
+pub const MAX_REJOIN_REMOVALS: usize = 64;
+
+impl RejoinRequest {
+    #[cfg(any(feature = "sign", test))]
+    fn tbs(&self) -> RejoinTbsWire {
+        RejoinTbsWire {
+            actor_uri: self.actor_uri.as_bytes().into(),
+            group_id: self.group_id.as_slice().into(),
+            key_package: self.key_package.as_slice().into(),
+            certificate: self.certificate.as_slice().into(),
+            remove_keys: self
+                .remove_keys
+                .iter()
+                .map(|k| k.as_slice().into())
+                .collect(),
+            created_at: self.created_at,
+        }
+    }
+
+    /// Signs the request with the persona's identity key.
+    #[cfg(feature = "sign")]
+    pub fn issue(&self, identity: &ed25519_dalek::SigningKey) -> Result<Vec<u8>, CertError> {
+        if self.remove_keys.len() > MAX_REJOIN_REMOVALS {
+            return Err(CertError::Malformed("too many devices to remove".into()));
+        }
+        let tbs = self.tbs();
+        let signature = sign_with_label(identity, REJOIN_LABEL, &tbs.tls_serialize_detached()?)?;
+        Ok(RejoinWire {
+            tbs,
+            signature: signature.as_slice().into(),
+        }
+        .tls_serialize_detached()?)
+    }
+
+    /// Checks a request's signature under the identity key, and that it's
+    /// from this actor for this group.
+    pub fn verify(
+        bytes: &[u8],
+        actor_uri: &str,
+        group_id: &[u8],
+        identity_key: &[u8],
+    ) -> Result<Self, CertError> {
+        let wire = RejoinWire::tls_deserialize_exact(bytes)?;
+        let t = &wire.tbs;
+        if t.remove_keys.len() > MAX_REJOIN_REMOVALS {
+            return Err(CertError::Malformed("too many devices to remove".into()));
+        }
+        let request = Self {
+            actor_uri: utf8(t.actor_uri.as_slice())?,
+            group_id: t.group_id.as_slice().to_vec(),
+            key_package: t.key_package.as_slice().to_vec(),
+            certificate: t.certificate.as_slice().to_vec(),
+            remove_keys: t
+                .remove_keys
+                .iter()
+                .map(|k| key_array(k.as_slice()))
+                .collect::<Result<_, _>>()?,
+            created_at: t.created_at,
+        };
+        verify_with_label(
+            identity_key,
+            REJOIN_LABEL,
+            &t.tls_serialize_detached()?,
+            wire.signature.as_slice(),
+        )?;
+        if request.actor_uri != actor_uri {
+            return Err(CertError::WrongActor);
+        }
+        if request.group_id != group_id {
+            return Err(CertError::Malformed(
+                "the request is for another group".into(),
+            ));
+        }
+        Ok(request)
     }
 }
 
