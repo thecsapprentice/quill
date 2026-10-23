@@ -104,6 +104,14 @@ struct Note {
     /// How far the server was told this device has read.
     #[serde(default)]
     acked: u64,
+    /// Log positions (inclusive) this device has no history for: from
+    /// before it joined, or while it was away (2k). Another device of the
+    /// login fills them in.
+    #[serde(default)]
+    missing: Option<(u64, u64)>,
+    /// When this device last asked its other devices for them.
+    #[serde(default)]
+    history_asked_ms: u64,
 }
 
 impl Note {
@@ -753,6 +761,8 @@ pub struct Listed {
     pub standing: Standing,
     /// Messages this device holds.
     pub messages: usize,
+    /// Log positions this device has no history for yet (2k).
+    pub history_missing: Option<(u64, u64)>,
 }
 
 impl Listed {
@@ -817,6 +827,10 @@ async fn sync_one(
     };
     let Some(partner) = s.members.iter().find(|m| m.persona.is_none()) else {
         // The other writer's persona is gone: the session has ended.
+        if current.is_none() {
+            history_only(store, s, &gid, &mine)?;
+            return Ok(Standing::Joined);
+        }
         return end_here(store, client, s, &gid, current, None).await;
     };
     let dirs = Dirs {
@@ -824,6 +838,10 @@ async fn sync_one(
         partner: Dir::fetch(store, client, partner, false).await?,
     };
     if current.is_none() && !start(store, client, s, &gid, &mine, &me, &dirs, report).await? {
+        if s.ended {
+            history_only(store, s, &gid, &mine)?;
+            return Ok(Standing::Joined);
+        }
         return Ok(Standing::Waiting);
     }
     if s.ended {
@@ -882,6 +900,8 @@ async fn start(
         hlc: String::new(),
         author_seq: 0,
         acked: 0,
+        missing: None,
+        history_asked_ms: 0,
     };
     // From the request: the group is here already, and the pitch (seq 1)
     // was read or sent by this device.
@@ -926,12 +946,17 @@ async fn start(
         .map(|w| (Some(w.device), w.welcome.as_str(), w.from_seq))
         .collect();
     tries.push((None, s.welcome.as_str(), 0));
+    // What came before the Welcome is history this device lacks, less what
+    // it holds already (from a backup).
+    let held = history::latest(store, gid)?;
     for (device, welcome, from) in tries {
         let provider = Provider::new(store);
         let joined = provider.atomically(|p| {
             let j = join(p, welcome, gid, dirs)?;
             if let Joined::Yes { last_resort } = j {
-                set_note(p, gid, &fresh(from, last_resort))?;
+                let mut n = fresh(from, last_resort);
+                n.missing = (from > held + 1).then_some((held + 1, from));
+                set_note(p, gid, &n)?;
             }
             Ok(j)
         })?;
@@ -944,6 +969,32 @@ async fn start(
         }
     }
     Ok(false)
+}
+
+/// A session that ended before this device was in it: it can't read the
+/// log, so it keeps a place for the history its other devices send (2k).
+fn history_only(
+    store: &Store,
+    s: &Session,
+    gid: &[u8],
+    mine: &SessionMember,
+) -> Result<(), CoreError> {
+    let held = history::latest(store, gid)?;
+    let n = Note {
+        request: s.request,
+        persona: mine.persona.unwrap_or_default(),
+        seq: 0,
+        own: Vec::new(),
+        update_due: false,
+        ended: true,
+        broken: None,
+        hlc: String::new(),
+        author_seq: 0,
+        acked: 0,
+        missing: Some((held + 1, u64::MAX)),
+        history_asked_ms: 0,
+    };
+    save_note(store, gid, &n)
 }
 
 /// The session ended: read to the end (if this device can), then drop the
@@ -1008,6 +1059,7 @@ pub async fn list(store: &Store, client: &Client) -> Result<Vec<Listed>, CoreErr
         let gid = unb64(&s.id).unwrap_or_default();
         out.push(Listed {
             messages: history::count(store, &gid)?,
+            history_missing: note(&Provider::new(store), &gid)?.and_then(|n| n.missing),
             standing,
             session: s,
         });
@@ -1023,6 +1075,8 @@ pub struct Reading {
     pub messages: Vec<Message>,
     /// Activities the server seems to have held back.
     pub gaps: Vec<Gap>,
+    /// Log positions this device has no history for yet (2k).
+    pub history_missing: Option<(u64, u64)>,
 }
 
 fn standing_error(standing: Standing) -> Result<(), CoreError> {
@@ -1048,6 +1102,7 @@ pub async fn read(store: &Store, client: &Client, id: &str) -> Result<Reading, C
     }
     Ok(Reading {
         gaps: history::gaps(store, &gid)?,
+        history_missing: note(&Provider::new(store), &gid)?.and_then(|n| n.missing),
         messages,
         session: s,
     })
@@ -1533,6 +1588,100 @@ pub fn sender_name(s: &Session, uri: &str) -> String {
         .iter()
         .find(|m| m.actor_uri == uri)
         .map_or_else(|| uri.to_owned(), |m| format!("@{}", m.handle))
+}
+
+// ---- History from the login's other devices (2k) --------------------------------------
+
+/// A session whose history this device lacks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Wanted {
+    pub gid: Vec<u8>,
+    pub from: u64,
+    pub to: u64,
+}
+
+/// How long to wait before asking again for history nobody sent.
+const ASK_AGAIN_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
+/// Sessions whose history this device lacks and hasn't asked for lately.
+pub(crate) fn history_wanted(store: &Store) -> Result<Vec<Wanted>, CoreError> {
+    let now = keys::now_ms();
+    let mut out = Vec::new();
+    for (gid, v) in store.scan(Table::Sessions, b"")? {
+        let n: Note = serde_json::from_slice(&v).map_err(|_| err("a stored session is damaged"))?;
+        if let Some((from, to)) = n.missing
+            && now.saturating_sub(n.history_asked_ms) >= ASK_AGAIN_MS
+        {
+            out.push(Wanted {
+                gid: gid.clone(),
+                from,
+                to,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Notes that this device asked for a session's history just now.
+pub(crate) fn history_asked(store: &Store, gid: &[u8]) -> Result<(), CoreError> {
+    Provider::new(store).atomically(|p| {
+        if let Some(mut n) = note(p, gid)? {
+            n.history_asked_ms = keys::now_ms();
+            set_note(p, gid, &n)?;
+        }
+        Ok(())
+    })
+}
+
+fn overlaps(a: (u64, u64), b: (u64, u64)) -> bool {
+    a.0 <= b.1 && b.0 <= a.1
+}
+
+/// What this device can vouch for of a session's history from `from` to
+/// `to`: all of it, once it has read that far (to the end, for a session
+/// that ended) with no gap of its own there. `None` for not yet, or never.
+pub(crate) fn history_offer(
+    store: &Store,
+    gid: &[u8],
+    from: u64,
+    to: u64,
+) -> Result<Option<(u64, u64)>, CoreError> {
+    let Some(n) = note(&Provider::new(store), gid)? else {
+        return Ok(None);
+    };
+    if n.missing.is_some_and(|m| overlaps(m, (from, to))) {
+        return Ok(None);
+    }
+    if n.ended && n.broken.is_none() {
+        return Ok(Some((from, u64::MAX)));
+    }
+    Ok((n.seq >= to).then_some((from, to)))
+}
+
+/// Within the caller's batch: another device sent the history from `from`
+/// to `to`, so this device lacks only what's outside that.
+pub(crate) fn history_received(
+    p: &Provider<'_>,
+    gid: &[u8],
+    from: u64,
+    to: u64,
+) -> Result<(), CoreError> {
+    let Some(mut n) = note(p, gid)? else {
+        return Ok(());
+    };
+    if let Some((lo, hi)) = n.missing {
+        n.missing = if from <= lo && to >= hi {
+            None
+        } else if from <= lo && to >= lo {
+            Some((to.saturating_add(1), hi))
+        } else if from <= hi && to >= hi {
+            Some((lo, from.saturating_sub(1)))
+        } else {
+            Some((lo, hi))
+        };
+        set_note(p, gid, &n)?;
+    }
+    Ok(())
 }
 
 /// Tools for tests that play a dishonest writer. Not built into clients.

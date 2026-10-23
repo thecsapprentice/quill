@@ -372,12 +372,20 @@ pub fn keep_file(
     url: &str,
     contents: Option<&[u8]>,
 ) -> Result<(), CoreError> {
-    Provider::new(store).atomically(|p| {
-        if let Some(c) = contents {
-            p.set(Table::Files, url.as_bytes(), Some(c.to_vec()))?;
-        }
-        p.set(Table::Messages, &key(gid, PENDING, url.as_bytes()), None)
-    })
+    Provider::new(store).atomically(|p| keep_file_in(p, gid, url, contents))
+}
+
+/// [`keep_file`] within the caller's batch.
+pub fn keep_file_in(
+    p: &Provider<'_>,
+    gid: &[u8],
+    url: &str,
+    contents: Option<&[u8]>,
+) -> Result<(), CoreError> {
+    if let Some(c) = contents {
+        p.set(Table::Files, url.as_bytes(), Some(c.to_vec()))?;
+    }
+    p.set(Table::Messages, &key(gid, PENDING, url.as_bytes()), None)
 }
 
 /// An attachment's contents, if this device has them.
