@@ -6,6 +6,7 @@
 //! state; that is why the server must never depend on it.
 
 pub mod activity;
+pub mod attachments;
 pub mod client;
 pub mod devices;
 pub mod history;
