@@ -36,12 +36,17 @@ argon2 = { version = "0.6", features = ["zeroize"] }
 ammonia = "4"
 axum = "0.8"
 base64 = "0.23"
+chacha20poly1305 = "0.11"
 clap = { version = "4", features = ["derive", "env"] }
 # Server-side rendering only: no web, desktop or fullstack features.
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals"] }
 dioxus-ssr = "=0.7.10"
 directories = "6"
 getrandom = "0.4"
+hkdf = "0.13"
+# Client local store (quill-core only).
+redb = "4.4"
+keyring-core = "1"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "query"] }
 rpassword = "7"

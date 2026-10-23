@@ -230,18 +230,88 @@ behaving.
 
 ## Phase 2: Encrypted sessions on one server
 
-| Sub-phase | Scope |
-| --- | --- |
-| 2a | Identity key and device certificates in `quill-core`; device key directory on the server |
-| 2b | Device linking and the encrypted local store |
-| 2c | KeyPackage upload and claim; certificate checks on claimed packages |
-| 2d | Collaboration requests: request, approve, silent decline, 30-day expiry, one pending per prompt |
-| 2e | Session creation and Welcome delivery; the epoch sequencer |
-| 2f | Messages: ordering (HLC), history that is never lost, live delivery over SSE |
-| 2g | Channels within a session |
-| 2h | Attachments and size limits or quotas |
-| 2i | Backup and recovery; safety numbers |
-| 2j | Phase gate: the plaintext-canary test and the database-dump audit |
+Reordered on 2026-10-22 (see Decisions): the encrypted local store comes
+first, so private keys never touch disk unprotected, and OpenMLS arrives
+before device linking, which needs it.
+
+| Sub-phase | Scope | Status |
+| --- | --- | --- |
+| 2a | Encrypted local store in `quill-core`; the CLI's login moves into it | next |
+| 2b | Identity keys per persona, device keys and certificates; the server's device directory | planned |
+| 2c | OpenMLS on the client; KeyPackage upload and claim; certificate checks on claimed packages | planned |
+| 2d | Device linking and the personal device group | planned |
+| 2e | Collaboration requests: request, approve, silent decline, 30-day expiry, one pending per prompt | planned |
+| 2f | Session creation and Welcome delivery; the epoch sequencer | planned |
+| 2g | Messages: ordering (HLC), history that is never lost, live delivery over SSE | planned |
+| 2h | Channels within a session | planned |
+| 2i | Attachments and size limits or quotas | planned |
+| 2j | Backup and recovery; safety numbers | planned |
+| 2k | Phase gate: the plaintext-canary test and the database-dump audit | planned |
+
+### 2a: Encrypted local store
+
+Everything a client keeps on disk lives in one encrypted file; later
+sub-phases add their tables (keys, trust pins, MLS state, history).
+
+- **Interface first.** `quill-core`'s `Store` has typed methods, built on a
+  small storage interface: named tables of byte keys and values, point
+  reads, prefix scans and atomic batches. Nothing else touches the file.
+  Every backend must pass one shared conformance test, so the backend can be
+  replaced without touching callers (see Decisions for the cost).
+- **Backend: redb with page encryption.** redb (pure Rust) stores its data
+  through our storage layer, which seals each 4 KiB page with
+  XChaCha20-Poly1305 under a key derived from the store's random data key.
+  Each page's slot is bound to the file, the page number and a write
+  counter. Every page has two slots on disk and writes alternate between
+  them, so a crash mid-write leaves the page as it was. A thief sees the
+  file's size and, across copies, which pages changed; not tables, keys,
+  values or their sizes. Replaying an old copy of a page is not detected,
+  as with SQLCipher.
+- **Unlocking.** The data key is wrapped in the file's header by a key from
+  the OS keychain (Windows Credential Manager, macOS Keychain, the Secret
+  Service on Linux desktops), or by a passphrase through Argon2id (64 MiB, 3
+  passes, 4 lanes; at least 12 characters). The header is kept twice so a
+  crash while changing it can't lock the store. Changing the passphrase or
+  moving to the keychain rewraps the data key; it doesn't re-encrypt, so an
+  older copy of the file still opens with the old passphrase.
+- **One process at a time**: the file is locked while open.
+- **CLI.** `quill` opens the store on every command, creating it on first use
+  in the keychain if the computer has one, otherwise with a passphrase.
+  `QUILL_STORE` and `--store` choose the file; `QUILL_STORE_PASSPHRASE`
+  supplies the passphrase for scripts and tests. The server address and
+  login token move into the store, and the old plain `profile.json` is
+  imported and deleted. `quill store status`, `quill store passphrase` and
+  `quill store keychain`.
+
+Done when: tests show the file holds no plaintext, refuses wrong keys and
+altered pages, survives torn page and header writes and a crash at every
+point of a commit, and the CLI works end to end from the store.
+
+### 2b: Identity keys per persona, device certificates, device directory
+
+- Every **persona** that takes part in sessions gets its own Ed25519 identity
+  key, created on the client on first use. Each device holds a separate
+  device key and certificate per persona. Publishing one key across personas
+  would let anyone link them, which the anonymity plan forbids; only the home
+  server knows they share a login, as today.
+- `DeviceCertificate` and `DeviceRevocation` in TLS encoding, signed with
+  MLS-style `SignWithLabel` under the `"wr "` labels; test vectors for both,
+  including the must-reject cases.
+- Server: `PUT /personas/{id}/identity-key`, `GET/POST /personas/{id}/devices`,
+  `POST /personas/{id}/devices/{device}/revoke`. The server checks
+  certificate structure and signatures (public-key operations only, which
+  the dependency ban allows) and publishes the keys; clients check again
+  and never trust the server's word.
+- Trust-on-first-use pins and safety numbers are per persona identity key.
+- CLI: `quill keys init --persona`, `quill device list`, `quill device revoke`.
+
+### Later sub-phases
+
+2c to 2k follow the [plan](plan.md#writing-session-cryptography) and the
+[protocol draft](protocol-draft.md), with keys per persona throughout: one
+KeyPackage pool per persona and device, and one personal device group per
+account carrying every persona's identity key. Each gets a detailed section
+like the ones above when it's next.
 
 ## Phase 3: Federation
 
@@ -280,3 +350,21 @@ done.
 - **1e, tag moderation (decided 2026-10-22):** one live three-way switch for
   new tags; authors see their own pending tags; requests can be approved,
   merged or rejected; hidden tags can't be used in filters by non-admins.
+- **2a and 2b, key scope (decided 2026-10-22): one identity key per persona.**
+  A shared per-user key, as first drafted, would publicly link every persona
+  of a login. Each device keeps a device key and certificate per persona.
+- **2a, order (decided 2026-10-22): the encrypted store comes first**, so no
+  private key is ever written to disk unencrypted, even temporarily.
+- **2a, store backend (decided 2026-10-22): redb with our own page
+  encryption, not SQLCipher.** SQLCipher needs OpenSSL's libcrypto (system or
+  vendored C) on every client platform and can't run in the browser, where
+  the web client will need its own encryption anyway. Turso's page
+  encryption is still experimental; the redb fork with built-in encryption
+  has one maintainer and little use. The trade: the page-encryption layer is
+  project code and goes into the external review, and there's no SQL. To
+  keep the choice cheap to revisit, all storage goes through a four-method
+  interface with a shared conformance test. Swapping to SQLCipher means one
+  new backend module (about 150 lines, since the interface is plain tables of
+  keys and values), dropping the page layer, and adding OpenSSL to client
+  builds; nothing else changes. Once real users exist, a one-time local
+  conversion is needed too. Decide for good before the Phase 4 review.

@@ -9,7 +9,15 @@ all-features = true
 # must say why the advisory is unreachable or acceptable.
 version = 2
 yanked = "deny"
-ignore = []
+ignore = [
+  # zbus 5's helper crates, merged into zbus 6 and so marked unmaintained;
+  # not a vulnerability. Pulled in only by the Linux keychain support in
+  # quill-core (secret-service, which has no zbus 6 release yet). Remove
+  # when secret-service moves to zbus 6.
+  { id = "RUSTSEC-2026-0370", reason = "zvariant merged into zbus 6; client-only, Linux keychain" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names merged into zbus 6; client-only, Linux keychain" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6; client-only, Linux keychain" },
+]
 
 [licenses]
 version = 2
