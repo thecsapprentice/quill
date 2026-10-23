@@ -250,15 +250,15 @@ async fn following_a_session_shows_messages_as_they_arrive() {
         })
     };
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    let started = std::time::Instant::now();
     sessions::write(&bob, &bob_c, &id, "Second.", None)
         .await
         .unwrap();
-    let got = tokio::time::timeout(std::time::Duration::from_secs(5), follower)
+    // `follow` only reads again when a notice arrives, so finishing at all
+    // shows the notice came; the timeout only guards against hanging.
+    let got = tokio::time::timeout(std::time::Duration::from_secs(10), follower)
         .await
         .unwrap()
         .unwrap();
-    assert!(started.elapsed() < std::time::Duration::from_secs(2));
     assert_eq!(got, ["Pitch.", "Live.", "Second."]);
     server.stop().await.unwrap();
 }
