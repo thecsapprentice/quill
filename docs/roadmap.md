@@ -22,8 +22,8 @@ personas, CLI skeleton, the server dependency ban.
 | 1c | Docker setup and demo data | done |
 | 1d | Admin settings: tag management and required tag types | done |
 | 1e | Tag moderation: new-tag switch, hidden tags, tag requests | done |
-| 1f | Tag picker and tag colours | next |
-| 1g | Persona handle rules | planned |
+| 1f | Tag picker and tag colours | done |
+| 1g | Persona handle rules | next |
 
 ### 1c: Docker setup and demo data
 
@@ -120,14 +120,19 @@ writers and administrators each see, including through filters.
   then. New tags show as "new" (or "new, needs approval").
 - Required tag types show as empty slots ("Genre: required") until filled.
 - Tags awaiting approval show as pending chips.
-- **Colours.** Each tag type has a colour, and a tag can have its own colour,
-  which overrides its type's. Chips everywhere use it: the picker, prompt
-  cards and prompt pages. Colours come from a fixed palette in the board's
-  stylesheet, since the CSP forbids inline styles; each colour has light and
-  dark versions checked for contrast. Administrators pick swatches in Server
-  settings. Colour changes are logged.
-- The API's `Tag` carries its effective colour; `TagNamespace` and admin
-  views carry the colours as set.
+- **Colours.** Each tag type can have a chip colour pair (background, and
+  text that is either chosen or automatic: black or white, whichever reads
+  better). A tag can have its own pair, which replaces its type's. Chips
+  everywhere use it: the picker, prompt cards and prompt pages. Colours are
+  any `#rrggbb`, picked with the browser's own colour picker, with a preview
+  and a warning below 4.5:1 contrast. The CSP forbids inline styles, so the
+  server generates `/static/tag-colors.css` from the settings (decided
+  2026-10-22, over a fixed palette). Only validated colours and `[a-z0-9-]`
+  identifiers reach it, and only visible tags' own colours are included.
+  Browsers revalidate it on each page (ETag). Colour changes are logged.
+- The API's `Tag` carries its effective colours, text resolved;
+  `TagNamespace` and `AdminTag.ownColor` carry them as set. CLI:
+  `admin namespace(-set) --color --text-color`, `admin tag-color`.
 
 Done when: tags can be added and removed on the new and edit forms with the
 keyboard alone and without JavaScript; colours show in both themes and fall

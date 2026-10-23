@@ -10,6 +10,7 @@
 //! prompt's `body_html`, which the server has already sanitized.
 
 mod admin;
+pub mod chips;
 mod layout;
 mod pages;
 
@@ -19,7 +20,7 @@ use dioxus::prelude::*;
 use quill_proto::{
     api::Persona,
     board::{
-        AccountSettings, AdminLogEntry, AdminTag, Maturity, Prompt, PromptState, Report,
+        AccountSettings, AdminLogEntry, AdminTag, ChipColor, Maturity, Prompt, PromptState, Report,
         ReportReason, Tag, TagNamespace, TagPolicy,
     },
 };
@@ -176,14 +177,40 @@ pub struct PromptFormView {
     pub title: String,
     pub body: String,
     pub maturity: Maturity,
-    /// Comma-separated `namespace:name`.
-    pub tags: String,
+    /// The chosen tags, as chips.
+    pub chips: Vec<TagChip>,
+    /// Text in the "add tags" field, kept when some of it couldn't be added.
+    pub add_text: String,
+    /// Why typed tags couldn't be added.
+    pub tag_errors: Vec<String>,
     pub state: PromptState,
     pub error: Option<String>,
+    /// Visible tags, for suggestions and "Browse tags".
     pub tag_options: Vec<Tag>,
     pub tag_policy: TagPolicy,
     /// Tag types, to show which are required or curated-only.
     pub namespaces: Vec<TagNamespace>,
+}
+
+/// A chosen tag on the prompt form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagChip {
+    /// What the form sends back: `namespace:slug`, or `namespace:Display`
+    /// for a tag that doesn't exist yet.
+    pub value: String,
+    /// For display. A new tag gets its type's colour.
+    pub tag: Tag,
+    pub kind: ChipKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChipKind {
+    /// A tag that exists.
+    Existing,
+    /// Created when the prompt is saved.
+    New,
+    /// Created when the prompt is saved, awaiting approval.
+    NewNeedsApproval,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -227,6 +254,7 @@ pub struct NewTagType {
     pub display: String,
     pub locked: bool,
     pub required: bool,
+    pub color: Option<ChipColor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -318,6 +346,7 @@ fn document(doc: Doc) -> Element {
                 meta { name: "referrer", content: "same-origin" }
                 title { "{page_title}" }
                 link { rel: "stylesheet", href: "{STYLESHEET_PATH}?v={chrome.version}" }
+                link { rel: "stylesheet", href: "{chips::TAG_COLORS_PATH}" }
             }
             body {
                 {layout::header(&chrome)}

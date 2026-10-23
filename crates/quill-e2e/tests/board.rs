@@ -155,7 +155,8 @@ impl Browser {
                     ),
                     ("maturity", maturity),
                     ("state", "open"),
-                    ("tags", "genre:horror, theme:Lighthouses"),
+                    ("add", "genre:horror, theme:Lighthouses"),
+                    ("op", "save"),
                 ],
             )
             .await;
@@ -243,7 +244,14 @@ async fn post_edit_and_delete_through_the_board() {
 
     // Edit, change status, then delete.
     let form = b.get(&format!("{path}/edit")).await;
-    assert!(form.body.contains("genre:Horror, theme:Lighthouses"));
+    assert!(
+        form.body
+            .contains(r#"name="tag" value="genre:horror" checked=true"#)
+    );
+    assert!(
+        form.body
+            .contains(r#"name="tag" value="theme:lighthouses" checked=true"#)
+    );
     let saved = b
         .post(
             &format!("{path}/edit"),
@@ -253,7 +261,8 @@ async fn post_edit_and_delete_through_the_board() {
                 ("body", "Edited."),
                 ("maturity", "general"),
                 ("state", "busy"),
-                ("tags", "genre:mystery"),
+                ("add", "genre:mystery"),
+                ("op", "save"),
             ],
         )
         .await;
@@ -298,14 +307,17 @@ async fn post_edit_and_delete_through_the_board() {
                 ("title", "Kept title"),
                 ("body", "Kept body"),
                 ("maturity", "general"),
-                ("tags", "content-warning:Spiders"),
+                ("add", "content-warning:Spiders"),
+                ("op", "save"),
             ],
         )
         .await;
     assert_eq!(err.status, StatusCode::BAD_REQUEST);
     assert!(err.body.contains("Kept title"));
     assert!(err.body.contains("Kept body"));
-    assert!(err.body.contains("is not a tag on this server"));
+    assert!(err.body.contains(
+        "isn&#39;t a tag on this server, and new Content warning tags can&#39;t be created."
+    ));
     server.stop().await.unwrap();
 }
 
@@ -569,10 +581,7 @@ async fn server_settings_manage_tag_types_and_tags() {
 
     // The prompt form says so, and enforces it.
     let form = writer.get("/new").await;
-    assert!(
-        form.body
-            .contains("Required: at least one Genre (genre:…) tag.")
-    );
+    assert!(form.body.contains("Genre: required"));
     let start = form.body.find(r#"<option value=""#).unwrap() + 15;
     let persona = form.body[start..start + 36].to_owned();
     let missing = writer
@@ -584,7 +593,8 @@ async fn server_settings_manage_tag_types_and_tags() {
                 ("title", "No genre"),
                 ("body", "Body"),
                 ("maturity", "general"),
-                ("tags", "format:prose"),
+                ("add", "format:prose"),
+                ("op", "save"),
             ],
         )
         .await;
@@ -829,5 +839,300 @@ async fn tag_requests_through_the_board() {
     ] {
         assert!(log.body.contains(event), "{event}");
     }
+    server.stop().await.unwrap();
+}
+
+/// Signs up `login` and makes it an administrator; returns its CSRF token.
+async fn admin_browser(server: &TestServer, b: &mut Browser, login: &str) -> String {
+    let csrf = b.register(login, &format!("{login}_desk")).await;
+    let pool = server.db().await.unwrap();
+    sqlx::query("UPDATE accounts SET is_admin = true WHERE login_name = $1")
+        .bind(login)
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    csrf
+}
+
+/// The first persona id offered on the new-prompt form.
+async fn first_persona(b: &mut Browser) -> String {
+    let form = b.get("/new").await;
+    let start = form.body.find(r#"<option value=""#).unwrap() + 15;
+    form.body[start..start + 36].to_owned()
+}
+
+#[tokio::test]
+async fn the_tag_picker_without_javascript() {
+    let server = server!();
+    let mut b = Browser::new(&server);
+    let csrf = b.register("alice", "ink_fox").await;
+    let persona = first_persona(&mut b).await;
+    let base = [
+        ("csrf", csrf.as_str()),
+        ("persona", persona.as_str()),
+        ("title", "Lamps"),
+        ("body", "A keeper's *ledger*."),
+        ("maturity", "general"),
+        ("state", "open"),
+    ];
+    let with = |extra: &[(&'static str, &'static str)]| {
+        let mut fields: Vec<(&str, &str)> = base.to_vec();
+        fields.extend_from_slice(extra);
+        fields
+    };
+
+    // Add several at once: good ones become chips, bad ones stay in the
+    // field with reasons, and nothing is posted.
+    let page = b
+        .post(
+            "/new",
+            &with(&[
+                (
+                    "add",
+                    "genre:Horror, nope, content-warning:Spiders, theme:Sea, genre:horror",
+                ),
+                ("op", "add"),
+            ]),
+        )
+        .await;
+    assert_eq!(page.status, StatusCode::BAD_REQUEST);
+    assert!(
+        page.body
+            .contains(r#"name="tag" value="genre:horror" checked=true"#)
+    );
+    assert!(
+        page.body
+            .contains(r#"name="tag" value="theme:Sea" checked=true"#)
+    );
+    assert!(page.body.contains("Sea<em> (new)</em>"));
+    assert_eq!(
+        page.body.matches(r#"value="genre:horror" checked"#).count(),
+        1
+    );
+    assert!(
+        page.body
+            .contains(r#"name="add" value="nope, content-warning:Spiders""#)
+    );
+    assert!(page.body.contains("must be written as namespace:name"));
+    assert!(
+        page.body
+            .contains("new Content warning tags can&#39;t be created")
+    );
+    // The rest of the form is kept.
+    assert!(page.body.contains(r#"value="Lamps""#));
+    assert!(page.body.contains("A keeper&#39;s *ledger*."));
+
+    // Browse adds one with a click.
+    let page = b
+        .post(
+            "/new",
+            &with(&[
+                ("tag", "genre:horror"),
+                ("tag", "theme:Sea"),
+                ("pick", "format:prose"),
+            ]),
+        )
+        .await;
+    assert_eq!(page.status, StatusCode::OK);
+    assert!(
+        page.body
+            .contains(r#"name="tag" value="format:prose" checked=true"#)
+    );
+    // A form sent without a button (Enter in some browsers) never posts.
+    assert!(page.body.contains("Post prompt"));
+
+    // Unticking Sea removes it; posting saves the rest, plus anything still
+    // typed in the field.
+    let posted = b
+        .post(
+            "/new",
+            &with(&[
+                ("tag", "genre:horror"),
+                ("tag", "format:prose"),
+                ("add", "length:short"),
+                ("op", "save"),
+            ]),
+        )
+        .await;
+    assert_eq!(posted.status, StatusCode::SEE_OTHER, "{}", posted.body);
+    let path = posted
+        .location()
+        .trim_end_matches("?notice=posted")
+        .to_owned();
+    let prompt = b.get(&path).await;
+    for tag in ["Horror", "Prose", "Short"] {
+        assert!(prompt.body.contains(&format!("</span>{tag}</a>")), "{tag}");
+    }
+    assert!(!prompt.body.contains("Sea"));
+    let pool = server.db().await.unwrap();
+    let sea: i64 = sqlx::query_scalar("SELECT count(*) FROM tags WHERE slug = 'sea'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    assert_eq!(sea, 0, "an unticked new tag must not be created");
+
+    // Editing starts from the prompt's chips and works the same way.
+    let edit = b.get(&format!("{path}/edit")).await;
+    assert!(
+        edit.body
+            .contains(r#"name="tag" value="length:short" checked=true"#)
+    );
+    assert!(
+        edit.body
+            .contains(&format!(r##"formaction="{path}/edit#tags""##))
+    );
+    let saved = b
+        .post(
+            &format!("{path}/edit"),
+            &with(&[
+                ("tag", "genre:horror"),
+                ("pick", "genre:mystery"),
+                ("op", "save"),
+            ]),
+        )
+        .await;
+    assert_eq!(saved.location(), format!("{path}?notice=saved"));
+    let prompt = b.get(&path).await;
+    assert!(prompt.body.contains("</span>Mystery</a>"));
+    assert!(!prompt.body.contains("</span>Prose</a>"));
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn chip_colours_come_from_a_generated_stylesheet() {
+    let server = server!();
+    let mut admin = Browser::new(&server);
+    let csrf = admin_browser(&server, &mut admin, "moderator").await;
+    let mut anon = Browser::new(&server);
+
+    let sheet = anon.get("/static/tag-colors.css").await;
+    assert_eq!(sheet.status, StatusCode::OK);
+    assert!(
+        sheet.headers[header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/css")
+    );
+    assert_eq!(sheet.headers[header::CACHE_CONTROL], "no-cache");
+    assert!(
+        sheet
+            .body
+            .contains(".chip.tcn-genre{background:#dbeafe;color:#1e3a8a;")
+    );
+    let etag = sheet.headers[header::ETAG].to_str().unwrap().to_owned();
+    let req = anon
+        .http
+        .get(format!("{}/static/tag-colors.css", anon.base))
+        .header(header::IF_NONE_MATCH, &etag);
+    assert_eq!(anon.send(req).await.status, StatusCode::NOT_MODIFIED);
+
+    // A tag's own colour, with automatic text, wins over its type's.
+    let tag_url = "/admin/settings/tags/genre/horror";
+    let saved = admin
+        .post(
+            &format!("{tag_url}/color"),
+            &[
+                ("csrf", &csrf),
+                ("color_mode", "custom"),
+                ("chip_bg", "#7F1D1D"),
+                ("text_mode", "auto"),
+                ("chip_fg", "#000000"),
+            ],
+        )
+        .await;
+    assert_eq!(saved.location(), format!("{tag_url}?notice=tag-color"));
+    let sheet = anon.get("/static/tag-colors.css").await;
+    assert_ne!(sheet.headers[header::ETAG].to_str().unwrap(), etag);
+    let tag_rule = ".chip.tc-genre__horror{background:#7f1d1d;color:#ffffff;";
+    assert!(sheet.body.contains(tag_rule));
+    assert!(sheet.body.find(".chip.tcn-genre").unwrap() < sheet.body.find(tag_rule).unwrap());
+    let page = admin.get(tag_url).await;
+    assert!(page.body.contains("Text contrast"));
+
+    // The API reports the effective colours.
+    let tags = anon.get("/api/v1/tags?namespace=genre").await;
+    assert!(
+        tags.body
+            .contains(r##""color":{"background":"#7f1d1d","text":"#ffffff"}"##)
+    );
+    assert!(
+        tags.body
+            .contains(r##""color":{"background":"#dbeafe","text":"#1e3a8a"}"##)
+    );
+
+    // Bad colours are refused with a reason.
+    let bad = admin
+        .post(
+            &format!("{tag_url}/color"),
+            &[
+                ("csrf", &csrf),
+                ("color_mode", "custom"),
+                ("chip_bg", "red;}"),
+            ],
+        )
+        .await;
+    assert_eq!(bad.status, StatusCode::BAD_REQUEST);
+    assert!(bad.body.contains("must be written as #rrggbb"));
+
+    // A type's colour can be switched off; low contrast earns a warning.
+    let off = admin
+        .post(
+            "/admin/settings/tag-types/format",
+            &[
+                ("csrf", &csrf),
+                ("display", "Format"),
+                ("locked", "yes"),
+                ("color_mode", "off"),
+            ],
+        )
+        .await;
+    assert_eq!(
+        off.location(),
+        "/admin/settings/tag-types?notice=tag-type-saved"
+    );
+    admin
+        .post(
+            "/admin/settings/tag-types/length",
+            &[
+                ("csrf", &csrf),
+                ("display", "Length"),
+                ("locked", "yes"),
+                ("color_mode", "custom"),
+                ("chip_bg", "#777777"),
+                ("text_mode", "custom"),
+                ("chip_fg", "#888888"),
+            ],
+        )
+        .await;
+    let sheet = anon.get("/static/tag-colors.css").await;
+    assert!(!sheet.body.contains("tcn-format"));
+    assert!(
+        sheet
+            .body
+            .contains(".chip.tcn-length{background:#777777;color:#888888;")
+    );
+    let types = admin.get("/admin/settings/tag-types").await;
+    assert!(types.body.contains("hard to read"));
+
+    // A hidden tag's own colour leaves the public sheet.
+    admin
+        .post(
+            &format!("{tag_url}/status"),
+            &[("csrf", &csrf), ("status", "hidden"), ("back", "tag")],
+        )
+        .await;
+    assert!(
+        !anon
+            .get("/static/tag-colors.css")
+            .await
+            .body
+            .contains("horror")
+    );
+
+    let log = admin.get("/admin/log").await;
+    assert!(log.body.contains("Tag colour changed"));
+    assert!(log.body.contains("colour: automatic text on #7f1d1d"));
     server.stop().await.unwrap();
 }

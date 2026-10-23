@@ -90,49 +90,6 @@ impl TagPolicy {
 }
 
 string_enum! {
-    /// A chip colour from the board's fixed palette. `none` is no colour,
-    /// or for a tag, "use its type's colour".
-    TagColor {
-        None => "none",
-        Red => "red",
-        Orange => "orange",
-        Amber => "amber",
-        Green => "green",
-        Teal => "teal",
-        Blue => "blue",
-        Indigo => "indigo",
-        Purple => "purple",
-        Pink => "pink",
-        Slate => "slate",
-    }
-}
-
-// `string_enum!` writes the derives, so the default is implemented by hand.
-#[allow(clippy::derivable_impls)]
-impl Default for TagColor {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-impl TagColor {
-    /// The stored form: `None` for no colour.
-    pub fn to_db(self) -> Option<&'static str> {
-        (self != Self::None).then(|| self.as_str())
-    }
-
-    /// Reads the stored form; unknown values count as no colour.
-    pub fn from_db(value: Option<&str>) -> Self {
-        value.and_then(|v| v.parse().ok()).unwrap_or_default()
-    }
-
-    /// `self`, or `fallback` when `self` is no colour.
-    pub fn or(self, fallback: Self) -> Self {
-        if self == Self::None { fallback } else { self }
-    }
-}
-
-string_enum! {
     /// Who can see a tag.
     TagStatus {
         /// Everyone.
@@ -202,6 +159,31 @@ string_enum! {
 
 // ---- Tags ----------------------------------------------------------------
 
+/// A chip's colours, as `#rrggbb`. A `None` text colour is automatic: black
+/// or white, whichever contrasts more with the background.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChipColor {
+    pub background: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+impl ChipColor {
+    /// The text colour to use: the chosen one, or the automatic one.
+    pub fn text_or_auto(&self) -> String {
+        self.text
+            .clone()
+            .unwrap_or_else(|| crate::color::auto_text(&self.background).to_owned())
+    }
+
+    /// WCAG contrast ratio between the text and background (1 to 21), or
+    /// `None` if either isn't a valid colour.
+    pub fn contrast(&self) -> Option<f64> {
+        crate::color::contrast(&self.background, &self.text_or_auto())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TagNamespace {
@@ -212,9 +194,9 @@ pub struct TagNamespace {
     /// Every prompt saved must carry at least one tag of this type.
     #[serde(default)]
     pub required: bool,
-    /// Colour for this type's tags, unless a tag has its own.
-    #[serde(default)]
-    pub color: TagColor,
+    /// Chip colours for this type's tags, unless a tag has its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<ChipColor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,9 +209,10 @@ pub struct Tag {
     /// Anything but `visible` is only ever sent to someone allowed to see it.
     #[serde(default)]
     pub status: TagStatus,
-    /// The colour to show: the tag's own, else its type's.
-    #[serde(default)]
-    pub color: TagColor,
+    /// The chip colours to show: the tag's own, else its type's, with the
+    /// text colour resolved. `None`: no colour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<ChipColor>,
 }
 
 impl Tag {
@@ -270,8 +253,8 @@ pub struct CreateNamespace {
     pub locked: bool,
     #[serde(default)]
     pub required: bool,
-    #[serde(default)]
-    pub color: TagColor,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<ChipColor>,
 }
 
 /// `PATCH /admin/tag-namespaces/{name}`. Absent fields are unchanged.
@@ -284,8 +267,12 @@ pub struct UpdateNamespace {
     pub locked: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub required: Option<bool>,
+    /// New chip colours.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub color: Option<TagColor>,
+    pub color: Option<ChipColor>,
+    /// Remove the chip colours. Ignored when `color` is given.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_color: bool,
 }
 
 /// `GET /admin/tags` query. Unlike `GET /tags`, aliases are included.
@@ -315,10 +302,10 @@ pub struct AdminTag {
     /// `namespace:slug` of the tag this one is an alias of.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alias_of: Option<String>,
-    /// The tag's own colour; `none` means it uses its type's (shown in
-    /// `tag.color`).
-    #[serde(default)]
-    pub own_color: TagColor,
+    /// The tag's own chip colours as set; `None` means it uses its type's
+    /// (the result is in `tag.color`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_color: Option<ChipColor>,
 }
 
 /// Response to `DELETE /admin/tags/{namespace}/{slug}`.
@@ -343,9 +330,12 @@ pub struct UpdateTag {
     /// it. `pending` can't be set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<TagStatus>,
-    /// The tag's own colour; `none` goes back to its type's.
+    /// The tag's own chip colours, replacing its type's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub color: Option<TagColor>,
+    pub color: Option<ChipColor>,
+    /// Go back to the type's colours. Ignored when `color` is given.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_color: bool,
 }
 
 /// `GET /admin/settings`: settings administrators change while the server runs.

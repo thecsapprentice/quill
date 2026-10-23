@@ -11,8 +11,8 @@ use quill_board_ui::{
     NewTagType,
 };
 use quill_proto::board::{
-    AdminTagQuery, CreateNamespace, CreateTag, TagPolicy, TagQuery, TagStatus, UpdateNamespace,
-    UpdateServerSettings, UpdateTag,
+    AdminTagQuery, ChipColor, CreateNamespace, CreateTag, TagPolicy, TagQuery, TagStatus,
+    UpdateNamespace, UpdateServerSettings, UpdateTag,
 };
 use serde::Deserialize;
 
@@ -62,6 +62,33 @@ pub async fn index(State(state): State<AppState>, MaybeSession(session): MaybeSe
 
 // ---- Tag types -----------------------------------------------------------
 
+/// The chip colour fields shared by the tag type and tag forms.
+#[derive(Debug, Default, Deserialize)]
+pub struct ColorFields {
+    /// `custom`, or anything else for no colour of its own.
+    color_mode: Option<String>,
+    chip_bg: Option<String>,
+    /// `custom`, or anything else for automatic text.
+    text_mode: Option<String>,
+    chip_fg: Option<String>,
+}
+
+impl ColorFields {
+    /// The chosen colours, validated; `None` when switched off.
+    fn color(&self) -> Result<Option<ChipColor>, ApiError> {
+        if opt(&self.color_mode) != Some("custom") {
+            return Ok(None);
+        }
+        let text = (opt(&self.text_mode) == Some("custom"))
+            .then(|| self.chip_fg.clone().unwrap_or_default());
+        let color = ChipColor {
+            background: self.chip_bg.clone().unwrap_or_default(),
+            text,
+        };
+        Ok(Some(quill_proto::color::chip(&color)?))
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct TagTypeForm {
     csrf: Option<String>,
@@ -69,6 +96,8 @@ pub struct TagTypeForm {
     display: Option<String>,
     locked: Option<String>,
     required: Option<String>,
+    #[serde(flatten)]
+    colors: ColorFields,
 }
 
 impl TagTypeForm {
@@ -78,6 +107,7 @@ impl TagTypeForm {
             display: self.display.clone().unwrap_or_default(),
             locked: self.locked.is_some(),
             required: self.required.is_some(),
+            color: self.colors.color().ok().flatten(),
         }
     }
 }
@@ -254,13 +284,18 @@ pub async fn tag_type_create(
         return csrf_failed(&chrome(&state, Some(&s), Nav::ServerSettings, None));
     }
     let new = form.new_type();
-    let body = CreateNamespace {
-        name: new.name.clone(),
-        display: new.display.clone(),
-        locked: new.locked,
-        required: new.required,
-    };
-    match tag_admin::create_namespace(&state, s.account_id, &body).await {
+    let created = async {
+        let body = CreateNamespace {
+            name: new.name.clone(),
+            display: new.display.clone(),
+            locked: new.locked,
+            required: new.required,
+            color: form.colors.color()?,
+        };
+        tag_admin::create_namespace(&state, s.account_id, &body).await
+    }
+    .await;
+    match created {
         Ok(_) => redirect("/admin/settings/tag-types?notice=tag-type-created"),
         Err(e) => match form_error(&e) {
             Some(m) => render_tag_types(&state, &s, None, new, Some(m)).await,
@@ -283,12 +318,19 @@ pub async fn tag_type_update(
         return csrf_failed(&chrome(&state, Some(&s), Nav::ServerSettings, None));
     }
     // Unchecked boxes aren't sent, so absence means "off".
-    let body = UpdateNamespace {
-        display: form.display.clone(),
-        locked: Some(form.locked.is_some()),
-        required: Some(form.required.is_some()),
-    };
-    match tag_admin::update_namespace(&state, s.account_id, &name, &body).await {
+    let updated = async {
+        let color = form.colors.color()?;
+        let body = UpdateNamespace {
+            display: form.display.clone(),
+            locked: Some(form.locked.is_some()),
+            required: Some(form.required.is_some()),
+            clear_color: color.is_none(),
+            color,
+        };
+        tag_admin::update_namespace(&state, s.account_id, &name, &body).await
+    }
+    .await;
+    match updated {
         Ok(_) => redirect("/admin/settings/tag-types?notice=tag-type-saved"),
         Err(e) => match form_error(&e) {
             Some(m) => render_tag_types(&state, &s, None, NewTagType::default(), Some(m)).await,
@@ -532,6 +574,48 @@ pub async fn tag_rename(
         ..UpdateTag::default()
     };
     change_tag(state, session, key, form, update).await
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct TagColorForm {
+    csrf: Option<String>,
+    #[serde(flatten)]
+    colors: ColorFields,
+}
+
+pub async fn tag_color(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Path((namespace, slug)): Path<(String, String)>,
+    Form(form): Form<TagColorForm>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    if !s.csrf_matches(form.csrf.as_deref()) {
+        return csrf_failed(&chrome(&state, Some(&s), Nav::ServerSettings, None));
+    }
+    let saved = async {
+        let color = form.colors.color()?;
+        let update = UpdateTag {
+            clear_color: color.is_none(),
+            color,
+            ..UpdateTag::default()
+        };
+        tag_admin::update_tag(&state, s.account_id, &namespace, &slug, &update).await
+    }
+    .await;
+    match saved {
+        Ok(tag) => redirect(&format!(
+            "{}?notice=tag-color",
+            quill_board_ui::admin_tag_url(&tag)
+        )),
+        Err(e) => match form_error(&e) {
+            Some(m) => render_tag(&state, &s, (&namespace, &slug), None, None, Some(m)).await,
+            None => error_page(&chrome(&state, Some(&s), Nav::ServerSettings, None), e),
+        },
+    }
 }
 
 pub async fn tag_merge(

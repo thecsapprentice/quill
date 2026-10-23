@@ -3,8 +3,8 @@
 use dioxus::prelude::*;
 use quill_proto::{
     board::{
-        AdminAction, AdminLogEntry, Maturity, PromptState, ReportReason, Resolution, TagNamespace,
-        TagPolicy,
+        AdminAction, AdminLogEntry, Maturity, PromptState, ReportReason, Resolution, Tag,
+        TagNamespace, TagPolicy, TagStatus,
     },
     limits::{
         PROMPT_BODY_MAX_CHARS, PROMPT_TITLE_MAX_CHARS, REPORT_DETAILS_MAX_CHARS, USERNAME_MAX_CHARS,
@@ -12,8 +12,9 @@ use quill_proto::{
 };
 
 use crate::{
-    AdminLogView, AdminReportsView, AuthMode, AuthView, BoardView, Chrome, MessageView,
+    AdminLogView, AdminReportsView, AuthMode, AuthView, BoardView, ChipKind, Chrome, MessageView,
     PersonasView, PromptFormView, PromptView, ReportView, SettingsView,
+    chips::chip_classes,
     layout::{card_list, csrf, error_notice, prompt_meta, tag_datalist, tag_list},
     maturity_label, prompt_url, reason_label, render, short_date, state_label,
 };
@@ -298,13 +299,110 @@ fn tag_policy_hint(policy: TagPolicy, namespaces: &[TagNamespace]) -> String {
     }
 }
 
-fn required_hint(namespaces: &[TagNamespace]) -> Option<String> {
-    let required: Vec<String> = namespaces
+/// The tag picker: chosen tags as chips, slots for required types, a field
+/// to add tags, and "Browse tags". No JavaScript: a chip is a checkbox
+/// (unticked chips aren't sent), and Add or a browsed tag reloads the form.
+fn tag_picker(v: &PromptFormView, action: &str) -> Element {
+    // Add and browse jump back to the picker after reloading.
+    let back_to_tags = format!("{action}#tags");
+    let chosen_types: Vec<&str> = v.chips.iter().map(|c| c.tag.namespace.as_str()).collect();
+    let missing: Vec<&TagNamespace> = v
+        .namespaces
         .iter()
-        .filter(|n| n.required)
-        .map(|n| format!("{} ({}:…)", n.display, n.name))
+        .filter(|n| n.required && !chosen_types.contains(&n.name.as_str()))
         .collect();
-    (!required.is_empty()).then(|| format!("Required: at least one {} tag.", join_and(&required)))
+    let chosen: Vec<String> = v.chips.iter().map(|c| c.tag.key()).collect();
+    let mut groups: Vec<(&TagNamespace, Vec<&Tag>)> = v
+        .namespaces
+        .iter()
+        .map(|n| {
+            let tags: Vec<&Tag> = v
+                .tag_options
+                .iter()
+                .filter(|t| t.namespace == n.name && !chosen.contains(&t.key()))
+                .collect();
+            (n, tags)
+        })
+        .filter(|(_, tags)| !tags.is_empty())
+        .collect();
+    // Required types first, matching the empty slots.
+    groups.sort_by_key(|(n, _)| !n.required);
+    rsx! {
+        fieldset { id: "tags", class: "tag-picker",
+            legend { class: "label", "Tags" }
+            span { class: "hint", "{tag_policy_hint(v.tag_policy, &v.namespaces)}" }
+            div { class: "chips",
+                for c in v.chips.iter() {
+                    label { key: "{c.value}", class: "{chip_classes(&c.tag)} chip-choice",
+                        input { r#type: "checkbox", name: "tag", value: "{c.value}", checked: true }
+                        span { class: "tag-ns", "{c.tag.namespace}: " }
+                        "{c.tag.display}"
+                        match c.kind {
+                            ChipKind::New => rsx! { em { " (new)" } },
+                            ChipKind::NewNeedsApproval => rsx! { em { " (new, needs approval)" } },
+                            ChipKind::Existing if c.tag.status == TagStatus::Pending => rsx! { em { " (awaiting approval)" } },
+                            ChipKind::Existing => rsx! {},
+                        }
+                        span { class: "chip-x", "aria-hidden": "true" }
+                    }
+                }
+                for n in missing.iter() {
+                    span { key: "slot-{n.name}", class: "chip chip-slot",
+                        "{n.display}: required"
+                    }
+                }
+                if v.chips.is_empty() && missing.is_empty() {
+                    span { class: "hint", "No tags yet." }
+                }
+            }
+            if !v.chips.is_empty() {
+                span { class: "hint", "Untick a tag to remove it." }
+            }
+            if !v.tag_errors.is_empty() {
+                ul { class: "notice error tag-errors", role: "alert",
+                    for e in v.tag_errors.iter() {
+                        li { key: "{e}", "{e}" }
+                    }
+                }
+            }
+            div { class: "add-tags",
+                label { r#for: "add-tags", "Add tags"
+                    span { class: "hint", "Type as type:name, like genre:horror or theme:found family. Separate several with commas." }
+                }
+                div { class: "add-row",
+                    input { r#type: "text", id: "add-tags", name: "add", value: "{v.add_text}", list: TAG_OPTIONS,
+                        autocomplete: "off" }
+                    // The first submit button in the form, so Enter in any
+                    // field adds tags rather than posting.
+                    button { class: "btn btn-quiet", r#type: "submit", name: "op", value: "add",
+                        formaction: "{back_to_tags}", formnovalidate: true, "Add" }
+                }
+            }
+            if !groups.is_empty() {
+                details { class: "browse",
+                    summary { "Browse tags" }
+                    for (n, tags) in groups.iter() {
+                        div { key: "{n.name}", class: "browse-group",
+                            h3 {
+                                "{n.display}"
+                                if n.required { span { class: "hint", " (required)" } }
+                            }
+                            div { class: "chips",
+                                for tag in tags.iter() {
+                                    button { key: "{tag.key()}", class: "{chip_classes(tag)} chip-add",
+                                        r#type: "submit", name: "pick", value: "{tag.key()}",
+                                        formaction: "{back_to_tags}", formnovalidate: true,
+                                        "aria-label": "Add {n.display}: {tag.display}",
+                                        "+ {tag.display}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub fn prompt_form_page(chrome: &Chrome, view: PromptFormView) -> String {
@@ -372,19 +470,11 @@ pub fn prompt_form_page(chrome: &Chrome, view: PromptFormView) -> String {
                         select { id: "state", name: "state", {state_options(Some(v.state))} }
                     }
                 }
-                div { class: "field",
-                    label { r#for: "tags", "Tags"
-                        span { class: "hint",
-                            "Comma-separated, as namespace:name, like genre:horror, theme:found family. {tag_policy_hint(v.tag_policy, &v.namespaces)}"
-                        }
-                        if let Some(required) = required_hint(&v.namespaces) {
-                            span { class: "hint required", "{required}" }
-                        }
-                    }
-                    input { r#type: "text", id: "tags", name: "tags", value: "{v.tags}", list: TAG_OPTIONS }
-                }
+                {tag_picker(v, &action)}
                 div { class: "actions",
-                    button { class: "btn", r#type: "submit", if v.editing.is_some() { "Save changes" } else { "Post prompt" } }
+                    button { class: "btn", r#type: "submit", name: "op", value: "save",
+                        if v.editing.is_some() { "Save changes" } else { "Post prompt" }
+                    }
                     a { href: "{cancel}", "Cancel" }
                 }
             }
@@ -623,6 +713,7 @@ fn action_label(action: AdminAction) -> &'static str {
         AdminAction::HideTag => "Tag hidden",
         AdminAction::ShowTag => "Tag shown",
         AdminAction::ChangeSetting => "Setting changed",
+        AdminAction::RecolorTag => "Tag colour changed",
     }
 }
 

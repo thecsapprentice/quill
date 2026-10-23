@@ -231,7 +231,7 @@ async fn deleting_a_tag_removes_it_everywhere() {
             &UpdateTag {
                 alias_of: Some("theme:lighthouses".into()),
                 display: None,
-                status: None,
+                ..UpdateTag::default()
             },
         )
         .await
@@ -335,6 +335,7 @@ async fn creating_tags_and_types_is_logged() {
             display: "Setting".into(),
             locked: false,
             required: true,
+            color: None,
         })
         .await
         .unwrap();
@@ -355,7 +356,7 @@ async fn creating_tags_and_types_is_logged() {
             &UpdateTag {
                 display: Some("Outer space".into()),
                 alias_of: None,
-                status: None,
+                ..UpdateTag::default()
             },
         )
         .await
@@ -380,5 +381,119 @@ async fn creating_tags_and_types_is_logged() {
         log[2].detail.as_deref(),
         Some("Setting; curated tags only: off; required: on")
     );
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn chip_colours_through_the_api() {
+    use quill_proto::board::{ChipColor, TagQuery};
+    let server = server!();
+    let admin = server.admin_account("moderator").await.unwrap();
+    let anon = server.client();
+    let color = |bg: &str, fg: Option<&str>| ChipColor {
+        background: bg.into(),
+        text: fg.map(str::to_owned),
+    };
+    let genre_tag = |slug: &'static str| {
+        let anon = anon.clone();
+        async move {
+            anon.tags(&TagQuery {
+                namespace: Some("genre".into()),
+                ..TagQuery::default()
+            })
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|t| t.slug == slug)
+            .unwrap()
+        }
+    };
+
+    // Types start with colours; tags inherit them, text resolved.
+    assert_eq!(
+        genre_tag("horror").await.color,
+        Some(color("#dbeafe", Some("#1e3a8a")))
+    );
+
+    // A tag's own colour wins; "#ABC" is normalized; text is automatic.
+    admin
+        .admin_update_tag(
+            "genre",
+            "horror",
+            &UpdateTag {
+                color: Some(color("#ABC", None)),
+                ..UpdateTag::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        genre_tag("horror").await.color,
+        Some(color("#aabbcc", Some("#000000")))
+    );
+    let listed = admin
+        .admin_tags(&AdminTagQuery {
+            search: Some("horror".into()),
+            ..AdminTagQuery::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(listed[0].own_color, Some(color("#aabbcc", None)));
+
+    // Bad colours are refused.
+    let bad = admin
+        .admin_update_tag(
+            "genre",
+            "horror",
+            &UpdateTag {
+                color: Some(color("blue", None)),
+                ..UpdateTag::default()
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(status(&bad), 400);
+
+    // Clearing the tag's colour falls back to its type; clearing the type's
+    // leaves no colour at all.
+    admin
+        .admin_update_tag(
+            "genre",
+            "horror",
+            &UpdateTag {
+                clear_color: true,
+                ..UpdateTag::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        genre_tag("horror").await.color,
+        Some(color("#dbeafe", Some("#1e3a8a")))
+    );
+    let ns = admin
+        .admin_update_namespace(
+            "genre",
+            &UpdateNamespace {
+                clear_color: true,
+                ..UpdateNamespace::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(ns.color, None);
+    assert_eq!(genre_tag("horror").await.color, None);
+
+    let log = admin.admin_log(None, None).await.unwrap();
+    let details: Vec<&str> = log.iter().filter_map(|e| e.detail.as_deref()).collect();
+    assert_eq!(
+        details,
+        vec![
+            "colour: none",
+            "colour: same as its type",
+            "colour: automatic text on #aabbcc"
+        ]
+    );
+    assert_eq!(log[1].action, AdminAction::RecolorTag);
     server.stop().await.unwrap();
 }

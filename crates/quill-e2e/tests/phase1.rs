@@ -752,6 +752,7 @@ async fn admin_tag_management_and_aliases() {
         display: "Setting".into(),
         locked: true,
         required: false,
+        color: None,
     };
     assert_eq!(
         status(&alice.admin_create_namespace(&ns).await.unwrap_err()),
@@ -817,7 +818,7 @@ async fn admin_tag_management_and_aliases() {
             &UpdateTag {
                 alias_of: Some("theme:sea".into()),
                 display: Some("Ocean (old)".into()),
-                status: None,
+                ..UpdateTag::default()
             },
         )
         .await
@@ -886,7 +887,7 @@ async fn admin_tag_management_and_aliases() {
             &UpdateTag {
                 alias_of: Some("theme:ocean".into()),
                 display: None,
-                status: None,
+                ..UpdateTag::default()
             },
         )
         .await

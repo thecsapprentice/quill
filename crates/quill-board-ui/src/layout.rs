@@ -4,7 +4,8 @@ use dioxus::prelude::*;
 use quill_proto::board::{Prompt, PromptState, Tag, TagStatus};
 
 use crate::{
-    CSRF_FIELD, Chrome, Nav, maturity_label, prompt_url, short_date, state_label, tag_url,
+    CSRF_FIELD, Chrome, Nav, chips::chip_classes, maturity_label, prompt_url, short_date,
+    state_label, tag_url,
 };
 
 fn nav_link(chrome: &Chrome, nav: Nav, href: &'static str, label: &'static str) -> Element {
@@ -88,21 +89,23 @@ pub(crate) fn tag_list(tags: &[Tag]) -> Element {
                 li { key: "{tag.key()}",
                     match tag.status {
                         TagStatus::Visible => rsx! {
-                            a { href: "{tag_url(tag)}", title: "Show prompts tagged {tag.namespace}: {tag.display}",
+                            a { class: "{chip_classes(tag)}", href: "{tag_url(tag)}",
+                                title: "Show prompts tagged {tag.namespace}: {tag.display}",
                                 span { class: "tag-ns", "{tag.namespace}: " }
                                 "{tag.display}"
                             }
                         },
-                        // Only its author and administrators get these.
+                        // Only its author and administrators get these. Not
+                        // links: filtering by them works for nobody else.
                         TagStatus::Pending => rsx! {
-                            span { class: "tag-quiet",
+                            span { class: "{chip_classes(tag)}",
                                 span { class: "tag-ns", "{tag.namespace}: " }
                                 "{tag.display} "
                                 em { "(awaiting approval)" }
                             }
                         },
                         TagStatus::Hidden => rsx! {
-                            span { class: "tag-quiet",
+                            span { class: "{chip_classes(tag)}",
                                 span { class: "tag-ns", "{tag.namespace}: " }
                                 "{tag.display} "
                                 em { "(hidden)" }

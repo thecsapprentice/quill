@@ -10,8 +10,8 @@ use axum::{
 };
 use quill_proto::{
     board::{
-        AdminAction, AdminTag, AdminTagQuery, CreateNamespace, CreateTag, DeletedTag, Tag,
-        TagNamespace, TagStatus, UpdateNamespace, UpdateTag,
+        AdminAction, AdminTag, AdminTagQuery, ChipColor, CreateNamespace, CreateTag, DeletedTag,
+        Tag, TagNamespace, TagStatus, UpdateNamespace, UpdateTag,
     },
     limits::MAX_PAGE_SIZE,
     validate,
@@ -23,7 +23,7 @@ use crate::{
     AppState,
     auth::Admin,
     error::{ApiError, is_unique_violation},
-    prompts::{escape_like, load_namespace, load_tag, parse_enum, resolve_tags},
+    prompts::{TagRow, escape_like, load_namespace, load_tag, parse_enum, resolve_tags},
     reports::log_action,
     routes::ApiJson,
 };
@@ -51,6 +51,26 @@ fn on_off(value: bool) -> &'static str {
     if value { "on" } else { "off" }
 }
 
+/// Validates an optional chip colour.
+fn checked_color(color: Option<&ChipColor>) -> Result<Option<ChipColor>, ApiError> {
+    Ok(color.map(quill_proto::color::chip).transpose()?)
+}
+
+/// "#1e3a8a on #dbeafe", "automatic text on #1e3a8a", or "none".
+fn describe_color(color: Option<&ChipColor>) -> String {
+    match color {
+        None => "none".to_owned(),
+        Some(ChipColor {
+            background,
+            text: Some(text),
+        }) => format!("{text} on {background}"),
+        Some(ChipColor {
+            background,
+            text: None,
+        }) => format!("automatic text on {background}"),
+    }
+}
+
 // ---- Tag types -----------------------------------------------------------
 
 /// Creates a tag type.
@@ -61,14 +81,18 @@ pub async fn create_namespace(
 ) -> Result<TagNamespace, ApiError> {
     let name = validate::namespace(&body.name)?;
     let display = validate::tag_display(&body.display)?;
+    let color = checked_color(body.color.as_ref())?;
     let mut tx = state.pool.begin().await?;
     let result = sqlx::query(
-        "INSERT INTO tag_namespaces (name, display, locked, required) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO tag_namespaces (name, display, locked, required, chip_bg, chip_fg)
+         VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(&name)
     .bind(&display)
     .bind(body.locked)
     .bind(body.required)
+    .bind(color.as_ref().map(|c| c.background.clone()))
+    .bind(color.as_ref().and_then(|c| c.text.clone()))
     .execute(&mut *tx)
     .await;
     match result {
@@ -80,11 +104,14 @@ pub async fn create_namespace(
         }
         Err(e) => return Err(e.into()),
     }
-    let detail = format!(
+    let mut detail = format!(
         "{display}; curated tags only: {}; required: {}",
         on_off(body.locked),
         on_off(body.required)
     );
+    if color.is_some() {
+        detail.push_str(&format!("; colour: {}", describe_color(color.as_ref())));
+    }
     log_action(
         &mut tx,
         admin,
@@ -99,6 +126,7 @@ pub async fn create_namespace(
         display,
         locked: body.locked,
         required: body.required,
+        color,
     })
 }
 
@@ -114,13 +142,20 @@ pub async fn update_namespace(
         .as_deref()
         .map(validate::tag_display)
         .transpose()?;
+    let new_color = checked_color(body.color.as_ref())?;
     let mut tx = state.pool.begin().await?;
     let before = load_namespace(&mut tx, name, true).await?;
+    let color = match (new_color, body.clear_color) {
+        (Some(c), _) => Some(c),
+        (None, true) => None,
+        (None, false) => before.color.clone(),
+    };
     let after = TagNamespace {
         name: before.name.clone(),
         display: display.unwrap_or_else(|| before.display.clone()),
         locked: body.locked.unwrap_or(before.locked),
         required: body.required.unwrap_or(before.required),
+        color,
     };
     let mut changes = Vec::new();
     if after.display != before.display {
@@ -135,16 +170,23 @@ pub async fn update_namespace(
     if after.required != before.required {
         changes.push(format!("required: {}", on_off(after.required)));
     }
+    if after.color != before.color {
+        changes.push(format!("colour: {}", describe_color(after.color.as_ref())));
+    }
     if changes.is_empty() {
         return Ok(before);
     }
     sqlx::query(
-        "UPDATE tag_namespaces SET display = $2, locked = $3, required = $4 WHERE name = $1",
+        "UPDATE tag_namespaces
+         SET display = $2, locked = $3, required = $4, chip_bg = $5, chip_fg = $6
+         WHERE name = $1",
     )
     .bind(&after.name)
     .bind(&after.display)
     .bind(after.locked)
     .bind(after.required)
+    .bind(after.color.as_ref().map(|c| c.background.clone()))
+    .bind(after.color.as_ref().and_then(|c| c.text.clone()))
     .execute(&mut *tx)
     .await?;
     log_action(
@@ -161,27 +203,44 @@ pub async fn update_namespace(
 
 // ---- Tags ----------------------------------------------------------------
 
-type AdminTagRow = (String, String, String, String, String, Option<String>, i64);
+#[derive(sqlx::FromRow)]
+struct AdminTagRow {
+    #[sqlx(flatten)]
+    tag: TagRow,
+    own_bg: Option<String>,
+    own_fg: Option<String>,
+    alias_of: Option<String>,
+    uses: i64,
+}
 
 fn to_admin_tag(row: AdminTagRow) -> Result<AdminTag, ApiError> {
-    let (namespace, slug, display, origin, status, alias_of, uses) = row;
+    let AdminTagRow {
+        tag,
+        own_bg,
+        own_fg,
+        alias_of,
+        uses,
+    } = row;
     Ok(AdminTag {
-        tag: Tag {
-            namespace,
-            slug,
-            display,
-            origin: parse_enum(&origin)?,
-            status: parse_enum(&status)?,
-        },
+        tag: tag.into_tag()?,
+        own_color: own_bg.map(|background| ChipColor {
+            background,
+            text: own_fg,
+        }),
         uses: u64::try_from(uses).unwrap_or(0),
         alias_of,
     })
 }
 
-const ADMIN_TAG_SELECT: &str = "SELECT t.namespace, t.slug, t.display, t.origin, t.status,
-            c.namespace || ':' || c.slug,
-            (SELECT count(*) FROM prompts p WHERE p.tag_ids @> ARRAY[t.id])
-     FROM tags t LEFT JOIN tags c ON c.id = t.canonical_id
+const ADMIN_TAG_SELECT: &str = "SELECT t.id, t.namespace, t.slug, t.display, t.origin, t.status,
+            COALESCE(t.chip_bg, n.chip_bg) AS chip_bg,
+            CASE WHEN t.chip_bg IS NOT NULL THEN t.chip_fg ELSE n.chip_fg END AS chip_fg,
+            t.chip_bg AS own_bg, t.chip_fg AS own_fg,
+            c.namespace || ':' || c.slug AS alias_of,
+            (SELECT count(*) FROM prompts p WHERE p.tag_ids @> ARRAY[t.id]) AS uses
+     FROM tags t
+     JOIN tag_namespaces n ON n.name = t.namespace
+     LEFT JOIN tags c ON c.id = t.canonical_id
      WHERE t.instance = ''";
 
 /// Local tags with their usage, aliases included, by type and then name.
@@ -350,6 +409,32 @@ pub async fn update_tag(
                 .await?;
             let detail = format!("renamed from {old_display} to {display}");
             log_action(&mut tx, admin, AdminAction::RenameTag, &key, Some(&detail)).await?;
+        }
+    }
+
+    let new_color = checked_color(body.color.as_ref())?;
+    if new_color.is_some() || body.clear_color {
+        let (old_bg, old_fg): (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT chip_bg, chip_fg FROM tags WHERE id = $1")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+        let old = old_bg.map(|background| ChipColor {
+            background,
+            text: old_fg,
+        });
+        if new_color != old {
+            sqlx::query("UPDATE tags SET chip_bg = $2, chip_fg = $3 WHERE id = $1")
+                .bind(id)
+                .bind(new_color.as_ref().map(|c| c.background.clone()))
+                .bind(new_color.as_ref().and_then(|c| c.text.clone()))
+                .execute(&mut *tx)
+                .await?;
+            let detail = match &new_color {
+                Some(_) => format!("colour: {}", describe_color(new_color.as_ref())),
+                None => "colour: same as its type".to_owned(),
+            };
+            log_action(&mut tx, admin, AdminAction::RecolorTag, &key, Some(&detail)).await?;
         }
     }
 
