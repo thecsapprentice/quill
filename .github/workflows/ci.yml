@@ -72,6 +72,8 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: cargo clippy -p quill-core -p quill
         shell: bash
+        env:
+          CARGO_TERM_COLOR: never
         run: |
           set -o pipefail
           cargo clippy --locked -p quill-core -p quill --all-targets -- -D warnings 2>&1 | tee clippy.log || {
@@ -81,6 +83,8 @@ jobs:
           }
       - name: cargo test -p quill-core
         shell: bash
+        env:
+          CARGO_TERM_COLOR: never
         # Failing tests are also reported as annotations, readable without
         # downloading the log.
         run: |
