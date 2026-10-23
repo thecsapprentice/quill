@@ -265,6 +265,8 @@ Inside every MLS application message is one AS2 activity in UTF-8 JSON, followin
 | `blobToken`                                        | `EncryptedAttachment` | Capability token the reader presents to fetch the blob.                                                                              |
 | `encAlg`, `key`, `nonce`, `hashAlg`, `contentHash` | `EncryptedAttachment` | Decryption and integrity fields, modeled on MIMI content's external part; `contentHash` is over the plaintext.                       |
 
+A channel is named, so it shows before anything is written in it, with a `Create` of a `wr:Channel` object (`name`, optional `summary`); an `Update` of one replaces the description, and every version is kept. Either writer may describe any channel; channels are never deleted. A note in a channel nobody named names it too, and a malformed channel name files the note under `story` (built in 2h).
+
 There is deliberately no "seen" or causal-hint field: listing what a writer had already seen would reveal read status. Explicit replies use AS2 `inReplyTo`.
 
 Allowed activity types: `Create`, `Update`, `Delete`, `Like`, `Announce`, `Undo` and `IntransitiveActivity` (cover traffic). The SWICG profile's `Read`, `View` and `Listen` are **not allowed**: clients never send them and discard any they receive. Clients sanitize all HTML after decryption.

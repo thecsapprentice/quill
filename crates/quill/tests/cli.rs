@@ -364,6 +364,51 @@ async fn the_cli_sends_reads_and_accepts_a_request() {
         out.contains("[story] @quiet_wren:\n    The tide came in early."),
         "{out}"
     );
+    // Channels (2h).
+    let (ok, _, err) = as_alice(&[
+        "session",
+        "channel",
+        "add",
+        short,
+        "world",
+        "--about",
+        "Places and people",
+    ]);
+    assert!(ok, "{err}");
+    let (ok, out, err) = as_bob(&["session", "channels", short]);
+    assert!(ok, "{err}");
+    assert!(
+        out.contains("world  0 notes, 0 new  Places and people"),
+        "{out}"
+    );
+    let (ok, out, err) = as_bob(&[
+        "--json",
+        "session",
+        "write",
+        short,
+        "--channel",
+        "world",
+        "--text",
+        "The lighthouse.",
+    ]);
+    assert!(ok, "{err}");
+    let seq = serde_json::from_str::<serde_json::Value>(&out).unwrap()["seq"].to_string();
+    let (ok, _, err) = as_alice(&[
+        "session",
+        "write",
+        short,
+        "--reply-to",
+        &seq,
+        "--text",
+        "Act one, then.",
+    ]);
+    assert!(ok, "{err}");
+    let (_, out, _) = as_bob(&["session", "read", short, "--channel", "story"]);
+    assert!(
+        out.contains(&format!("(answers #{seq} in [world])")),
+        "{out}"
+    );
+    assert!(!out.contains("The lighthouse."), "{out}");
     let (ok, out, err) = as_alice(&["session", "leave", short]);
     assert!(ok && out.contains("ended"), "{out}{err}");
     let (ok, _, err) = as_bob(&["session", "write", short, "--text", "Hello?"]);

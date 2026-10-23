@@ -357,3 +357,76 @@ async fn acknowledged_messages_are_deleted_only_once_every_device_has_them() {
     pool.close().await;
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn channels_are_shared_and_the_server_sees_none_of_it() {
+    let server = server!();
+    let (id, (alice, alice_c, _), (bob, bob_c, _)) = pair(&server).await;
+    sessions::name_channel(&alice, &alice_c, &id, "world", Some("Places and people"))
+        .await
+        .unwrap();
+    // Bob sees it before anything is written in it.
+    let bobs = sessions::channels(&bob, &bob_c, &id).await.unwrap();
+    let names: Vec<&str> = bobs.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["story", "planning", "world"]);
+    assert_eq!(bobs[2].summary.as_deref(), Some("Places and people"));
+    assert_eq!(bobs[2].notes, 0);
+    // A bad name is refused before anything is sent.
+    assert!(
+        sessions::write(&bob, &bob_c, &id, "x", Some("Bad Name"))
+            .await
+            .is_err()
+    );
+
+    let lighthouse = sessions::write(&bob, &bob_c, &id, "The lighthouse.", Some("world"))
+        .await
+        .unwrap();
+    let reply = sessions::reply(
+        &alice,
+        &alice_c,
+        &id,
+        "Use it in act one.",
+        None,
+        lighthouse,
+    )
+    .await
+    .unwrap();
+    let r = sessions::read(&bob, &bob_c, &id).await.unwrap();
+    let m = r.messages.iter().find(|m| m.seq == reply).unwrap();
+    assert_eq!(m.channel, "story");
+    let to = m.in_reply_to.as_deref().unwrap();
+    assert_eq!(
+        sessions::locate(&bob, &r.session, to).unwrap(),
+        Some((lighthouse, "world".to_owned()))
+    );
+
+    // Unread counts are this device's own.
+    let story = |list: &[quill_core::history::ChannelInfo]| {
+        list.iter().find(|c| c.name == "story").unwrap().unseen
+    };
+    assert_eq!(
+        story(&sessions::channels(&bob, &bob_c, &id).await.unwrap()),
+        1
+    );
+    sessions::mark_shown(&bob, &r, Some("story")).unwrap();
+    assert_eq!(
+        story(&sessions::channels(&bob, &bob_c, &id).await.unwrap()),
+        0
+    );
+    let alices = sessions::channels(&alice, &alice_c, &id).await.unwrap();
+    assert_eq!(alices.iter().find(|c| c.name == "world").unwrap().unseen, 1);
+
+    // To the server, channel activity is just more messages.
+    let log = alice_c
+        .group_messages(&id, &MessagesQuery::default())
+        .await
+        .unwrap();
+    let sizes: std::collections::BTreeSet<usize> = log
+        .messages
+        .iter()
+        .skip(1)
+        .map(|m| m.message.len())
+        .collect();
+    assert_eq!(sizes.len(), 1, "every message pads to the same size here");
+    server.stop().await.unwrap();
+}

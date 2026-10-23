@@ -28,6 +28,7 @@ use quill_proto::{
     events::Event,
     keys::{b64, unb64},
     sessions::{LeaveWelcome, Session, SessionMember},
+    validate,
 };
 use serde::{Deserialize, Serialize};
 use tls_codec::{Deserialize as _, Serialize as _};
@@ -1136,13 +1137,117 @@ pub async fn write(
     text: &str,
     channel: Option<&str>,
 ) -> Result<u64, CoreError> {
+    write_note(store, client, id, text, channel, None).await
+}
+
+/// Writes a message answering message `to`, which may be in another
+/// channel. Returns its place in the log.
+pub async fn reply(
+    store: &Store,
+    client: &Client,
+    id: &str,
+    text: &str,
+    channel: Option<&str>,
+    to: u64,
+) -> Result<u64, CoreError> {
+    write_note(store, client, id, text, channel, Some(to)).await
+}
+
+async fn write_note(
+    store: &Store,
+    client: &Client,
+    id: &str,
+    text: &str,
+    channel: Option<&str>,
+    to: Option<u64>,
+) -> Result<u64, CoreError> {
     let text = check_text(text)?;
     let channel = channel.unwrap_or(STORY);
+    validate::channel(channel).map_err(|e| err(e.to_string()))?;
     let r = ready(store, client, id).await?;
+    let answers = match to {
+        Some(at) => Some(
+            history::message(store, &r.gid, at)?
+                .ok_or_else(|| err(format!("no message #{at} on this device")))?
+                .id,
+        ),
+        None => None,
+    };
     send(store, client, &r, |hlc, n| {
-        Activity::create(text, channel, hlc, n)
+        let note = Activity::create(text, channel, hlc, n);
+        match &answers {
+            Some(id) => note.replying_to(id),
+            None => note,
+        }
     })
     .await
+}
+
+/// A session's channels, after syncing it.
+pub async fn channels(
+    store: &Store,
+    client: &Client,
+    id: &str,
+) -> Result<Vec<history::ChannelInfo>, CoreError> {
+    let reading = read(store, client, id).await?;
+    let gid = unb64(&reading.session.id).ok_or_else(|| err("bad session id"))?;
+    history::channels(store, &gid)
+}
+
+/// Names a channel, or describes it again, for both writers. Returns its
+/// place in the log.
+pub async fn name_channel(
+    store: &Store,
+    client: &Client,
+    id: &str,
+    name: &str,
+    about: Option<&str>,
+) -> Result<u64, CoreError> {
+    validate::channel(name).map_err(|e| err(e.to_string()))?;
+    if let Some(a) = about {
+        validate::summary(Some(a)).map_err(|e| err(format!("description {e}")))?;
+    }
+    let r = ready(store, client, id).await?;
+    let known = history::channels(store, &r.gid)?
+        .iter()
+        .any(|c| c.name == name && !c.versions.is_empty());
+    let kind = if known { "Update" } else { "Create" };
+    send(store, client, &r, |hlc, n| {
+        Activity::channel(kind, name, about, hlc, n)
+    })
+    .await
+}
+
+/// Notes that this device has shown a reading's notes (all channels, or
+/// just `channel`), for the unread counts. Kept only on this device.
+pub fn mark_shown(
+    store: &Store,
+    reading: &Reading,
+    channel: Option<&str>,
+) -> Result<(), CoreError> {
+    let gid = unb64(&reading.session.id).ok_or_else(|| err("bad session id"))?;
+    let mut last: HashMap<&str, u64> = HashMap::new();
+    for m in &reading.messages {
+        if channel.is_none_or(|c| c == m.channel) {
+            let e = last.entry(m.channel.as_str()).or_default();
+            *e = (*e).max(m.seq);
+        }
+    }
+    for (c, seq) in last {
+        history::mark_shown(store, &gid, c, seq)?;
+    }
+    Ok(())
+}
+
+/// Where the note `note_id` is in a session: its number and channel, if
+/// this device has it.
+pub fn locate(
+    store: &Store,
+    session: &Session,
+    note_id: &str,
+) -> Result<Option<(u64, String)>, CoreError> {
+    let gid = unb64(&session.id).ok_or_else(|| err("bad session id"))?;
+    history::find_note(store, &gid, note_id)
 }
 
 /// One of this persona's notes, to change.

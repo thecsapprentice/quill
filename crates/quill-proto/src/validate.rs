@@ -30,6 +30,32 @@ pub enum ValidationError {
     Color(String),
     #[error("reserved handle {0:?} must be 1-64 characters of a-z, 0-9 or underscore")]
     ReservedEntry(String),
+    #[error(
+        "channel {0:?} must be 1-{CHANNEL_MAX_CHARS} characters of a-z, 0-9 and single hyphens, not starting or ending with one"
+    )]
+    Channel(String),
+}
+
+/// The longest channel name (protocol draft, section 5).
+pub const CHANNEL_MAX_CHARS: usize = 32;
+/// Channels every session has.
+pub const DEFAULT_CHANNELS: [&str; 2] = ["story", "planning"];
+
+/// Checks a session channel name: slug rules, as given (no folding, so a
+/// name means the same to every client).
+pub fn channel(input: &str) -> Result<&str, ValidationError> {
+    let bad = || ValidationError::Channel(input.to_owned());
+    let ok_char = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-';
+    if input.is_empty()
+        || input.len() > CHANNEL_MAX_CHARS
+        || !input.chars().all(ok_char)
+        || input.starts_with('-')
+        || input.ends_with('-')
+        || input.contains("--")
+    {
+        return Err(bad());
+    }
+    Ok(input)
 }
 
 /// Normalizes and validates a login name or persona handle.
@@ -361,5 +387,32 @@ mod tests {
         assert!(display_name(Some("bell\u{7}")).is_err());
         assert!(summary(Some("line one\nline two")).is_ok());
         assert!(summary(Some(&"s".repeat(SUMMARY_MAX_CHARS + 1))).is_err());
+    }
+
+    #[test]
+    fn channel_names_follow_slug_rules() {
+        for ok in [
+            "story",
+            "planning",
+            "world-notes",
+            "act-2",
+            "a",
+            &"x".repeat(32),
+        ] {
+            assert!(channel(ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "",
+            "Story",
+            "two words",
+            "-x",
+            "x-",
+            "a--b",
+            "café",
+            &"x".repeat(33),
+            "a_b",
+        ] {
+            assert!(channel(bad).is_err(), "{bad}");
+        }
     }
 }
