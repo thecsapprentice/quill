@@ -67,8 +67,17 @@ async fn create_report(
     MaybeAuthed(authed): MaybeAuthed,
     ApiJson(body): ApiJson<CreateReport>,
 ) -> Result<StatusCode, ApiError> {
+    file_report(&state, authed.map(|a| a.account_id), &body).await?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Files a report from `reporter` (an account id, or anonymous).
+pub async fn file_report(
+    state: &AppState,
+    reporter: Option<Uuid>,
+    body: &CreateReport,
+) -> Result<(), ApiError> {
     let details = quill_proto::validate::report_details(body.details.as_deref())?;
-    let reporter = authed.map(|a| a.account_id);
     let (key, max) = match reporter {
         Some(id) => (format!("report:{id}"), ACCOUNT_REPORTS_PER_HOUR),
         None => ("report:anonymous".to_owned(), ANONYMOUS_REPORTS_PER_HOUR),
@@ -110,7 +119,7 @@ async fn create_report(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(StatusCode::ACCEPTED)
+    Ok(())
 }
 
 type ReportRow = (
@@ -154,12 +163,21 @@ async fn list_reports(
     _admin: Admin,
     Query(q): Query<ReportQuery>,
 ) -> Result<Json<Vec<Report>>, ApiError> {
-    let sql = match q.state.as_deref() {
-        None | Some("open") => {
-            format!("{REPORT_SELECT} WHERE resolved_at IS NULL ORDER BY created_at LIMIT 200")
-        }
-        Some("all") => format!("{REPORT_SELECT} ORDER BY created_at DESC LIMIT 200"),
+    let all = match q.state.as_deref() {
+        None | Some("open") => false,
+        Some("all") => true,
         Some(_) => return Err(ApiError::BadRequest("state must be open or all".into())),
+    };
+    reports(&state, all).await.map(Json)
+}
+
+/// The administrators' inbox: open reports oldest first, or every report
+/// newest first.
+pub async fn reports(state: &AppState, all: bool) -> Result<Vec<Report>, ApiError> {
+    let sql = if all {
+        format!("{REPORT_SELECT} ORDER BY created_at DESC LIMIT 200")
+    } else {
+        format!("{REPORT_SELECT} WHERE resolved_at IS NULL ORDER BY created_at LIMIT 200")
     };
     // Safe: `sql` is one of two strings built from compile-time constants.
     let rows: Vec<ReportRow> = sqlx::query_as(AssertSqlSafe(sql))
@@ -167,9 +185,9 @@ async fn list_reports(
         .await?;
     let mut reports = Vec::with_capacity(rows.len());
     for row in rows {
-        reports.push(to_report(&state, row).await?);
+        reports.push(to_report(state, row).await?);
     }
-    Ok(Json(reports))
+    Ok(reports)
 }
 
 /// `POST /admin/reports/{id}/resolve`: discard the report, or remove the
@@ -180,6 +198,18 @@ async fn resolve_report(
     Path(id): Path<Uuid>,
     ApiJson(body): ApiJson<ResolveReport>,
 ) -> Result<Json<Report>, ApiError> {
+    resolve(&state, admin.account_id, id, body.action)
+        .await
+        .map(Json)
+}
+
+/// Resolves a report as administrator `admin`.
+pub async fn resolve(
+    state: &AppState,
+    admin: Uuid,
+    id: Uuid,
+    action: Resolution,
+) -> Result<Report, ApiError> {
     let mut tx = state.pool.begin().await?;
     let row: Option<(Option<Uuid>, String, Vec<u8>, bool)> = sqlx::query_as(
         "SELECT prompt_id, reason::text, prompt_hash, resolved_at IS NOT NULL
@@ -192,7 +222,7 @@ async fn resolve_report(
     if resolved {
         return Err(ApiError::Conflict("report already resolved".into()));
     }
-    let action = match body.action {
+    let logged = match action {
         Resolution::Discard => "discard",
         Resolution::Delete => {
             // Phase 3 also sends a federated `Delete` for local prompts.
@@ -209,20 +239,20 @@ async fn resolve_report(
         "UPDATE reports SET resolved_at = now(), resolution = $2, resolved_by = $3 WHERE id = $1",
     )
     .bind(id)
-    .bind(body.action.as_str())
-    .bind(admin.account_id)
+    .bind(action.as_str())
+    .bind(admin)
     .execute(&mut *tx)
     .await?;
     sqlx::query(
         "INSERT INTO admin_log (action, report_id, prompt_id, prompt_hash, reason, admin_id)
          VALUES ($1, $2, $3, $4, $5::report_reason, $6)",
     )
-    .bind(action)
+    .bind(logged)
     .bind(id)
     .bind(prompt_id)
     .bind(&hash)
     .bind(&reason)
-    .bind(admin.account_id)
+    .bind(admin)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -230,7 +260,7 @@ async fn resolve_report(
     // Safe: built only from compile-time constants; values are bound.
     let sql = AssertSqlSafe(format!("{REPORT_SELECT} WHERE id = $1"));
     let row: ReportRow = sqlx::query_as(sql).bind(id).fetch_one(&state.pool).await?;
-    Ok(Json(to_report(&state, row).await?))
+    to_report(state, row).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -257,13 +287,22 @@ async fn read_log(
     _admin: Admin,
     Query(q): Query<LogQuery>,
 ) -> Result<Json<Vec<AdminLogEntry>>, ApiError> {
-    let limit = i64::from(q.limit.unwrap_or(50).clamp(1, 200));
+    admin_log(&state, q.before, q.limit).await.map(Json)
+}
+
+/// The admin log, newest first, optionally before entry `before`.
+pub async fn admin_log(
+    state: &AppState,
+    before: Option<i64>,
+    limit: Option<u32>,
+) -> Result<Vec<AdminLogEntry>, ApiError> {
+    let limit = i64::from(limit.unwrap_or(50).clamp(1, 200));
     let rows: Vec<LogRow> = sqlx::query_as(
         "SELECT id, at, action, report_id, prompt_id, prompt_hash, reason::text, admin_id
          FROM admin_log WHERE ($1::bigint IS NULL OR id < $1)
          ORDER BY id DESC LIMIT $2",
     )
-    .bind(q.before)
+    .bind(before)
     .bind(limit)
     .fetch_all(&state.pool)
     .await?;
@@ -282,8 +321,7 @@ async fn read_log(
                 })
             },
         )
-        .collect::<Result<Vec<_>, ApiError>>()
-        .map(Json)
+        .collect()
 }
 
 #[cfg(test)]

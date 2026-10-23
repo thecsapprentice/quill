@@ -1,0 +1,616 @@
+/* Quill prompt board.
+   Library index cards: each prompt sits on a card with a red header rule and
+   faint ruled lines. System fonts only: the board loads nothing from
+   third-party hosts and needs no JavaScript. */
+
+:root {
+  --page: #eef1f3;
+  --card: #ffffff;
+  --ink: #1e2b3a;
+  --muted: #5b6878;
+  --rule: #c2413b;
+  --ruled: #dbe6ef;
+  --line: #c9d3dc;
+  --act: #1c6b63;
+  --act-ink: #ffffff;
+  --open: #1c6b63;
+  --busy: #8a6200;
+  --closed: #6b7480;
+  --warn: #fff4d6;
+  --warn-line: #d9b45a;
+  --danger: #a3302b;
+  --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino,
+    "URW Palladio L", "P052", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Ubuntu,
+    sans-serif;
+  --line-h: 1.6rem;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #141b22;
+    --card: #1c252e;
+    --ink: #e3e8ee;
+    --muted: #9aa7b4;
+    --rule: #e06a5f;
+    --ruled: #26313c;
+    --line: #2e3a46;
+    --act: #5fbfb2;
+    --act-ink: #0e1a19;
+    --open: #5fbfb2;
+    --busy: #d6a84a;
+    --closed: #8f9aa6;
+    --warn: #2c2716;
+    --warn-line: #8a7230;
+    --danger: #f08a82;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 1rem/1.5 var(--sans);
+}
+
+a {
+  color: var(--act);
+  text-underline-offset: 0.15em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--act);
+  outline-offset: 2px;
+}
+
+.wrap {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+/* ---- Header and footer ---- */
+
+.site-header {
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+}
+
+.site-header .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  padding-top: 0.9rem;
+  padding-bottom: 0.9rem;
+}
+
+.site-name {
+  font: 700 1.35rem/1.2 var(--serif);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1.1rem;
+  font-size: 0.95rem;
+}
+
+.site-nav a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.site-nav a:hover,
+.site-nav a[aria-current="page"] {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.site-nav form {
+  display: inline;
+  margin: 0;
+}
+
+.link-button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+/* `main.wrap` outranks `.wrap`, whose shorthand padding would reset this. */
+main.wrap {
+  padding-top: 1.75rem;
+  padding-bottom: 3rem;
+}
+
+.site-footer {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.875rem;
+  padding: 1.25rem 0 2rem;
+}
+
+.site-footer p {
+  margin: 0.25rem 0;
+}
+
+/* ---- Page headings and notices ---- */
+
+h1 {
+  font: 700 1.9rem/1.2 var(--serif);
+  margin: 0 0 1rem;
+}
+
+.lede {
+  color: var(--muted);
+  margin: -0.5rem 0 1.5rem;
+  max-width: 38rem;
+}
+
+.notice {
+  border-left: 3px solid var(--act);
+  background: var(--card);
+  padding: 0.6rem 0.9rem;
+  margin: 0 0 1.5rem;
+}
+
+.notice.error {
+  border-left-color: var(--danger);
+}
+
+.warning {
+  background: var(--warn);
+  border: 1px solid var(--warn-line);
+  border-radius: 3px;
+  padding: 1rem 1.25rem;
+  margin: 0 0 1.5rem;
+}
+
+.warning p {
+  margin: 0 0 0.75rem;
+}
+
+/* ---- Index cards ---- */
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.9rem 1.25rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.card-title {
+  font: 600 1.3rem/1.25 var(--serif);
+  margin: 0 0 0.55rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid var(--rule);
+}
+
+.card-title a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.card-title a:hover {
+  text-decoration: underline;
+}
+
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin: 0 0 0.5rem;
+}
+
+/* Prompt text sits on faint ruled lines, like the body of an index card. */
+.ruled {
+  font: 1.06rem/var(--line-h) var(--serif);
+  background-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--line-h) - 1px),
+    var(--ruled) calc(var(--line-h) - 1px)
+  );
+  background-size: 100% var(--line-h);
+}
+
+.ruled p,
+.ruled ul,
+.ruled ol,
+.ruled blockquote,
+.ruled pre {
+  margin: 0 0 var(--line-h);
+}
+
+.ruled > :last-child {
+  margin-bottom: 0;
+}
+
+.ruled h3,
+.ruled h4,
+.ruled h5,
+.ruled h6 {
+  font-size: 1.06rem;
+  line-height: var(--line-h);
+  margin: 0;
+}
+
+.ruled blockquote {
+  border-left: 2px solid var(--line);
+  padding-left: 1rem;
+  color: var(--muted);
+}
+
+.ruled code {
+  font-size: 0.92em;
+}
+
+.ruled pre {
+  white-space: pre-wrap;
+}
+
+.excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+  max-height: calc(var(--line-h) * 4);
+}
+
+.tags {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.9rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  font-size: 0.875rem;
+}
+
+.tags a {
+  color: var(--muted);
+}
+
+.tags a:hover {
+  color: var(--act);
+}
+
+.tag-ns {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+/* ---- State and rating ---- */
+
+.state::before {
+  content: "";
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  margin-right: 0.35em;
+  background: currentColor;
+  vertical-align: 0.05em;
+}
+
+.state-open {
+  color: var(--open);
+}
+
+.state-busy {
+  color: var(--busy);
+}
+
+.state-closed {
+  color: var(--closed);
+}
+
+.rating {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 0 0.35em;
+}
+
+.removed {
+  color: var(--danger);
+}
+
+/* ---- The full prompt ---- */
+
+.prompt-card {
+  padding: 1.25rem 1.5rem 1.4rem;
+}
+
+.prompt-card .card-title {
+  font-size: 1.75rem;
+}
+
+.prompt-card .ruled {
+  font-size: 1.125rem;
+}
+
+.prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  margin: 0 0 1.5rem;
+  font-size: 0.95rem;
+}
+
+.prompt-actions form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.aside {
+  color: var(--muted);
+  font-size: 0.925rem;
+}
+
+/* ---- Filters ---- */
+
+.filters {
+  margin: 0 0 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--card);
+}
+
+.filters summary {
+  cursor: pointer;
+  padding: 0.6rem 1rem;
+  font-weight: 600;
+}
+
+.filters form {
+  padding: 0 1rem 1rem;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0 1rem;
+}
+
+/* ---- Forms ---- */
+
+.field {
+  margin: 0 0 1rem;
+}
+
+label,
+.label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.925rem;
+  margin: 0 0 0.3rem;
+}
+
+.hint {
+  display: block;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.85rem;
+  margin-top: 0.15rem;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="search"],
+select,
+textarea {
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.45rem 0.6rem;
+}
+
+textarea {
+  font-family: var(--serif);
+  font-size: 1.06rem;
+  line-height: 1.55;
+  min-height: 14rem;
+  resize: vertical;
+}
+
+textarea.short {
+  min-height: 6rem;
+  font-family: var(--sans);
+  font-size: 1rem;
+}
+
+.form-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1.25rem 1.25rem 0.5rem;
+  margin: 0 0 1.5rem;
+}
+
+.choices {
+  border: 0;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 400;
+}
+
+.btn {
+  display: inline-block;
+  font: 600 0.95rem/1.2 var(--sans);
+  color: var(--act-ink);
+  background: var(--act);
+  border: 1px solid var(--act);
+  border-radius: 3px;
+  padding: 0.5rem 1rem;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn:hover {
+  filter: brightness(1.08);
+}
+
+.btn-quiet {
+  color: var(--act);
+  background: transparent;
+}
+
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.pager {
+  margin: 1.5rem 0 0;
+}
+
+.empty {
+  background: var(--card);
+  border: 1px dashed var(--line);
+  border-radius: 3px;
+  padding: 1.25rem;
+  color: var(--muted);
+}
+
+/* ---- Lists and tables (personas, admin) ---- */
+
+.rows {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.rows li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.rows form {
+  margin: 0;
+}
+
+.report {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.9rem 1.25rem;
+  margin: 0 0 1rem;
+}
+
+.report.resolved {
+  border-left-color: var(--line);
+}
+
+.report h2 {
+  font: 600 1.15rem/1.3 var(--serif);
+  margin: 0 0 0.35rem;
+}
+
+.report blockquote {
+  margin: 0.5rem 0;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--line);
+}
+
+.report form {
+  display: inline-block;
+  margin: 0.5rem 0.75rem 0 0;
+}
+
+.log {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.log th,
+.log td {
+  text-align: left;
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.log code {
+  font-size: 0.8rem;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+@media (max-width: 30rem) {
+  h1 {
+    font-size: 1.6rem;
+  }
+
+  .prompt-card {
+    padding: 1rem;
+  }
+
+  .prompt-card .card-title {
+    font-size: 1.45rem;
+  }
+}

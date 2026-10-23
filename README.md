@@ -7,10 +7,10 @@ messages but can never read them: sessions use
 [Messaging Layer Security (RFC 9420)](https://www.rfc-editor.org/rfc/rfc9420.html),
 and servers federate over ActivityPub.
 
-> **Status: Phase 1 (prompt board) in progress.** Accounts, personas, prompts,
-> tags, search, reports and the admin inbox work through the API and CLI; the
-> web board is next. Encrypted sessions and federation come in later phases.
-> Not ready for real use.
+> **Status: Phase 1 (prompt board) complete.** Accounts, personas, prompts,
+> tags, search, reports and the admin inbox work through the web board, the API
+> and the CLI. Encrypted sessions and federation come in later phases. Not
+> ready for real use.
 
 ## Workspace
 
@@ -18,7 +18,8 @@ and servers federate over ActivityPub.
 | --- | --- | --- |
 | `quill-proto` | lib | Shared API types and validation. No cryptography. |
 | `quill-mls-envelope` | lib | Reads MLS framing headers for routing; cannot decrypt. |
-| `quill-server` | bin | axum server: client API, (later) delivery service and federation. |
+| `quill-board-ui` | lib | Dioxus components for the prompt board, rendered on the server. |
+| `quill-server` | bin | axum server: web board, client API, (later) delivery service and federation. |
 | `quill-core` | lib | Client library: API client, local profile, (later) all MLS state. |
 | `quill` | bin | Minimal CLI client that exercises every server feature. |
 | `quill-e2e` | tests | End-to-end tests: real server and real Postgres. |
@@ -41,7 +42,7 @@ createdb -O quill quill_dev
 QUILL_DATABASE_URL=postgres://quill:PASSWORD@localhost/quill_dev \
   cargo run -p quill-server
 
-# In another terminal, use the CLI.
+# Open http://localhost:8080/ for the web board, or use the CLI in another terminal.
 cargo run -p quill -- server http://localhost:8080
 cargo run -p quill -- register yourname
 cargo run -p quill -- persona new your_handle --display-name "Your Name"
@@ -70,6 +71,14 @@ Server configuration (environment variables):
 | `QUILL_MAX_PERSONAS` | `20` | Personas per account |
 | `QUILL_TOKEN_TTL_DAYS` | `30` | Login token lifetime |
 | `QUILL_TAG_POLICY` | `both` | `curated` (admin tags only), `user` or `both` |
+| `QUILL_SOURCE_URL` | this repository | Source link in the board's footer; point it at your version if you modify Quill (AGPL) |
+
+The web board runs no JavaScript and loads nothing from other sites. Its
+Content-Security-Policy allows only the board's own stylesheet, and forms are
+protected by SameSite=Strict `__Host-` session cookies, per-session CSRF
+tokens and a cross-site request check. Session cookies are marked Secure, so
+serve the board over HTTPS; browsers make an exception for `localhost` during
+development.
 
 The CLI stores its server and login token in a profile file readable only by
 you (`~/.config/quill/profile.json` on Linux; override with `QUILL_PROFILE` or

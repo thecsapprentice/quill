@@ -9,6 +9,7 @@ mod prompts;
 mod ratelimit;
 mod reports;
 mod routes;
+mod web;
 
 use std::sync::Arc;
 
@@ -77,8 +78,11 @@ pub async fn set_admin(pool: &PgPool, login_name: &str, admin: bool) -> Result<b
 pub fn router(state: AppState) -> Router {
     // Bodies over the envelope limit are rejected before they are buffered.
     let body_limit = usize::try_from(state.config.limits.max_envelope_bytes).unwrap_or(usize::MAX);
+    let api = routes::api()
+        .fallback(|| async { error::ApiError::NotFound })
+        .layer(DefaultBodyLimit::max(body_limit));
     Router::new()
-        .nest(quill_proto::API_PREFIX, routes::api())
-        .layer(DefaultBodyLimit::max(body_limit))
+        .nest(quill_proto::API_PREFIX, api)
+        .merge(web::router())
         .with_state(state)
 }

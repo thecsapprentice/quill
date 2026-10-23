@@ -1,0 +1,314 @@
+//! The server-rendered prompt board.
+//!
+//! Plain HTML pages and forms, rendered with `quill-board-ui`. No JavaScript
+//! is served, so the board works in Tor Browser's safest mode. Every page
+//! calls the same service functions as the JSON API.
+
+mod handlers;
+pub mod session;
+
+use axum::{
+    Router,
+    extract::{DefaultBodyLimit, Request, State},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
+    middleware::{self, Next},
+    response::{Html, IntoResponse, Redirect, Response},
+    routing::{get, post},
+};
+use quill_board_ui::{Chrome, MessageView, Nav, Viewer};
+
+use crate::{AppState, error::ApiError};
+use session::Session;
+
+/// Board forms may carry a 20,000-character prompt, which URL-encoding can
+/// triple in size.
+const FORM_BODY_LIMIT: usize = 256 * 1024;
+
+/// No scripts, no third-party anything, no framing.
+const CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self'; \
+                   form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/", get(handlers::board))
+        .route("/p/{id}", get(handlers::prompt))
+        .route(
+            "/p/{id}/edit",
+            get(handlers::edit_form).post(handlers::edit_submit),
+        )
+        .route("/p/{id}/state", post(handlers::set_state))
+        .route("/p/{id}/delete", post(handlers::delete))
+        .route(
+            "/p/{id}/report",
+            get(handlers::report_form).post(handlers::report_submit),
+        )
+        .route("/new", get(handlers::new_form).post(handlers::new_submit))
+        .route("/mine", get(handlers::mine))
+        .route(
+            "/personas",
+            get(handlers::personas).post(handlers::persona_create),
+        )
+        .route("/personas/{id}/delete", post(handlers::persona_delete))
+        .route(
+            "/settings",
+            get(handlers::settings).post(handlers::settings_save),
+        )
+        .route(
+            "/login",
+            get(handlers::login_form).post(handlers::login_submit),
+        )
+        .route(
+            "/register",
+            get(handlers::register_form).post(handlers::register_submit),
+        )
+        .route("/logout", post(handlers::logout))
+        .route("/admin/reports", get(handlers::admin_reports))
+        .route("/admin/reports/{id}/resolve", post(handlers::admin_resolve))
+        .route("/admin/log", get(handlers::admin_log))
+        .route(quill_board_ui::STYLESHEET_PATH, get(stylesheet))
+        // No icon; answering keeps browsers from logging a 404 on every page.
+        .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
+        .fallback(not_found)
+        .layer(middleware::from_fn(reject_cross_site_posts))
+        .layer(middleware::from_fn(security_headers))
+        .layer(DefaultBodyLimit::max(FORM_BODY_LIMIT))
+}
+
+async fn stylesheet() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        quill_board_ui::STYLESHEET,
+    )
+}
+
+async fn not_found(State(state): State<AppState>) -> Response {
+    message(
+        &chrome(&state, None, Nav::Other, None),
+        StatusCode::NOT_FOUND,
+        "Page not found",
+        "There's nothing at this address. The prompt may have been deleted.",
+    )
+}
+
+async fn security_headers(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let h = response.headers_mut();
+    h.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(CSP),
+    );
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    // Never leak addresses to other sites. ("no-referrer" would also make
+    // browsers send `Origin: null` on our own forms.)
+    h.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("same-origin"),
+    );
+    h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    if !h.contains_key(header::CACHE_CONTROL) {
+        // Pages can carry a CSRF token; never cache them.
+        h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
+    response
+}
+
+/// Refuses form posts that a browser says came from another site. This
+/// protects anonymous forms (sign-in, registration, reports) as well as the
+/// signed-in ones that also carry a CSRF token.
+async fn reject_cross_site_posts(request: Request, next: Next) -> Response {
+    if request.method() == Method::POST && is_cross_site(request.headers()) {
+        return (
+            StatusCode::FORBIDDEN,
+            "Forms on this site can only be sent from this site.",
+        )
+            .into_response();
+    }
+    next.run(request).await
+}
+
+fn is_cross_site(headers: &HeaderMap) -> bool {
+    let get = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+    // Modern browsers say exactly where a request came from.
+    if let Some(site) = get("sec-fetch-site") {
+        return !matches!(site, "same-origin" | "none");
+    }
+    // Older browsers: compare the Origin header with the Host.
+    if let Some(origin) = get("origin") {
+        let origin_host = origin
+            .split_once("://")
+            .map_or(origin, |(_, rest)| rest)
+            .trim_end_matches('/');
+        return Some(origin_host) != get("host");
+    }
+    false
+}
+
+// ---- Helpers for handlers ------------------------------------------------
+
+pub(crate) fn chrome(
+    state: &AppState,
+    session: Option<&Session>,
+    current: Nav,
+    notice: Option<&str>,
+) -> Chrome {
+    Chrome {
+        site_name: state.config.domain.clone(),
+        viewer: session.map(|s| Viewer {
+            csrf: s.csrf.clone(),
+            is_admin: s.is_admin,
+            maturity_max: s.maturity_max,
+        }),
+        source_url: state.config.source_url.clone(),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        notice: notice.and_then(notice_text).map(str::to_owned),
+        current,
+    }
+}
+
+/// Fixed messages shown after a redirect, keyed by `?notice=`. Only these
+/// strings can appear, so the query parameter can't inject text.
+fn notice_text(key: &str) -> Option<&'static str> {
+    Some(match key {
+        "posted" => "Prompt posted.",
+        "saved" => "Changes saved.",
+        "status" => "Status updated.",
+        "deleted" => "Prompt deleted.",
+        "reported" => "Report sent to the server's administrators. Thank you.",
+        "signed-in" => "Signed in.",
+        "signed-out" => "Signed out.",
+        "registered" => "Account created. Create a persona to start posting.",
+        "persona-created" => "Persona created.",
+        "persona-deleted" => "Persona deleted.",
+        "settings" => "Settings saved.",
+        "resolved" => "Report resolved.",
+        _ => return None,
+    })
+}
+
+pub(crate) fn html(status: StatusCode, page: String) -> Response {
+    (
+        status,
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        Html(page),
+    )
+        .into_response()
+}
+
+pub(crate) fn message(chrome: &Chrome, status: StatusCode, title: &str, text: &str) -> Response {
+    html(
+        status,
+        quill_board_ui::message_page(
+            chrome,
+            MessageView {
+                title: title.to_owned(),
+                text: text.to_owned(),
+                link: Some(("/".to_owned(), "Go to the board".to_owned())),
+            },
+        ),
+    )
+}
+
+pub(crate) fn redirect(to: &str) -> Response {
+    Redirect::to(to).into_response()
+}
+
+/// Message shown for errors a form can't fix, such as a missing prompt or a
+/// server fault.
+pub(crate) fn error_page(chrome: &Chrome, err: ApiError) -> Response {
+    match err {
+        ApiError::NotFound => message(
+            chrome,
+            StatusCode::NOT_FOUND,
+            "Not found",
+            "There's nothing here. It may have been deleted.",
+        ),
+        ApiError::Unauthorized => redirect("/login"),
+        ApiError::Forbidden(text) => message(chrome, StatusCode::FORBIDDEN, "Not allowed", &text),
+        ApiError::TooManyRequests => message(
+            chrome,
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many requests",
+            "Too many of these have been sent recently. Try again in an hour.",
+        ),
+        ApiError::Internal(e) => {
+            tracing::error!(error = ?e, "internal error rendering the board");
+            message(
+                chrome,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Something went wrong",
+                "The server couldn't complete that. Try again in a moment.",
+            )
+        }
+        other => message(
+            chrome,
+            StatusCode::BAD_REQUEST,
+            "That didn't work",
+            &other.to_string(),
+        ),
+    }
+}
+
+/// Shown when a signed-in form's CSRF token doesn't match the session.
+pub(crate) fn csrf_failed(chrome: &Chrome) -> Response {
+    message(
+        chrome,
+        StatusCode::FORBIDDEN,
+        "This form has expired",
+        "Go back, reload the page, and send the form again.",
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(*k, HeaderValue::from_static(v));
+        }
+        h
+    }
+
+    #[test]
+    fn cross_site_detection() {
+        assert!(!is_cross_site(&headers(&[])));
+        assert!(!is_cross_site(&headers(&[(
+            "sec-fetch-site",
+            "same-origin"
+        )])));
+        assert!(!is_cross_site(&headers(&[("sec-fetch-site", "none")])));
+        assert!(is_cross_site(&headers(&[("sec-fetch-site", "cross-site")])));
+        assert!(is_cross_site(&headers(&[("sec-fetch-site", "same-site")])));
+        assert!(!is_cross_site(&headers(&[
+            ("origin", "https://writers.example"),
+            ("host", "writers.example"),
+        ])));
+        assert!(is_cross_site(&headers(&[
+            ("origin", "https://evil.example"),
+            ("host", "writers.example"),
+        ])));
+        assert!(is_cross_site(&headers(&[
+            ("origin", "null"),
+            ("host", "writers.example")
+        ])));
+        // Sec-Fetch-Site wins over a privacy-stripped Origin.
+        assert!(!is_cross_site(&headers(&[
+            ("sec-fetch-site", "same-origin"),
+            ("origin", "null"),
+            ("host", "writers.example"),
+        ])));
+    }
+
+    #[test]
+    fn only_known_notices_render() {
+        assert_eq!(notice_text("posted"), Some("Prompt posted."));
+        assert_eq!(notice_text("<script>"), None);
+    }
+}
