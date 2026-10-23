@@ -238,6 +238,11 @@ pub async fn resolve(
             .bind(prompt_id)
             .execute(&mut *tx)
             .await?;
+            // Its waiting requests go nowhere: requesters see "no response",
+            // and the author can't accept them. Running sessions carry on.
+            if let Some(prompt) = prompt_id {
+                crate::requests::expire_for_prompt(&mut tx, prompt).await?;
+            }
             "delete_prompt"
         }
     };

@@ -6,6 +6,7 @@
 mod board;
 mod keys_cmd;
 mod local;
+mod request_cmd;
 
 use std::path::PathBuf;
 
@@ -87,6 +88,9 @@ enum Command {
     Device(keys_cmd::DeviceCommand),
     /// This login's devices and their persona devices.
     Devices,
+    /// Collaboration requests: send one, read your inbox, accept or decline.
+    #[command(subcommand)]
+    Request(request_cmd::RequestCommand),
 }
 
 #[derive(Args)]
@@ -274,6 +278,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Keys(cmd) => keys_cmd::keys(&ctx, cmd).await?,
         Command::Device(cmd) => keys_cmd::device(&ctx, cmd).await?,
         Command::Devices => keys_cmd::devices(&ctx).await?,
+        Command::Request(cmd) => request_cmd::request(&ctx, cmd).await?,
     }
     Ok(())
 }

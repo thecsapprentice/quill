@@ -239,9 +239,9 @@ before device linking, which needs it.
 | 2a | Encrypted local store in `quill-core`; the CLI's login moves into it | done (#9) |
 | 2b | Identity keys per persona, device keys and certificates; the server's device directory | done (#10) |
 | 2c | OpenMLS on the client; KeyPackage upload and claim; certificate checks on claimed packages | done (#11) |
-| 2d | Device linking and the personal device group, on the group message log and epoch sequencer | next |
-| 2e | Collaboration requests: request, approve, silent decline, 30-day expiry, one pending per prompt | planned |
-| 2f | Session creation and Welcome delivery, on 2d's group message log | planned |
+| 2d | Device linking and the personal device group, on the group message log and epoch sequencer | done (#12) |
+| 2e | Collaboration requests: request, approve, silent decline, 30-day expiry, one pending per prompt | next |
+| 2f | Sessions after acceptance: the session list, Welcomes for members' other and later devices, writing to the log, Leave | planned |
 | 2g | Messages: ordering (HLC), history that is never lost, live delivery over SSE | planned |
 | 2h | Channels within a session | planned |
 | 2i | Attachments and size limits or quotas | planned |
@@ -453,9 +453,85 @@ in sync; a substituted KeyPackage or a server-made group is caught by the
 fingerprint or the confirmation words; two devices committing at once both
 end up consistent; and a removed device can read nothing sent after.
 
+### 2e: Collaboration requests
+
+A writer asks to join a prompt; its author reads the pitch and accepts,
+declines, or lets it lapse. The request is cryptographic from the start
+(protocol draft, section 4): the requester's client builds the session's
+MLS group and encrypts the pitch inside it, so the server files and
+forwards only ciphertext. Acceptance turns the group into a session whose
+log the server sequences, on 2d's group message log. Everything after
+acceptance (the session list, Welcomes for devices that weren't in the
+request, writing, Leave) is 2f.
+
+- **Sending** (`quill request send PROMPT --as HANDLE`):
+  1. Claim one KeyPackage per device of the prompt's author (2c's checks:
+     directory, certificates, the TOFU pin). With no usable package, stop.
+  2. Claim KeyPackages for the requesting persona's other devices, if it
+     has any, so they're in the group from the start.
+  3. Create the MLS group (random 32-byte id), add all of them, and encrypt
+     the pitch as the group's first application message: an AS2 `Create`
+     of a `Note` in the `planning` channel.
+  4. `POST /requests` with the Welcome, the pitch and an optional expiry in
+     days (at most 30). The commit that added everyone goes nowhere: every
+     member joins from the Welcome.
+- **The server files it** by the prompt's state when it arrives: `open`
+  makes it pending, `busy` holds it, `closed` refuses it. A refused request
+  is stored without its ciphertext and never shown; the requester gets the
+  same answer as for any other. A prompt going back to `open` releases held
+  requests; reading the held queue releases them too. Closing a prompt
+  keeps what's already filed.
+- **One waiting request per login per prompt**, across all its personas:
+  pending, held, refused and declined requests all count until they expire,
+  so a second request can't reveal a decline. Withdrawing frees the slot.
+  New requests are limited to 20 per login per hour.
+- **What each side sees.** The requester sees only *waiting*, *session*
+  (accepted), or *no response* (after expiry). The author sees pending
+  requests (and how many are held) with the requester's persona and the
+  ciphertext, which their client decrypts.
+- **Reading a request** (`quill request inbox PROMPT [--held]`): the
+  author's device joins the group from the Welcome and checks every member
+  against the directory: each must be a valid device of the requester or of
+  the author's persona, and the pitch must come from one of the
+  requester's. A group that fails is dropped and reported, never shown as
+  genuine. The pitch is kept in the local store, since MLS decrypts each
+  message only once. A device that wasn't in the request (linked later)
+  says so; 2f brings it in after acceptance.
+- **Accepting** (`quill request accept ID`, after reading it): the server
+  registers the session group at the pitch's epoch, puts the pitch at the
+  head of its log, and records the two personas as its members, so both
+  logins (and only they) can read and post to it.
+- **Declining** (`quill request decline ID`) tells the requester nothing:
+  the server keeps a ciphertext-free record until expiry, so the slot
+  stays taken. The author's devices drop the group.
+- **Withdrawing** (`quill request withdraw ID`) deletes a request that isn't
+  a session yet; `quill request list` shows the login's requests.
+- **Expiry:** the earlier of the requester's choice and 30 days. Deleting a
+  prompt, or the author's persona or login, or an administrator removing
+  the prompt after a report, expires its waiting requests at once, so the requester sees *no response* rather than the request
+  vanishing. Expired requests lose their
+  ciphertext; the requester's view keeps *no response* until dismissed.
+- **Cleaning up.** Each device notes the requests it holds a group for.
+  The upkeep before each command checks those still undecided and drops
+  the group of any that was declined, withdrawn or expired.
+- **Prompts** now report `acceptingSessions`: the author has an identity
+  key and a full device with KeyPackages.
+
+Not in 2e: what administrator action does to sessions already running (they
+carry on) and account suspension are to be decided closer to a working
+implementation. Blocking doesn't exist yet. When it's built, a blocked login's
+requests are filed as refused, silently, as the plan describes.
+
+Done when: a request reaches only the author's devices; held, refused and
+declined requests all look like *waiting* to the requester; a second
+request from any persona of the same login is refused until the first
+expires or is withdrawn; an accepted request becomes a group log both
+sides can use; and a forged member or pitch sender is caught by the author's
+client.
+
 ### Later sub-phases
 
-2e to 2k follow the [plan](plan.md#writing-session-cryptography) and the
+2f to 2k follow the [plan](plan.md#writing-session-cryptography) and the
 [protocol draft](protocol-draft.md), with keys per persona throughout: one
 KeyPackage pool per persona and device, and one personal device group per
 account carrying every persona's identity key. Each gets a detailed section
@@ -534,6 +610,11 @@ done.
   keys and values), dropping the page layer, and adding OpenSSL to client
   builds; nothing else changes. Once real users exist, a one-time local
   conversion is needed too. Decide for good before the Phase 4 review.
+- **2e, scope (decided 2026-10-23):** the request carries the session's
+  real MLS group from the start, as the protocol draft says, so 2e builds
+  the group, the Welcome and the pitch, and acceptance registers the group
+  on the message log. 2f covers sessions from there: the session list,
+  Welcomes for members' other and later devices, writing, and Leave.
 - **2d, scope (decided 2026-10-23):** the group message log and epoch
   sequencer move from 2f into 2d, since the personal device group needs
   them; 2f builds session groups on them. Only full devices are linked;

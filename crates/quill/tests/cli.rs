@@ -255,3 +255,88 @@ async fn the_cli_links_a_second_computer() {
     }
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_cli_sends_reads_and_accepts_a_request() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let alice = tempfile::tempdir().unwrap();
+    let bob = tempfile::tempdir().unwrap();
+    let url = server.url();
+    let as_alice = |args: &[&str]| quill(alice.path(), PASSPHRASE, args);
+    let as_bob = |args: &[&str]| quill(bob.path(), PASSPHRASE, args);
+    for (who, name, handle) in [
+        (&as_alice as &dyn Fn(&[&str]) -> _, "cli_alice", "ink_fox"),
+        (&as_bob, "cli_bob", "quiet_wren"),
+    ] {
+        assert!(who(&["server", &url]).0);
+        assert!(who(&["register", name]).0);
+        assert!(who(&["persona", "new", handle]).0);
+        let (ok, _, err) = who(&["keys", "init", "--as", handle]);
+        assert!(ok, "{err}");
+    }
+    let (ok, out, err) = as_alice(&[
+        "--json",
+        "prompt",
+        "post",
+        "--as",
+        "ink_fox",
+        "--title",
+        "The lighthouse ledger",
+        "--body",
+        "A keeper finds a ledger.",
+        "--maturity",
+        "general",
+    ]);
+    assert!(ok, "{err}");
+    let prompt: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(prompt["acceptingSessions"], true);
+    let prompt = prompt["id"].as_str().unwrap().to_owned();
+
+    let (ok, out, err) = as_bob(&[
+        "--json",
+        "request",
+        "send",
+        &prompt,
+        "--as",
+        "quiet_wren",
+        "--pitch",
+        "I'd write the keeper.",
+        "--days",
+        "7",
+    ]);
+    assert!(ok, "{err}");
+    let sent: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(sent["authorDevices"], 1);
+    let id = sent["id"].as_str().unwrap().to_owned();
+    let (ok, out, _) = as_bob(&["request", "list"]);
+    assert!(ok && out.contains(&format!("{id}  waiting")), "{out}");
+    // Only one waiting request per prompt.
+    let (ok, _, err) = as_bob(&[
+        "request",
+        "send",
+        &prompt,
+        "--as",
+        "quiet_wren",
+        "--pitch",
+        "Again?",
+    ]);
+    assert!(
+        !ok && err.contains("already have a request waiting"),
+        "{err}"
+    );
+
+    // Accepting needs the pitch read on this device first.
+    let (ok, _, err) = as_alice(&["request", "accept", &id]);
+    assert!(!ok && err.contains("read the request"), "{err}");
+    let (ok, out, err) = as_alice(&["request", "inbox", &prompt]);
+    assert!(ok, "{err}");
+    assert!(out.contains("from @quiet_wren"), "{out}");
+    assert!(out.contains("    I'd write the keeper."), "{out}");
+    let (ok, out, err) = as_alice(&["request", "accept", &id]);
+    assert!(ok && out.contains("accepted"), "{out}{err}");
+    let (_, out, _) = as_bob(&["request", "list"]);
+    assert!(out.contains(&format!("{id}  session")), "{out}");
+    server.stop().await.unwrap();
+}

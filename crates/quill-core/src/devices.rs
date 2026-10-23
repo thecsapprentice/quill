@@ -219,9 +219,9 @@ fn record_own(store: &Store, seq: u64) -> Result<(), CoreError> {
 /// Past epochs whose secrets a member keeps. A message for an epoch can
 /// reach the log after a commit for it from a member who hadn't seen it yet
 /// (both are valid for that epoch), so members read a little behind.
-const PAST_EPOCHS: usize = 5;
+pub(crate) const PAST_EPOCHS: usize = 5;
 
-fn create_config() -> MlsGroupCreateConfig {
+pub(crate) fn create_config() -> MlsGroupCreateConfig {
     MlsGroupCreateConfig::builder()
         .ciphersuite(CIPHERSUITE)
         .max_past_epochs(PAST_EPOCHS)
@@ -231,7 +231,7 @@ fn create_config() -> MlsGroupCreateConfig {
         .build()
 }
 
-fn join_config() -> MlsGroupJoinConfig {
+pub(crate) fn join_config() -> MlsGroupJoinConfig {
     MlsGroupJoinConfig::builder()
         .max_past_epochs(PAST_EPOCHS)
         .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
@@ -1092,6 +1092,8 @@ pub struct Upkeep {
     pub caught_up: CatchUp,
     /// Personas whose pools were refilled, with how many were added.
     pub refilled: Vec<(String, u32)>,
+    /// Groups dropped for requests that were declined, withdrawn or expired.
+    pub requests_dropped: usize,
 }
 
 /// Runs before a command: catches up on the device group, refills low
@@ -1128,6 +1130,7 @@ pub async fn maintain(store: &Store, client: &Client) -> Result<Upkeep, CoreErro
         }
     }
     announce(store, client).await?;
+    report.requests_dropped = crate::requests::tidy(store, client).await?;
     Ok(report)
 }
 

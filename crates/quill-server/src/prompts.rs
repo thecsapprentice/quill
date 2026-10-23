@@ -136,7 +136,11 @@ async fn update_account(
 const PROMPT_SELECT: &str = "SELECT p.id, p.title, p.body_md, p.body_html, \
      p.maturity::text AS maturity, p.state::text AS state, p.tag_ids, \
      p.created_at, p.updated_at, p.removed_at IS NOT NULL AS removed, \
-     a.id AS author_id, a.preferred_username, a.display_name, a.account_id \
+     a.id AS author_id, a.preferred_username, a.display_name, a.account_id, \
+     (a.identity_key IS NOT NULL AND EXISTS ( \
+         SELECT 1 FROM devices d JOIN key_packages k ON k.device_id = d.id \
+         WHERE d.actor_id = a.id AND d.revocation IS NULL AND NOT d.limited \
+           AND d.key_version = a.identity_key_version)) AS accepting_sessions \
      FROM prompts p JOIN actors a ON a.id = p.actor_id";
 
 #[derive(sqlx::FromRow)]
@@ -155,6 +159,7 @@ struct PromptRow {
     preferred_username: String,
     display_name: Option<String>,
     account_id: Uuid,
+    accepting_sessions: bool,
 }
 
 /// Columns for loading tags with their effective chip colours: the tag's
@@ -259,7 +264,7 @@ async fn hydrate(
                     .filter(|t| tag_visible_to(t, admin, viewer == Some(r.account_id)))
                     .cloned()
                     .collect(),
-                accepting_sessions: false,
+                accepting_sessions: r.accepting_sessions,
                 removed: r.removed && viewer == Some(r.account_id),
                 created_at: r.created_at,
                 updated_at: r.updated_at,
@@ -714,6 +719,9 @@ pub async fn edit_prompt(
     .bind(tag_ids)
     .execute(&mut *tx)
     .await?;
+    if body.state == Some(PromptState::Open) {
+        crate::requests::release_held(&mut tx, id).await?;
+    }
     tx.commit().await?;
 
     load_prompt(&state.pool, id, Some(account), true)
@@ -732,18 +740,26 @@ async fn delete_prompt(
 
 /// Deletes a prompt posted by one of `account`'s personas.
 pub async fn remove_own_prompt(state: &AppState, account: Uuid, id: Uuid) -> Result<(), ApiError> {
-    // Phase 3 adds a federated `Delete`; Phase 2 expires pending requests.
-    let result = sqlx::query(
-        "DELETE FROM prompts p USING actors a
-         WHERE p.id = $1 AND p.actor_id = a.id AND a.account_id = $2",
+    // Phase 3 adds a federated `Delete`. Waiting requests expire at once;
+    // sessions carry on.
+    let mut tx = state.pool.begin().await?;
+    let own: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM prompts p JOIN actors a ON a.id = p.actor_id
+                        WHERE p.id = $1 AND a.account_id = $2)",
     )
     .bind(id)
     .bind(account)
-    .execute(&state.pool)
+    .fetch_one(&mut *tx)
     .await?;
-    if result.rows_affected() == 0 {
+    if !own {
         return Err(ApiError::NotFound);
     }
+    crate::requests::expire_for_prompt(&mut tx, id).await?;
+    sqlx::query("DELETE FROM prompts WHERE id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
     Ok(())
 }
 

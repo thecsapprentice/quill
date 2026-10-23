@@ -380,8 +380,8 @@ pub struct Prompt {
     pub maturity: Maturity,
     pub state: PromptState,
     pub tags: Vec<Tag>,
-    /// True once the author can receive session requests (from Phase 2,
-    /// when they have published encryption keys). Always false in Phase 1.
+    /// True when the author can receive session requests: they have an
+    /// identity key and a full device with KeyPackages.
     pub accepting_sessions: bool,
     /// Set only in the author's own view of a prompt an administrator removed.
     #[serde(default)]

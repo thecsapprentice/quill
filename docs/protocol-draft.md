@@ -207,6 +207,13 @@ stateDiagram-v2
 
 - `Leave` (object = the `Session`) ends participation; a session with one remaining writer is ended.
 
+### As built on one server (2e)
+
+- The pitch is an AS2 `Create` of a `Note` (`mediaType` `text/markdown`) in the `planning` channel, the group's first application message. The requester merges the commit that added everyone and sends it nowhere: every member joins from the `Welcome`.
+- A refused request is kept without its ciphertext, so it still takes the requester's one waiting slot. So does a declined one, until it expires: a second request must not reveal a decline.
+- The author's client checks every member of the group before showing the pitch: each must be a valid device (directory and certificate checks, TOFU pin) of the requester or of the author's persona, and the pitch must come from one of the requester's.
+- Accepting registers the group on the group message log at the pitch's epoch, with the pitch as message 1 and the two personas as members; their logins can read and post. The `Welcome` is kept for devices that join later (2f).
+
 ## 5. Encrypted payload vocabulary
 
 Inside every MLS application message is one AS2 activity in UTF-8 JSON, following the SWICG application-data profile plus the `wr:` fields below; the server never sees any of it.
@@ -353,7 +360,8 @@ A JSON-over-HTTPS API under `/api/v1`, authenticated with bearer tokens, used by
 | Prompts  | `POST /prompts`, `PATCH /prompts/{id}`, `DELETE /prompts/{id}`                                        | Post, edit, change `promptState`, withdraw                                               |
 | Tags     | `GET /tags?namespace=&prefix=`, `POST /tags`                                                          | Autocomplete, user tags (policy-dependent)                                               |
 | Requests | `GET /prompts/{id}/requests?state=pending|held`                                                       | Author's queue; reading `held` releases them to `pending`                                |
-| Requests | `POST /requests`, `POST /requests/{id}/accept`, `POST /requests/{id}/reject`, `DELETE /requests/{id}` | Send, accept, decline, withdraw                                                          |
+| Requests | `POST /requests`, `POST /requests/{id}/accept`, `POST /requests/{id}/reject`, `DELETE /requests/{id}` | Send, accept, decline, withdraw (built in 2e)                                            |
+| Requests | `GET /requests`, `GET /requests/{id}`                                                                 | The login's own requests; one request's status, as the caller's side may see it (requester: `waiting`, `session`, `noResponse`) |
 | Keys     | `PUT /personas/{id}/identity-key`, `GET/POST /personas/{id}/devices`, `POST /personas/{id}/devices/{device}/revoke` | Per-persona identity key, device certificates, revocation (built in 2b)            |
 | Keys     | `GET /actors/{handle}/keys`                                                                           | Public: a persona's identity key, devices, certificates and revocations; no timestamps   |
 | Keys     | `POST /devices/{id}/key-packages`, `GET /key-packages/status`                                         | Upload KeyPackages, check remaining pool                                                 |

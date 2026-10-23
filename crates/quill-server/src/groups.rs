@@ -1,5 +1,6 @@
 //! MLS groups' message logs (the epoch sequencer) and the device-linking
-//! mailbox.
+//! mailbox. Groups are a login's personal device group (2d) or sessions,
+//! registered by accepting a request (2e).
 //!
 //! The server reads only the clear header of each `PrivateMessage` (group
 //! id, epoch, content type). The first commit for a group's current epoch
@@ -56,6 +57,14 @@ fn as_u64(v: i64) -> u64 {
     u64::try_from(v).unwrap_or(0)
 }
 
+macro_rules! group_access {
+    () => {
+        "SELECT g.epoch FROM mls_groups g WHERE g.group_id = $1 AND (g.account_id = $2 OR EXISTS (
+             SELECT 1 FROM session_members m JOIN actors a ON a.id = m.actor_id
+             WHERE m.group_id = g.group_id AND a.account_id = $2))"
+    };
+}
+
 /// A group the caller may use, locked for update when `lock`. Returns its
 /// current epoch. Unknown and other people's groups look the same.
 async fn group_epoch(
@@ -64,10 +73,11 @@ async fn group_epoch(
     group: &[u8],
     lock: bool,
 ) -> Result<i64, ApiError> {
+    // A personal group's login, or the login of a session member.
     let sql = if lock {
-        "SELECT epoch FROM mls_groups WHERE group_id = $1 AND account_id = $2 FOR UPDATE"
+        concat!(group_access!(), " FOR UPDATE OF g")
     } else {
-        "SELECT epoch FROM mls_groups WHERE group_id = $1 AND account_id = $2"
+        group_access!()
     };
     sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
         .bind(group)

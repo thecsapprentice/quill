@@ -11,6 +11,7 @@ pub mod notices;
 pub mod prompts;
 mod ratelimit;
 pub mod reports;
+pub mod requests;
 pub mod reserved;
 pub mod routes;
 pub mod server_settings;
