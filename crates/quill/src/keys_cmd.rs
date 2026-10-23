@@ -376,7 +376,7 @@ pub async fn devices(ctx: &Ctx) -> Result<()> {
     })
 }
 
-fn ask(question: &str) -> Result<bool> {
+pub(crate) fn ask(question: &str) -> Result<bool> {
     use std::io::{BufRead, Write};
     print!("{question} [y/N] ");
     std::io::stdout().flush()?;
