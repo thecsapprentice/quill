@@ -53,7 +53,18 @@ jobs:
           persist-credentials: false
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: cargo test --locked --workspace
+      - name: cargo test --workspace
+        shell: bash
+        env:
+          CARGO_TERM_COLOR: never
+        # Failing tests are also reported as annotations, readable without
+        # downloading the log.
+        run: |
+          set -o pipefail
+          cargo test --locked --workspace 2>&1 | tee test.log || {
+            grep -E -A3 "panicked at|^test .* FAILED|^---- " test.log | head -40 | sed 's/^/::error::/'
+            exit 1
+          }
 
   # The client's keychain code differs per platform; build it and run the
   # store's tests on each (no Postgres needed).
