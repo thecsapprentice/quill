@@ -338,5 +338,35 @@ async fn the_cli_sends_reads_and_accepts_a_request() {
     assert!(ok && out.contains("accepted"), "{out}{err}");
     let (_, out, _) = as_bob(&["request", "list"]);
     assert!(out.contains(&format!("{id}  session")), "{out}");
+
+    // Writing together (2f).
+    let (ok, out, err) = as_bob(&["--json", "sessions"]);
+    assert!(ok, "{err}");
+    let list: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let session = list[0]["id"].as_str().unwrap().to_owned();
+    assert_eq!(list[0]["partner"], "ink_fox");
+    let short = &session[..10];
+    let (ok, out, err) = as_bob(&[
+        "session",
+        "write",
+        short,
+        "--text",
+        "The tide came in early.",
+    ]);
+    assert!(ok && out.contains("sent"), "{out}{err}");
+    let (ok, out, err) = as_alice(&["session", "read", short]);
+    assert!(ok, "{err}");
+    assert!(
+        out.contains("@quiet_wren:\n    I'd write the keeper."),
+        "{out}"
+    );
+    assert!(
+        out.contains("[story] @quiet_wren:\n    The tide came in early."),
+        "{out}"
+    );
+    let (ok, out, err) = as_alice(&["session", "leave", short]);
+    assert!(ok && out.contains("ended"), "{out}{err}");
+    let (ok, _, err) = as_bob(&["session", "write", short, "--text", "Hello?"]);
+    assert!(!ok && err.contains("ended"), "{err}");
     server.stop().await.unwrap();
 }

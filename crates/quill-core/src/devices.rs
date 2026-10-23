@@ -1094,6 +1094,8 @@ pub struct Upkeep {
     pub refilled: Vec<(String, u32)>,
     /// Groups dropped for requests that were declined, withdrawn or expired.
     pub requests_dropped: usize,
+    /// What syncing the login's sessions did.
+    pub sessions: crate::sessions::SyncReport,
 }
 
 /// Runs before a command: catches up on the device group, refills low
@@ -1131,6 +1133,7 @@ pub async fn maintain(store: &Store, client: &Client) -> Result<Upkeep, CoreErro
     }
     announce(store, client).await?;
     report.requests_dropped = crate::requests::tidy(store, client).await?;
+    report.sessions = crate::sessions::sync(store, client).await?;
     Ok(report)
 }
 

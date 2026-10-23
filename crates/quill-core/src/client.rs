@@ -456,9 +456,45 @@ impl Client {
         &self,
         handle: &str,
     ) -> Result<quill_proto::keys::KeyPackageClaim, CoreError> {
+        self.claim_key_packages_for(handle, None).await
+    }
+
+    /// Claims for one device of the persona only, or all when `None`.
+    pub async fn claim_key_packages_for(
+        &self,
+        handle: &str,
+        device: Option<Uuid>,
+    ) -> Result<quill_proto::keys::KeyPackageClaim, CoreError> {
         let builder =
             self.authed_segments(Method::POST, "/actors", &[handle, "key-packages", "claim"])?;
-        Self::json(builder).await
+        Self::json(builder.query(&quill_proto::keys::ClaimQuery { device })).await
+    }
+
+    // ---- Sessions (2f) ------------------------------------------------------
+
+    pub async fn sessions(&self) -> Result<Vec<quill_proto::sessions::Session>, CoreError> {
+        Self::json(self.authed(Method::GET, "/sessions")?).await
+    }
+
+    pub async fn leave_welcome(
+        &self,
+        session: &str,
+        body: &quill_proto::sessions::LeaveWelcome,
+    ) -> Result<(), CoreError> {
+        let builder = self.authed_segments(Method::POST, "/sessions", &[session, "welcomes"])?;
+        Self::empty(Self::with_json(builder, body)).await
+    }
+
+    pub async fn take_welcome(&self, session: &str, device: Uuid) -> Result<(), CoreError> {
+        let device = device.to_string();
+        let builder =
+            self.authed_segments(Method::DELETE, "/sessions", &[session, "welcomes", &device])?;
+        Self::empty(builder).await
+    }
+
+    pub async fn leave_session(&self, session: &str) -> Result<(), CoreError> {
+        let builder = self.authed_segments(Method::POST, "/sessions", &[session, "leave"])?;
+        Self::empty(builder).await
     }
 
     // ---- Groups and linking (2d) -----------------------------------------

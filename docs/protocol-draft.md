@@ -214,6 +214,13 @@ stateDiagram-v2
 - The author's client checks every member of the group before showing the pitch: each must be a valid device (directory and certificate checks, TOFU pin) of the requester or of the author's persona, and the pitch must come from one of the requester's.
 - Accepting registers the group on the group message log at the pitch's epoch, with the pitch as message 1 and the two personas as members; their logins can read and post. The `Welcome` is kept for devices that join later (2f).
 
+### Sessions as built on one server (2f)
+
+- The server keeps the request's `Welcome` with the session. Devices that were in it but never opened it join from it and read the log from message 1 (the pitch).
+- A device that wasn't in it is added by one of its own persona's devices already in the group. That device claims a KeyPackage for just that device, commits the add, and leaves the `Welcome` on the server addressed to it, with the log position to start from. Revoked devices are removed the same way. A device that joined through its last-resort KeyPackage commits a key update straight away.
+- Clients enforce, on every commit: added and removed devices belong to the committer's own persona; added ones are valid in the directory; the committer's own leaf stays a known device; afterwards every member is a known device of one of the two personas. A failure stops that device reading the session.
+- With two writers, `Leave` ends the session: the server accepts nothing more for its log, which stays readable. Deleting either persona ends it too.
+
 ## 5. Encrypted payload vocabulary
 
 Inside every MLS application message is one AS2 activity in UTF-8 JSON, following the SWICG application-data profile plus the `wr:` fields below; the server never sees any of it.
@@ -365,12 +372,14 @@ A JSON-over-HTTPS API under `/api/v1`, authenticated with bearer tokens, used by
 | Keys     | `PUT /personas/{id}/identity-key`, `GET/POST /personas/{id}/devices`, `POST /personas/{id}/devices/{device}/revoke` | Per-persona identity key, device certificates, revocation (built in 2b)            |
 | Keys     | `GET /actors/{handle}/keys`                                                                           | Public: a persona's identity key, devices, certificates and revocations; no timestamps   |
 | Keys     | `POST /devices/{id}/key-packages`, `GET /key-packages/status`                                         | Upload KeyPackages, check remaining pool                                                 |
-| Keys     | `POST /actors/{actor}/key-packages/claim`                                                             | Local claim (remote claims go server-to-server)                                          |
+| Keys     | `POST /actors/{actor}/key-packages/claim?device=`                                                     | Local claim (remote claims go server-to-server); `device` limits it to one device (2f)   |
 | Linking  | `POST /link`, `GET /link/{id}`, `POST /link/{id}/reply`                                               | Short-lived device-linking mailbox                                                       |
 | Groups   | `POST /groups`, `GET /account/device-group`, `GET/POST /groups/{id}/messages?after=`                  | Group message logs (2d): first commit per epoch wins, `409` otherwise; personal device group |
-| Sessions | `GET /sessions`, `GET /sessions/{id}/messages?after=`                                                 | List sessions; fetch ciphertext in sequence order                                        |
-| Sessions | `POST /sessions/{id}/messages`                                                                        | Post MLS message; `409` if a commit lost the epoch race                                  |
-| Sessions | `POST /sessions/{id}/ack`, `POST /sessions/{id}/leave`                                                | Per-device delivery ack; leave                                                           |
+| Sessions | `GET /sessions`                                                                                       | The login's sessions: members, place in the log, ended or not, Welcomes for its devices (built in 2f; the id is the group id) |
+| Sessions | `GET/POST /groups/{id}/messages?after=`                                                               | A session's log is its group's (2f); `409` if a commit lost the epoch race, `403` once ended |
+| Sessions | `POST /sessions/{id}/welcomes`, `DELETE /sessions/{id}/welcomes/{device}`                             | A Welcome for one of the caller's own persona's devices just added; taken once it has joined (2f) |
+| Sessions | `POST /sessions/{id}/leave`                                                                           | Leave; with two writers, ends the session (2f)                                           |
+| Sessions | `POST /sessions/{id}/ack`                                                                             | Per-device delivery ack (2g)                                                             |
 | Blobs    | `POST /blobs`, `GET /blobs/{id}`                                                                      | Encrypted attachments (capability token required)                                        |
 | Backup   | `PUT/GET /backup/{seq}`, `DELETE /backup`                                                             | Opaque backup chunks                                                                     |
 | Safety   | `POST /blocks`, `DELETE /blocks/{id}`, `POST /reports`                                                | Account-level blocks; prompt reports (section 10)                                        |

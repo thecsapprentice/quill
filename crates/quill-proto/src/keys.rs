@@ -120,6 +120,15 @@ pub struct ClaimedKeyPackage {
     pub last_resort: bool,
 }
 
+/// `POST /actors/{handle}/key-packages/claim?device=`: limits the claim to
+/// one device (2f, adding a device to a session).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<Uuid>,
+}
+
 /// `POST /actors/{handle}/key-packages/claim`: one package per current
 /// device of the persona.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -202,10 +202,11 @@ async fn a_request_reaches_the_author_who_accepts_it() {
             .requests_dropped,
         0
     );
-    assert_eq!(
-        requests::session_group(&bob, r.id).unwrap().as_deref(),
-        Some(group.as_str())
-    );
+    // Bob's upkeep took the group over as a session (2f).
+    let bobs = quill_core::sessions::list(&bob, &bob_c).await.unwrap();
+    assert_eq!(bobs.len(), 1);
+    assert_eq!(bobs[0].session.id, group);
+    assert_eq!(bobs[0].standing, quill_core::sessions::Standing::Joined);
     assert_eq!(
         requests::session_group(&alice, r.id).unwrap().as_deref(),
         Some(group.as_str())

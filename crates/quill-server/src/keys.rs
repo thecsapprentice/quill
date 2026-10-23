@@ -8,7 +8,7 @@
 
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{get, post, put},
 };
 use quill_certs::{CertError, DeviceCertificate, DeviceRevocation, Expected};
@@ -566,6 +566,7 @@ async fn claim_key_packages(
     State(state): State<AppState>,
     authed: Authed,
     Path(handle): Path<String>,
+    Query(q): Query<quill_proto::keys::ClaimQuery>,
 ) -> Result<Json<KeyPackageClaim>, ApiError> {
     if !state.limiter.allow(
         &format!("claim:{}", authed.account_id),
@@ -592,10 +593,12 @@ async fn claim_key_packages(
     let devices: Vec<Uuid> = sqlx::query_scalar(
         "SELECT id FROM devices
          WHERE actor_id = $1 AND revocation IS NULL AND key_version = $2
+           AND ($3::uuid IS NULL OR id = $3)
          ORDER BY id",
     )
     .bind(p.id)
     .bind(i32::try_from(*version).unwrap_or(i32::MAX))
+    .bind(q.device)
     .fetch_all(&mut *tx)
     .await?;
     let mut packages = Vec::new();

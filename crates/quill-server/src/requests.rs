@@ -488,10 +488,21 @@ async fn accept(
         .bind(requester)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("UPDATE session_requests SET state = 'accepted', pitch = NULL WHERE id = $1")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
+    // The Welcome moves to the session, for devices that haven't opened it.
+    sqlx::query(
+        "INSERT INTO sessions (group_id, request_id, prompt_id, welcome)
+         SELECT group_id, id, prompt_id, welcome FROM session_requests WHERE id = $1",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "UPDATE session_requests SET state = 'accepted', pitch = NULL, welcome = NULL
+         WHERE id = $1",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(Json(GroupState {
         group_id: b64(&group),

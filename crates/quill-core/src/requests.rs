@@ -81,11 +81,16 @@ pub struct Note {
 impl Activity {
     /// The pitch: a `Create` of a Markdown `Note` in the planning channel.
     pub fn pitch(text: &str) -> Self {
+        Self::note(text, "planning")
+    }
+
+    /// A message: a `Create` of a Markdown `Note` in `channel`.
+    pub fn note(text: &str, channel: &str) -> Self {
         Self {
             context: CONTEXT.iter().map(|s| (*s).to_owned()).collect(),
             kind: "Create".into(),
             id: format!("urn:uuid:{}", Uuid::new_v4()),
-            channel: Some("planning".into()),
+            channel: Some(channel.into()),
             object: Note {
                 kind: "Note".into(),
                 id: format!("urn:uuid:{}", Uuid::new_v4()),
@@ -97,7 +102,7 @@ impl Activity {
 }
 
 /// The pitch's text, if `plain` is a pitch.
-fn pitch_text(plain: &[u8]) -> Result<String, CoreError> {
+pub(crate) fn pitch_text(plain: &[u8]) -> Result<String, CoreError> {
     let a: Activity = serde_json::from_slice(plain).map_err(|_| err("the pitch is unreadable"))?;
     if a.kind != "Create" || a.object.kind != "Note" {
         return Err(err("the first message isn't a pitch"));
@@ -112,7 +117,7 @@ fn pitch_text(plain: &[u8]) -> Result<String, CoreError> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-enum Role {
+pub(crate) enum Role {
     Outgoing,
     Incoming,
 }
@@ -120,21 +125,22 @@ enum Role {
 /// A request this device holds a group for.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Held {
-    role: Role,
-    group_id: String,
+pub(crate) struct Held {
+    pub(crate) role: Role,
+    pub(crate) group_id: String,
     /// This login's persona in it.
-    persona: Uuid,
+    pub(crate) persona: Uuid,
     #[serde(default)]
-    requester: Option<String>,
-    /// The pitch as read (incoming): MLS decrypts each message once.
+    pub(crate) requester: Option<String>,
+    /// The pitch: as sent (outgoing), or as read (incoming), since MLS
+    /// decrypts each message once and never one's own.
     #[serde(default)]
-    pitch: Option<String>,
+    pub(crate) pitch: Option<String>,
     #[serde(default)]
-    accepted: bool,
+    pub(crate) accepted: bool,
 }
 
-fn held(store: &Store, id: Uuid) -> Result<Option<Held>, CoreError> {
+pub(crate) fn held(store: &Store, id: Uuid) -> Result<Option<Held>, CoreError> {
     store
         .get(Table::Requests, id.as_bytes())?
         .map(|v| serde_json::from_slice(&v).map_err(|_| err("a stored request is damaged")))
@@ -188,7 +194,7 @@ pub struct Sent {
     pub skipped: Vec<(Uuid, String)>,
 }
 
-fn session_config(device: &keys::DeviceKey) -> Result<MlsGroupCreateConfig, CoreError> {
+pub(crate) fn session_config(device: &keys::DeviceKey) -> Result<MlsGroupCreateConfig, CoreError> {
     let extensions = Extensions::single(Extension::Unknown(
         DEVICE_CERT_EXTENSION,
         UnknownExtension(device.certificate.clone()),
@@ -329,7 +335,7 @@ pub async fn send(
             group_id,
             persona: persona.id,
             requester: None,
-            pitch: None,
+            pitch: Some(pitch.to_owned()),
             accepted: false,
         },
     )?;
@@ -341,7 +347,7 @@ pub async fn send(
     })
 }
 
-fn not_set_up(handle: &str) -> CoreError {
+pub(crate) fn not_set_up(handle: &str) -> CoreError {
     err(format!(
         "@{handle} has no keys on this device: run `quill keys init --as {handle}` first"
     ))
@@ -396,9 +402,9 @@ pub struct Inbox {
 }
 
 /// Valid device keys of a persona, after checking its published keys.
-type ValidKeys = HashSet<Vec<u8>>;
+pub(crate) type ValidKeys = HashSet<Vec<u8>>;
 
-fn valid_keys(checked: &keys::CheckedKeys) -> ValidKeys {
+pub(crate) fn valid_keys(checked: &keys::CheckedKeys) -> ValidKeys {
     checked
         .devices
         .iter()
