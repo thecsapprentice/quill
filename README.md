@@ -1,3 +1,5 @@
+[![CI](https://github.com/thecsapprentice/quill/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/thecsapprentice/quill/actions/workflows/ci.yml)
+
 # Quill
 
 A federated, pseudonymous collaborative-writing server. Writers post public
