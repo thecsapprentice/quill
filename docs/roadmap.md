@@ -882,6 +882,16 @@ devices instead of from the server.
     keys and sessions stay. `quill device remove` of its old entry
     doesn't revoke persona devices another device still uses.
 
+As built: a request nobody answers is sent again after 7 days and dropped
+after 30; a device that fell behind waits a day for the persona's other
+devices before asking the other writer (at once when it has none). While a
+device's history is incomplete, `quill session read` says so instead of
+warning about gaps. An edit read live for a note the device doesn't have
+yet is dropped; the bundle brings the note with its versions as the
+answering device holds them. The server counts a device that never
+acknowledged anything as having read nothing when listing devices that
+fell behind.
+
 Not in 2k: answering history requests from the other writer's devices
 (they ask only their own), deleting by age in a client's own history, and
 removing the device-group entry of a device that never comes back
@@ -940,6 +950,8 @@ ranges. Known so far:
   - Requests and sessions: request expiry (30 days), requests per hour
     (20), message retention grace period (7 days), low-pool notice
     threshold (10), live notice buffer (1024).
+  - Retention (2k): the sweep's interval (1 hour). The retention period
+    itself is `QUILL_RETENTION_DAYS` already.
   - Attachments: size limit (10 MiB), smallest bucket (4 KiB), quota per
     login (500 MiB), blobs per message (10), unattached-blob lifetime (1
     day), messages per minute (30). These are in the config's limits but
@@ -947,6 +959,9 @@ ranges. Known so far:
 - **Client (sessions):** message padding (256 bytes), how far ahead a
   clock may be and still move the reader's (1 day), longest pitch and
   message.
+- **Client (history, 2k):** asking again for history (7 days), dropping
+  unanswered requests (30 days), waiting for a sibling before asking the
+  other writer to rejoin (1 day), history part size (4 MiB).
 
 ## Phases 5 and 6
 
