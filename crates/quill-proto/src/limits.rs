@@ -14,6 +14,31 @@ pub const DEFAULT_MAX_ENVELOPE_BYTES: u64 = DEFAULT_MAX_MESSAGE_BYTES * 4 / 3 + 
 /// Days before an unanswered session request expires.
 pub const DEFAULT_REQUEST_EXPIRY_DAYS: u32 = 30;
 
+/// Blobs a login may store at once, in bytes.
+pub const DEFAULT_ACCOUNT_QUOTA_BYTES: u64 = 500 * 1024 * 1024;
+
+/// Group messages a login may post per minute.
+pub const DEFAULT_MESSAGES_PER_MINUTE: u32 = 30;
+
+/// The smallest blob size bucket.
+pub const BLOB_MIN_BUCKET: u64 = 4 * 1024;
+
+/// The bucket a blob of `len` bytes is padded to: the smallest power of two
+/// from [`BLOB_MIN_BUCKET`] that holds it, or `max` itself when that's
+/// smaller. `None` when it doesn't fit under `max`.
+pub fn blob_bucket(len: u64, max: u64) -> Option<u64> {
+    if len > max {
+        return None;
+    }
+    let bucket = len.max(BLOB_MIN_BUCKET).checked_next_power_of_two()?;
+    Some(bucket.min(max))
+}
+
+/// Whether `len` is a size a padded blob can have.
+pub fn is_blob_bucket(len: u64, max: u64) -> bool {
+    len == max || (len.is_power_of_two() && (BLOB_MIN_BUCKET..=max).contains(&len))
+}
+
 /// Days ciphertext is kept for a device that has not acknowledged it.
 pub const DEFAULT_RETENTION_DAYS: u32 = 30;
 
@@ -48,3 +73,29 @@ pub const SEARCH_QUERY_MAX_CHARS: usize = 200;
 /// Page sizes for list endpoints.
 pub const DEFAULT_PAGE_SIZE: u32 = 20;
 pub const MAX_PAGE_SIZE: u32 = 100;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blob_sizes_round_up_to_buckets() {
+        let max = DEFAULT_MAX_ATTACHMENT_BYTES;
+        assert_eq!(blob_bucket(0, max), Some(4096));
+        assert_eq!(blob_bucket(4096, max), Some(4096));
+        assert_eq!(blob_bucket(4097, max), Some(8192));
+        assert_eq!(blob_bucket(max, max), Some(max));
+        assert_eq!(blob_bucket(max + 1, max), None);
+        // A limit that isn't a power of two is its own last bucket.
+        assert_eq!(blob_bucket(5000, 6000), Some(6000));
+        for ok in [4096, 8192, max, 6000] {
+            assert!(
+                is_blob_bucket(ok, if ok == 6000 { 6000 } else { max }),
+                "{ok}"
+            );
+        }
+        for bad in [0, 1000, 4095, 5000, max * 2] {
+            assert!(!is_blob_bucket(bad, max), "{bad}");
+        }
+    }
+}

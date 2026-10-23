@@ -72,3 +72,16 @@ pub struct Ack {
     pub device: Uuid,
     pub seq: u64,
 }
+
+/// The answer to `POST /sessions/{id}/blobs` (2i).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlobUploaded {
+    pub id: Uuid,
+    /// The capability token for fetching it, base64url. The server keeps
+    /// only its hash.
+    pub token: String,
+}
+
+/// The header carrying a blob's capability token on `GET /blobs/{id}`.
+pub const BLOB_TOKEN_HEADER: &str = "blob-token";

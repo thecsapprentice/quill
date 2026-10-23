@@ -513,6 +513,7 @@ async fn commit<T>(
         };
         let body = quill_proto::groups::PostMessage {
             message: b64(&encode(&message)?),
+            blobs: Vec::new(),
         };
         let clear = |provider: &Provider<'_>, group: &mut MlsGroup| {
             provider.atomically(|p| {
@@ -1084,6 +1085,7 @@ async fn send(
         })?;
         let body = quill_proto::groups::PostMessage {
             message: b64(&encode(&message)?),
+            blobs: Vec::new(),
         };
         match client.post_group_message(&r.session.id, &body).await {
             Ok(posted) => {
@@ -1409,6 +1411,7 @@ pub mod testing {
                 &s.id,
                 &quill_proto::groups::PostMessage {
                     message: b64(&encode(&message)?),
+                    blobs: Vec::new(),
                 },
             )
             .await?;

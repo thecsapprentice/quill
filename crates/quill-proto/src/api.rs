@@ -31,6 +31,19 @@ pub struct Limits {
     pub max_envelope_bytes: u64,
     pub request_expiry_days: u32,
     pub retention_days: u32,
+    /// Blobs a login may store at once, in bytes.
+    #[serde(default = "default_quota")]
+    pub account_quota_bytes: u64,
+    #[serde(default = "default_rate")]
+    pub messages_per_minute: u32,
+}
+
+fn default_quota() -> u64 {
+    crate::limits::DEFAULT_ACCOUNT_QUOTA_BYTES
+}
+
+fn default_rate() -> u32 {
+    crate::limits::DEFAULT_MESSAGES_PER_MINUTE
 }
 
 impl Default for Limits {
@@ -42,6 +55,8 @@ impl Default for Limits {
             max_envelope_bytes: DEFAULT_MAX_ENVELOPE_BYTES,
             request_expiry_days: DEFAULT_REQUEST_EXPIRY_DAYS,
             retention_days: DEFAULT_RETENTION_DAYS,
+            account_quota_bytes: DEFAULT_ACCOUNT_QUOTA_BYTES,
+            messages_per_minute: DEFAULT_MESSAGES_PER_MINUTE,
         }
     }
 }
