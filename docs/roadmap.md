@@ -814,6 +814,12 @@ rest of the code changing.
 Not in 2j: incremental backups (each backup replaces the last whole), and
 history for devices added later (2k).
 
+As built: the `age` crate is 0.11, not 0.12. 0.12's post-quantum recipient
+needs a release of `ml-kem` that conflicts with the one OpenMLS's HPKE
+uses. The crate's build-time localisation macros bring an unmaintained
+TOML parser (RUSTSEC-2026-0374), ignored with the reason recorded. Our own
+implementation of the format would remove both.
+
 Done when: both writers' devices show the same safety numbers, and a
 server-swapped identity key changes them; a backup restored on a new device
 with only the 12 words brings back the personas and history, a wrong or
