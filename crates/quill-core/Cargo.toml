@@ -32,7 +32,8 @@ zeroize.workspace = true
 windows-native-keyring-store = "1"
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
-apple-native-keyring-store = "1"
+# The login keychain; "protected" needs app entitlements a CLI lacks.
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Pure-Rust D-Bus (zbus) with RustCrypto; no libdbus or OpenSSL.
