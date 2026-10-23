@@ -7,9 +7,10 @@ messages but can never read them: sessions use
 [Messaging Layer Security (RFC 9420)](https://www.rfc-editor.org/rfc/rfc9420.html),
 and servers federate over ActivityPub.
 
-> **Status: Phase 0 (foundations).** Accounts, personas, the client API
-> skeleton and CI are in place. Prompts, encrypted sessions and federation
-> come in later phases. Not ready for real use.
+> **Status: Phase 1 (prompt board) complete.** Accounts, personas, prompts,
+> tags, search, reports and the admin inbox work through the web board, the API
+> and the CLI. Encrypted sessions and federation come in later phases. Not
+> ready for real use.
 
 ## Workspace
 
@@ -17,14 +18,42 @@ and servers federate over ActivityPub.
 | --- | --- | --- |
 | `quill-proto` | lib | Shared API types and validation. No cryptography. |
 | `quill-mls-envelope` | lib | Reads MLS framing headers for routing; cannot decrypt. |
-| `quill-server` | bin | axum server: client API, (later) delivery service and federation. |
+| `quill-board-ui` | lib | Dioxus components for the prompt board, rendered on the server. |
+| `quill-server` | bin | axum server: web board, client API, (later) delivery service and federation. |
 | `quill-core` | lib | Client library: API client, local profile, (later) all MLS state. |
 | `quill` | bin | Minimal CLI client that exercises every server feature. |
+| `quill-devtools` | bin | `quill-seed`, the demo-data seeder. Development only, never in the server image. |
 | `quill-e2e` | tests | End-to-end tests: real server and real Postgres. |
 
 **Core invariant:** `quill-server` never links MLS, HPKE or client crates.
 [`scripts/check-server-deps.sh`](scripts/check-server-deps.sh) enforces this
 in CI, so a decryption path cannot be added by accident.
+
+## Try it with Docker
+
+With Docker installed, this builds the server and starts it with a database:
+
+```sh
+docker compose up --build -d
+# Open http://localhost:8080/ and register an account, then make it an admin:
+docker compose exec server quill-server make-admin yourname
+docker compose down        # stop; add -v to also delete the database
+```
+
+For a board full of test data instead, seed the empty database:
+
+```sh
+docker compose --profile demo run --rm seed
+```
+
+This creates 6 accounts (including `admin`), 1 to 3 personas each, 150
+prompts and a few reports, and prints the logins. Every demo account's
+password is `quill demo password`. Options such as `--prompts 300` or
+`--seed 7` go after `seed`. The seeder only fills an empty database: to
+start over, run `docker compose down -v` and start again.
+
+The compose setup is for local testing only: it serves plain HTTP, which
+browsers accept for the board's Secure session cookie only on `localhost`.
 
 ## Development
 
@@ -40,11 +69,29 @@ createdb -O quill quill_dev
 QUILL_DATABASE_URL=postgres://quill:PASSWORD@localhost/quill_dev \
   cargo run -p quill-server
 
-# In another terminal, use the CLI.
+# Open http://localhost:8080/ for the web board, or use the CLI in another terminal.
 cargo run -p quill -- server http://localhost:8080
 cargo run -p quill -- register yourname
 cargo run -p quill -- persona new your_handle --display-name "Your Name"
 cargo run -p quill -- persona list
+
+# Post and search prompts (Markdown bodies; tags as namespace:name).
+cargo run -p quill -- prompt post --as your_handle --title "The ledger" \
+  --body "A keeper finds *entries* in her own hand." \
+  --maturity teen --tag genre:horror --tag "theme:Lighthouses"
+cargo run -p quill -- prompt list --include genre:horror --exclude content-warning:gore
+cargo run -p quill -- tags list --namespace genre
+
+# Make an account a server administrator, then work the report inbox and tags.
+# (On the board: the Reports and Server settings links.)
+QUILL_DATABASE_URL=... cargo run -p quill-server -- make-admin yourname
+cargo run -p quill -- admin reports
+cargo run -p quill -- admin namespace-set genre --required true   # every prompt needs a genre
+cargo run -p quill -- admin tags --namespace theme                  # tags with usage counts
+cargo run -p quill -- admin settings --new-tags approval            # writers' new tags need approval
+cargo run -p quill -- admin tags --status pending                   # tag requests
+cargo run -p quill -- admin namespace-set genre --color '#dbeafe' --text-color '#1e3a8a'
+cargo run -p quill -- admin tag-color genre:horror --color '#7f1d1d'   # text colour automatic
 ```
 
 Server configuration (environment variables):
@@ -57,6 +104,16 @@ Server configuration (environment variables):
 | `QUILL_REGISTRATION_OPEN` | `true` | Allow new accounts |
 | `QUILL_MAX_PERSONAS` | `20` | Personas per account |
 | `QUILL_TOKEN_TTL_DAYS` | `30` | Login token lifetime |
+| `QUILL_TAG_POLICY` | `open` | Starting value of the "new tags from writers" setting: `open`, `approval` or `curated`. Administrators change it in Server settings afterwards. |
+| `QUILL_SOURCE_URL` | this repository | Source link in the board's footer; point it at your version if you modify Quill (AGPL) |
+
+The web board runs no JavaScript and loads nothing from other sites. Its
+Content-Security-Policy allows only the board's own stylesheets (tag chip
+colours come from one generated from Server settings, never inline styles), and forms are
+protected by SameSite=Strict `__Host-` session cookies, per-session CSRF
+tokens and a cross-site request check. Session cookies are marked Secure, so
+serve the board over HTTPS; browsers make an exception for `localhost` during
+development.
 
 The CLI stores its server and login token in a profile file readable only by
 you (`~/.config/quill/profile.json` on Linux; override with `QUILL_PROFILE` or

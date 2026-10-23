@@ -4,7 +4,14 @@
 pub mod auth;
 pub mod config;
 pub mod error;
-mod routes;
+mod markdown;
+pub mod prompts;
+mod ratelimit;
+pub mod reports;
+pub mod routes;
+pub mod server_settings;
+pub mod tag_admin;
+mod web;
 
 use std::sync::Arc;
 
@@ -21,6 +28,7 @@ pub struct AppState {
     /// Hash of a random password, verified against when a login names an
     /// unknown account so response timing doesn't reveal which accounts exist.
     dummy_hash: Arc<String>,
+    limiter: Arc<ratelimit::RateLimiter>,
 }
 
 impl AppState {
@@ -33,10 +41,14 @@ impl AppState {
         ))
         .await
         .map_err(|e| anyhow::anyhow!("dummy hash: {e}"))?;
+        server_settings::init(&pool, &config)
+            .await
+            .context("storing starting server settings")?;
         Ok(Self {
             pool,
             config: Arc::new(config),
             dummy_hash: Arc::new(dummy),
+            limiter: Arc::default(),
         })
     }
 }
@@ -55,12 +67,27 @@ pub async fn connect_and_migrate(database_url: &str) -> Result<PgPool> {
     Ok(pool)
 }
 
+/// Grants or revokes administrator rights by login name. Returns false if no
+/// such account exists.
+pub async fn set_admin(pool: &PgPool, login_name: &str, admin: bool) -> Result<bool> {
+    let login = quill_proto::validate::username(login_name).unwrap_or_default();
+    let result = sqlx::query("UPDATE accounts SET is_admin = $2 WHERE login_name = $1")
+        .bind(login)
+        .bind(admin)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() == 1)
+}
+
 /// The full HTTP application.
 pub fn router(state: AppState) -> Router {
     // Bodies over the envelope limit are rejected before they are buffered.
     let body_limit = usize::try_from(state.config.limits.max_envelope_bytes).unwrap_or(usize::MAX);
+    let api = routes::api()
+        .fallback(|| async { error::ApiError::NotFound })
+        .layer(DefaultBodyLimit::max(body_limit));
     Router::new()
-        .nest(quill_proto::API_PREFIX, routes::api())
-        .layer(DefaultBodyLimit::max(body_limit))
+        .nest(quill_proto::API_PREFIX, api)
+        .merge(web::router())
         .with_state(state)
 }

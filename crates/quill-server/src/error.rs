@@ -26,6 +26,8 @@ pub enum ApiError {
     PayloadTooLarge,
     #[error("unsupported media type")]
     UnsupportedMediaType,
+    #[error("too many requests; try again later")]
+    TooManyRequests,
     #[error("internal error")]
     Internal(#[source] anyhow::Error),
 }
@@ -40,6 +42,7 @@ impl ApiError {
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Self::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -54,6 +57,7 @@ impl ApiError {
             Self::Conflict(_) => "conflict",
             Self::PayloadTooLarge => "payload-too-large",
             Self::UnsupportedMediaType => "unsupported-media-type",
+            Self::TooManyRequests => "too-many-requests",
             Self::Internal(_) => "internal",
         }
     }

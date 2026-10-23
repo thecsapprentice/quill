@@ -12,6 +12,7 @@ repository.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 time.workspace = true
+unicode-normalization.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

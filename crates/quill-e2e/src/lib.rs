@@ -20,6 +20,7 @@ pub const DATABASE_ENV: &str = "QUILL_TEST_DATABASE_URL";
 pub struct TestServer {
     pub addr: SocketAddr,
     client: Client,
+    db_url: String,
     admin_url: String,
     db_name: String,
     task: JoinHandle<()>,
@@ -54,7 +55,7 @@ impl TestServer {
 
         let db_url = with_database(&admin_url, &db_name)?;
         let pool = connect_and_migrate(&db_url).await?;
-        let mut config = Config::for_tests(db_url);
+        let mut config = Config::for_tests(db_url.clone());
         tweak(&mut config);
         let state = AppState::new(pool, config).await?;
 
@@ -68,6 +69,7 @@ impl TestServer {
         Ok(Some(Self {
             addr,
             client,
+            db_url,
             admin_url,
             db_name,
             task,
@@ -94,6 +96,20 @@ impl TestServer {
             })
             .await?;
         Ok(self.client().with_token(token.token))
+    }
+
+    /// Registers `username` as a server administrator and returns its client.
+    pub async fn admin_account(&self, username: &str) -> Result<Client> {
+        let client = self.account(username).await?;
+        let pool = sqlx::PgPool::connect(&self.db_url).await?;
+        anyhow::ensure!(quill_server::set_admin(&pool, username, true).await?);
+        pool.close().await;
+        Ok(client)
+    }
+
+    /// Runs SQL against this server's database (for inspecting state).
+    pub async fn db(&self) -> Result<sqlx::PgPool> {
+        Ok(sqlx::PgPool::connect(&self.db_url).await?)
     }
 
     /// Stops the server and drops its database.

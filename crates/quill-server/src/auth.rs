@@ -119,6 +119,49 @@ impl FromRequestParts<AppState> for Authed {
     }
 }
 
+/// An optional sign-in: anonymous when no `Authorization` header is sent.
+/// A header that is present but invalid is still rejected, so a client with
+/// an expired token learns it rather than silently browsing anonymously.
+#[derive(Debug, Clone)]
+pub struct MaybeAuthed(pub Option<Authed>);
+
+impl FromRequestParts<AppState> for MaybeAuthed {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
+        if parts
+            .headers
+            .contains_key(axum::http::header::AUTHORIZATION)
+        {
+            Ok(Self(Some(Authed::from_request_parts(parts, state).await?)))
+        } else {
+            Ok(Self(None))
+        }
+    }
+}
+
+/// A signed-in server administrator.
+#[derive(Debug, Clone)]
+pub struct Admin(pub Authed);
+
+impl FromRequestParts<AppState> for Admin {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
+        let authed = Authed::from_request_parts(parts, state).await?;
+        let is_admin: bool = sqlx::query_scalar("SELECT is_admin FROM accounts WHERE id = $1")
+            .bind(authed.account_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .unwrap_or(false);
+        if is_admin {
+            Ok(Self(authed))
+        } else {
+            Err(ApiError::Forbidden("administrators only".into()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,7 +1,9 @@
 //! `quill`: the minimal command-line client.
 //!
-//! Phase 0 covers the server address, accounts and personas. Each later phase
-//! adds the commands that exercise its server features.
+//! Covers the server address, accounts, personas and the prompt board. Each
+//! later phase adds the commands that exercise its server features.
+
+mod board;
 
 use std::path::PathBuf;
 
@@ -50,6 +52,27 @@ enum Command {
     /// Manage personas (public identities).
     #[command(subcommand)]
     Persona(PersonaCommand),
+    /// Show or change account settings.
+    #[command(subcommand)]
+    Account(board::AccountCommand),
+    /// Post, search and manage prompts.
+    #[command(subcommand)]
+    Prompt(board::PromptCommand),
+    /// Browse tags and tag namespaces.
+    #[command(subcommand)]
+    Tags(board::TagCommand),
+    /// Report a prompt to the server's administrators.
+    Report {
+        prompt: Uuid,
+        /// illegal, spam, harassment, wrong-maturity or other
+        #[arg(long)]
+        reason: quill_proto::board::ReportReason,
+        #[arg(long)]
+        details: Option<String>,
+    },
+    /// Administrator tools: reports, the admin log and tags.
+    #[command(subcommand)]
+    Admin(board::AdminCommand),
 }
 
 #[derive(Args)]
@@ -82,7 +105,7 @@ enum PersonaCommand {
     Delete { id: Uuid },
 }
 
-struct Ctx {
+pub struct Ctx {
     path: PathBuf,
     profile: Profile,
     json: bool,
@@ -112,6 +135,16 @@ impl Ctx {
             println!("{}", serde_json::to_string_pretty(value)?);
         } else {
             human(value);
+        }
+        Ok(())
+    }
+
+    /// Reports success for commands that return nothing.
+    fn done(&self, message: &str) -> Result<()> {
+        if self.json {
+            println!("{}", serde_json::json!({ "ok": true }));
+        } else {
+            println!("{message}");
         }
         Ok(())
     }
@@ -221,6 +254,15 @@ async fn run(cli: Cli) -> Result<()> {
             }
         }
         Command::Persona(cmd) => persona(&ctx, cmd).await?,
+        Command::Account(cmd) => board::account(&ctx, cmd).await?,
+        Command::Prompt(cmd) => board::prompt(&ctx, cmd).await?,
+        Command::Tags(cmd) => board::tags(&ctx, cmd).await?,
+        Command::Report {
+            prompt,
+            reason,
+            details,
+        } => board::report(&ctx, prompt, reason, details).await?,
+        Command::Admin(cmd) => board::admin(&ctx, cmd).await?,
     }
     Ok(())
 }

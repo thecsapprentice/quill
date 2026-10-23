@@ -130,7 +130,7 @@ A prompt federates as an AS2 `Note` (or `Article` for long prompts) with an exte
 | Field | Purpose | Example |
 | --- | --- | --- |
 | `namespace` | Facet the tag belongs to | `genre`, `content-warning`, `format`, `length`, `free` |
-| `slug` | Normalized, lowercase, NFKC, ASCII-folded key | `slow-burn` |
+| `slug` | ASCII key: accents folded (NFKD), lowercase a-z, 0-9 and hyphens; names in other scripts are rejected for slugs (decided Phase 1) | `slow-burn` |
 | `display` | Human label | `Slow burn` |
 | `origin` | `server` (curated) or `user` (created) | `server` |
 | `instance` | Host that defined it | `writers.example` |
@@ -144,13 +144,13 @@ Servers can enforce mandatory tag namespaces. For example, if Server A enforces 
 
 - **Store:** PostgreSQL with a `prompts` table, a `tags` table, and a `prompt_tags` join. A GIN index on a `tag_ids int[]` column makes "must include all of" and "must exclude any of" filters fast; a `tsvector` column with a GIN index covers full-text search on title and body.
 - **Query API:** `GET /api/v1/prompts?include=genre:horror,format:prose&exclude=cw:gore&maturity<=mature&q=lighthouse&origin=local|federated&cursor=...`
-- **Default-safe:** exclusions the user saves (e.g. a set of content warnings) are applied server-side on every query, and `explicit` is hidden unless the account opts in.
+- **Default-safe:** anonymous visitors and new accounts see prompts rated up to `teen`; an account can raise its own cap, and a query can only lower it (decided Phase 1). Saved exclusion lists are a later addition.
 - **Scale path:** if the federated board grows past what Postgres FTS handles comfortably, add Tantivy (Rust, embedded) or Meilisearch as a read-side index fed from the same tables. Not needed for v1.
 - **Tag autocomplete:** a trigram index (`pg_trgm`) on `slug` and `display`.
 
 ### Sanitization
 
-Prompt bodies arrive as HTML from remote servers. Sanitize on ingest with `ammonia` to a small allowlist, cap sizes, and reject prompts whose tags fail normalization.
+Prompt bodies are written in Markdown (decided Phase 1). The server renders them with `pulldown-cmark`, escapes any raw HTML, turns images into plain links (so viewing a prompt never contacts a third-party host), and sanitizes the result with `ammonia` to a small allowlist. Remote prompts (Phase 3) arrive as HTML and get the same sanitizer, size caps and tag normalization on ingest.
 
 ## Writing session cryptography
 
@@ -566,6 +566,8 @@ flowchart TD
 ```
 
 *Arrows carry each phase's exit gate. Dashed phases come later.*
+
+Each phase is split into sub-phases, one pull request each, tracked in the [roadmap](roadmap.md).
 
 ### Testing layers
 
