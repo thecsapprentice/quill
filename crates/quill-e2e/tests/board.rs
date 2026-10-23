@@ -1158,3 +1158,94 @@ async fn persona_form_explains_unavailable_handles() {
     assert!(taken.body.contains("That handle isn&#39;t available."));
     server.stop().await.unwrap();
 }
+
+#[tokio::test]
+async fn reserved_handles_through_server_settings() {
+    let server = server!();
+    let mut admin = Browser::new(&server);
+    let csrf = admin_browser(&server, &mut admin, "boss").await;
+    let mut writer = Browser::new(&server);
+    let writer_csrf = writer.register("alice", "ink_fox").await;
+    assert_eq!(
+        writer.get("/admin/settings/handles").await.status,
+        StatusCode::FORBIDDEN
+    );
+
+    let page = admin.get("/admin/settings/handles?search=admin").await;
+    assert!(page.body.contains("<code>admin</code>"));
+    assert!(
+        page.body
+            .contains("Your server&#39;s own name, localhost, is always reserved")
+    );
+
+    // Reserve two brand words from the textarea, then check one.
+    let saved = admin
+        .post(
+            "/admin/settings/handles",
+            &[
+                ("csrf", &csrf),
+                ("patterns", "Acme\r\nGlobex\r\n"),
+                ("kind", "word"),
+            ],
+        )
+        .await;
+    assert_eq!(
+        saved.location(),
+        "/admin/settings/handles?notice=handles-reserved"
+    );
+    let check = admin.get("/admin/settings/handles?test=acme_news").await;
+    assert!(
+        check
+            .body
+            .contains("@acme_news is reserved by the word “acme” (added here).")
+    );
+    let clear = admin.get("/admin/settings/handles?test=river_otter").await;
+    assert!(clear.body.contains("@river_otter isn&#39;t reserved."));
+    let invalid = admin.get("/admin/settings/handles?test=no+spaces").await;
+    assert!(invalid.body.contains("can&#39;t be a handle"));
+
+    let refused = writer
+        .post(
+            "/personas",
+            &[("csrf", &writer_csrf), ("handle", "globex_fan")],
+        )
+        .await;
+    assert!(refused.body.contains("reserved for this server"));
+
+    // A bad line keeps the text so it can be fixed.
+    let bad = admin
+        .post(
+            "/admin/settings/handles",
+            &[
+                ("csrf", &csrf),
+                ("patterns", "good\nnot good"),
+                ("kind", "exact"),
+            ],
+        )
+        .await;
+    assert_eq!(bad.status, StatusCode::BAD_REQUEST);
+    assert!(bad.body.contains("not good"));
+
+    // Remove one.
+    let removed = admin
+        .post(
+            "/admin/settings/handles/word/globex/remove",
+            &[("csrf", &csrf)],
+        )
+        .await;
+    assert_eq!(
+        removed.location(),
+        "/admin/settings/handles?notice=handle-removed"
+    );
+    let ok = writer
+        .post(
+            "/personas",
+            &[("csrf", &writer_csrf), ("handle", "globex_fan")],
+        )
+        .await;
+    assert_eq!(ok.status, StatusCode::SEE_OTHER);
+    let log = admin.get("/admin/log").await;
+    assert!(log.body.contains("Handles reserved"));
+    assert!(log.body.contains("Handle no longer reserved"));
+    server.stop().await.unwrap();
+}

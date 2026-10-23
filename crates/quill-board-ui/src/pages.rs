@@ -714,6 +714,8 @@ fn action_label(action: AdminAction) -> &'static str {
         AdminAction::ShowTag => "Tag shown",
         AdminAction::ChangeSetting => "Setting changed",
         AdminAction::RecolorTag => "Tag colour changed",
+        AdminAction::ReserveHandles => "Handles reserved",
+        AdminAction::UnreserveHandle => "Handle no longer reserved",
     }
 }
 

@@ -8,6 +8,7 @@ mod markdown;
 pub mod prompts;
 mod ratelimit;
 pub mod reports;
+pub mod reserved;
 pub mod routes;
 pub mod server_settings;
 pub mod tag_admin;
@@ -44,6 +45,9 @@ impl AppState {
         server_settings::init(&pool, &config)
             .await
             .context("storing starting server settings")?;
+        reserved::init(&pool, &config)
+            .await
+            .context("loading reserved handles")?;
         Ok(Self {
             pool,
             config: Arc::new(config),

@@ -143,20 +143,29 @@ back correctly from tag to type to none.
 - Handles are unique across the server, case-insensitive and ASCII only
   (enforced by the database and tested since Phase 0). They can't be
   renamed.
-- **Reserved handles.** Refused for writers, with "reserved for this
-  server's staff":
-  - staff words anywhere in the handle as a `_`-separated part, or as the
-    whole handle with underscores removed: `admin`, `administrator`,
-    `moderator`, `mod`, `staff`, `support`, `official`, `sysadmin`, `root`,
-    `quill`, `security`, `abuse` and the like (so `site_admin` and `ad_min`
-    are reserved, `badminton` is not);
-  - the server's own name (the first label of its domain), the same way;
-  - a list of exact names that could pass for the system or a page, such as
-    `all`, `everyone`, `nobody`, `anonymous`, `api`, `system`, `help`,
-    `inbox`;
-  - with digits read as letters (`adm1n`, `m0derator`).
-  Only `quill-server grant-handle <login> <handle>` on the server can create
-  a persona with a reserved handle.
+- **Reserved handles.** Writers can't create personas with them ("reserved
+  for this server's staff"). The list is the administrators' (decided
+  2026-10-22, not hard-coded):
+  - It starts as Quill's defaults, seeded once: staff words (`admin`,
+    `moderator`, `support`, `quill`, …) and exact names that could pass for
+    the system or a page (`everyone`, `api`, `inbox`, …). Administrators may
+    remove any of them.
+  - Administrators add and remove entries in **Server settings → Handles**
+    (one per line, with a tester showing which entry reserves a handle) or
+    the API and CLI.
+  - `QUILL_RESERVED_HANDLES_FILE` names a file synced at every start, for
+    large or automated lists: one per line, a word unless it starts with
+    `=`, `#` comments. Its entries can only change in the file; a bad line
+    stops startup with line numbers. Syncs are logged as the server's.
+  - A **word** reserves the handle that is the word, has it as a
+    `_`-separated part (`site_admin`) or spells it with underscores removed
+    (`ad_min`); `badminton` is fine. An **exact** entry reserves only
+    itself. Digits are read as letters (`adm1n`). The server's own name is
+    always reserved as a word.
+  - Checks look candidates up in an indexed table, so long lists stay fast.
+    Existing personas aren't affected.
+  Only `quill-server grant-handle <login> <handle>` can create a persona
+  with a reserved handle.
 - **Retired handles.** Deleting a persona retires its handle for good, for
   everyone including its old owner and administrators, because other servers
   will have cached the name once federation exists. A database trigger

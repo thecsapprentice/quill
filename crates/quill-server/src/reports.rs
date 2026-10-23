@@ -291,6 +291,23 @@ pub(crate) async fn log_action(
     Ok(())
 }
 
+/// Records a change made by the server itself, such as syncing the
+/// reserved-handles file at startup. No administrator is named.
+pub(crate) async fn log_system(
+    conn: &mut PgConnection,
+    action: AdminAction,
+    subject: &str,
+    detail: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO admin_log (action, subject, detail) VALUES ($1, $2, $3)")
+        .bind(action.as_str())
+        .bind(subject)
+        .bind(detail)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
 type LogRow = (
     i64,
     OffsetDateTime,

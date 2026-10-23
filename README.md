@@ -85,7 +85,7 @@ cargo run -p quill -- tags list --namespace genre
 # Make an account a server administrator, then work the report inbox and tags.
 # (On the board: the Reports and Server settings links.)
 QUILL_DATABASE_URL=... cargo run -p quill-server -- make-admin yourname
-# Reserved handles (admin, support, the server's name...) only come from the server:
+# Reserved handles (admin, support, the server's name, your own list) only come from the server:
 QUILL_DATABASE_URL=... cargo run -p quill-server -- grant-handle yourname support "Support desk"
 cargo run -p quill -- admin reports
 cargo run -p quill -- admin namespace-set genre --required true   # every prompt needs a genre
@@ -107,6 +107,7 @@ Server configuration (environment variables):
 | `QUILL_MAX_PERSONAS` | `20` | Personas per account |
 | `QUILL_TOKEN_TTL_DAYS` | `30` | Login token lifetime |
 | `QUILL_TAG_POLICY` | `open` | Starting value of the "new tags from writers" setting: `open`, `approval` or `curated`. Administrators change it in Server settings afterwards. |
+| `QUILL_RESERVED_HANDLES_FILE` | none | A file of reserved persona handles, synced at every start: one per line, a word unless it starts with `=` (exact handle), `#` comments. A bad line stops the server. Admins also manage the list in Server settings → Handles. |
 | `QUILL_SOURCE_URL` | this repository | Source link in the board's footer; point it at your version if you modify Quill (AGPL) |
 
 The web board runs no JavaScript and loads nothing from other sites. Its

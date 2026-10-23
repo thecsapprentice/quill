@@ -307,6 +307,22 @@ pub struct AdminTagDeleteView {
     pub namespace: TagNamespace,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminHandlesView {
+    pub list: quill_proto::handles::ReservedList,
+    /// Filters.
+    pub search: String,
+    pub kind: Option<quill_proto::handles::ReservedKind>,
+    pub source: Option<quill_proto::handles::ReservedSource>,
+    /// The "check a handle" input and its result.
+    pub test_input: String,
+    pub test: Option<Result<quill_proto::handles::ReservedCheck, String>>,
+    /// The "reserve" form, kept on error.
+    pub add_text: String,
+    pub add_kind: quill_proto::handles::ReservedKind,
+    pub error: Option<String>,
+}
+
 /// Board link for a tag's admin page.
 pub fn admin_tag_url(tag: &Tag) -> String {
     format!("/admin/settings/tags/{}/{}", tag.namespace, tag.slug)

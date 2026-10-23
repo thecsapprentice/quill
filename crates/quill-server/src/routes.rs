@@ -9,7 +9,7 @@ use axum::{
 };
 use quill_proto::{
     api::{CreatePersona, Credentials, InstanceInfo, Persona, TokenResponse, UpdatePersona},
-    handles, validate,
+    validate,
 };
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
@@ -40,6 +40,7 @@ pub fn api() -> Router<AppState> {
         .merge(crate::reports::router())
         .merge(crate::tag_admin::router())
         .merge(crate::server_settings::router())
+        .merge(crate::reserved::router())
 }
 
 async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, ApiError> {
@@ -245,9 +246,11 @@ async fn insert_persona(
     let handle = validate::username(&body.handle)?;
     let display_name = validate::display_name(body.display_name.as_deref())?;
     let summary = validate::summary(body.summary.as_deref())?;
-    let server_name = handles::server_name(&state.config.domain);
-    let server_names: Vec<&str> = server_name.as_deref().into_iter().collect();
-    if !allow_reserved && handles::is_reserved(&handle, &server_names) {
+    if !allow_reserved
+        && crate::reserved::reserved_by(state, &handle)
+            .await?
+            .is_some()
+    {
         return Err(ApiError::Conflict(
             "That handle is reserved for this server's staff.".into(),
         ));

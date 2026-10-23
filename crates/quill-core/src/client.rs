@@ -380,6 +380,49 @@ impl Client {
         Self::json(Self::with_json(builder, body)).await
     }
 
+    pub async fn admin_reserved(
+        &self,
+        query: &quill_proto::handles::ReservedQuery,
+    ) -> Result<quill_proto::handles::ReservedList, CoreError> {
+        Self::json(
+            self.authed(Method::GET, "/admin/reserved-handles")?
+                .query(query),
+        )
+        .await
+    }
+
+    pub async fn admin_reserve(
+        &self,
+        body: &quill_proto::handles::AddReserved,
+    ) -> Result<quill_proto::handles::AddedReserved, CoreError> {
+        let builder = self.authed(Method::POST, "/admin/reserved-handles")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn admin_unreserve(
+        &self,
+        kind: quill_proto::handles::ReservedKind,
+        pattern: &str,
+    ) -> Result<(), CoreError> {
+        Self::empty(self.authed_segments(
+            Method::DELETE,
+            "/admin/reserved-handles",
+            &[kind.as_str(), pattern],
+        )?)
+        .await
+    }
+
+    pub async fn admin_check_handle(
+        &self,
+        handle: &str,
+    ) -> Result<quill_proto::handles::ReservedCheck, CoreError> {
+        Self::json(
+            self.authed(Method::GET, "/admin/reserved-handles/check")?
+                .query(&[("handle", handle)]),
+        )
+        .await
+    }
+
     /// Local tags with usage counts, aliases included.
     pub async fn admin_tags(&self, query: &AdminTagQuery) -> Result<Vec<AdminTag>, CoreError> {
         Self::json(self.authed(Method::GET, "/admin/tags")?.query(query)).await

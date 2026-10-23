@@ -28,6 +28,8 @@ pub enum ValidationError {
     TooManyTags,
     #[error("colour {0:?} must be written as #rrggbb, like #1e3a8a")]
     Color(String),
+    #[error("reserved handle {0:?} must be 1-64 characters of a-z, 0-9 or underscore")]
+    ReservedEntry(String),
 }
 
 /// Normalizes and validates a login name or persona handle.
