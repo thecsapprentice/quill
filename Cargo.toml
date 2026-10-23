@@ -47,6 +47,7 @@ ed25519-dalek = { version = "2.2", default-features = false, features = ["std", 
 tls_codec = { version = "0.5", features = ["derive", "std", "mls"] }
 dioxus-ssr = "=0.7.10"
 directories = "6"
+futures-util = { version = "0.3", default-features = false }
 getrandom = "0.4"
 hkdf = "0.13"
 # MLS (quill-core only; banned from the server's tree).

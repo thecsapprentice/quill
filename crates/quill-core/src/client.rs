@@ -615,6 +615,19 @@ impl Client {
         Self::empty(self.authed(Method::POST, &format!("/requests/{id}/reject"))?).await
     }
 
+    // ---- Live delivery (2g) -------------------------------------------------
+
+    /// Opens the login's live event stream.
+    pub async fn events(&self) -> Result<EventStream, CoreError> {
+        let builder = self
+            .authed(Method::GET, "/events")?
+            .header(header::ACCEPT, "text/event-stream");
+        Ok(EventStream {
+            response: Self::check(builder.send().await?).await?,
+            buffer: Vec::new(),
+        })
+    }
+
     /// The server's host, as shown in link codes.
     pub fn host(&self) -> String {
         self.url("/")
@@ -793,5 +806,88 @@ mod tests {
             c.authed(Method::GET, "/personas"),
             Err(CoreError::NotLoggedIn)
         ));
+    }
+}
+
+/// A live event stream (`GET /events`).
+pub struct EventStream {
+    response: Response,
+    buffer: Vec<u8>,
+}
+
+/// The longest event the stream accepts; notices are tiny.
+const MAX_EVENT_BYTES: usize = 64 * 1024;
+
+impl EventStream {
+    /// The next notice, or `None` when the server closes the stream.
+    /// Notices this client doesn't know are skipped.
+    pub async fn next(&mut self) -> Result<Option<quill_proto::events::Event>, CoreError> {
+        loop {
+            while let Some(end) = find_blank_line(&self.buffer) {
+                let block: Vec<u8> = self.buffer.drain(..end.1).collect();
+                if let Some(event) = parse_event(&block[..end.0]) {
+                    return Ok(Some(event));
+                }
+            }
+            match self.response.chunk().await? {
+                Some(chunk) => {
+                    self.buffer.extend_from_slice(&chunk);
+                    if self.buffer.len() > MAX_EVENT_BYTES {
+                        return Err(CoreError::ResponseTooLarge);
+                    }
+                }
+                None => return Ok(None),
+            }
+        }
+    }
+}
+
+/// Where the first event block ends: `(end of its text, end of the blank
+/// line after it)`.
+fn find_blank_line(buf: &[u8]) -> Option<(usize, usize)> {
+    let text = buf;
+    for (i, w) in text.windows(2).enumerate() {
+        if w == b"\n\n" {
+            return Some((i, i + 2));
+        }
+    }
+    text.windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|i| (i, i + 4))
+}
+
+/// An event block's notice: the JSON in its `data` lines. Comments
+/// (keep-alives) and unknown notices give `None`.
+fn parse_event(block: &[u8]) -> Option<quill_proto::events::Event> {
+    let text = std::str::from_utf8(block).ok()?;
+    let data: Vec<&str> = text
+        .lines()
+        .filter_map(|l| l.strip_prefix("data:"))
+        .map(|d| d.strip_prefix(' ').unwrap_or(d))
+        .collect();
+    if data.is_empty() {
+        return None;
+    }
+    serde_json::from_str(&data.join("\n")).ok()
+}
+
+#[cfg(test)]
+mod event_tests {
+    use super::*;
+    use quill_proto::events::Event;
+
+    #[test]
+    fn event_blocks_parse_and_keep_alives_dont() {
+        assert_eq!(
+            parse_event(b"event: message\ndata: {\"type\":\"message\",\"group\":\"g\",\"seq\":3}"),
+            Some(Event::Message {
+                group: "g".into(),
+                seq: 3
+            })
+        );
+        assert_eq!(parse_event(b":"), None);
+        assert_eq!(parse_event(b"event: x\ndata: {\"type\":\"later\"}"), None);
+        assert_eq!(find_blank_line(b":\n\nevent"), Some((1, 3)));
+        assert_eq!(find_blank_line(b"data: x\n"), None);
     }
 }

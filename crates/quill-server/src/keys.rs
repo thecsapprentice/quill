@@ -25,6 +25,10 @@ use crate::{
     routes::ApiJson,
 };
 
+/// Below this many one-time KeyPackages, a device's login is told (clients
+/// refill below the same number).
+const POOL_LOW: i64 = 10;
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/personas/{id}/identity-key", put(set_identity_key))
@@ -638,7 +642,37 @@ async fn claim_key_packages(
             last_resort,
         });
     }
+    // Pools that just ran low: their devices' logins are told, so open
+    // clients can refill them.
+    let mut low = Vec::new();
+    for c in packages.iter().filter(|c| !c.last_resort) {
+        let left: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM key_packages WHERE device_id = $1 AND NOT last_resort",
+        )
+        .bind(c.device)
+        .fetch_one(&mut *tx)
+        .await?;
+        if left < POOL_LOW {
+            low.push((c.device, u32::try_from(left).unwrap_or(0)));
+        }
+    }
+    let owner: Option<Uuid> = sqlx::query_scalar("SELECT account_id FROM actors WHERE id = $1")
+        .bind(p.id)
+        .fetch_optional(&mut *tx)
+        .await?;
     tx.commit().await?;
+    if let Some(owner) = owner {
+        for (device, available) in low {
+            state.events.send(
+                vec![owner],
+                quill_proto::events::Event::KeyPackagesLow {
+                    persona: p.id,
+                    device,
+                    available,
+                },
+            );
+        }
+    }
     Ok(Json(KeyPackageClaim {
         actor_uri: p.actor_uri,
         handle: p.handle,

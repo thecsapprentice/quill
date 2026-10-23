@@ -25,6 +25,7 @@ use openmls::prelude::{
 };
 use openmls_traits::OpenMlsProvider as _;
 use quill_proto::{
+    events::Event,
     keys::{b64, unb64},
     sessions::{LeaveWelcome, Session, SessionMember},
 };
@@ -1173,6 +1174,45 @@ pub async fn versions(
     let gid = unb64(&reading.session.id).ok_or_else(|| err("bad session id"))?;
     history::message(store, &gid, at)?
         .ok_or_else(|| err(format!("no message #{at} on this device")))
+}
+
+/// Reads a session, then stays on the live event stream, calling `show`
+/// with each batch of notes that are new or changed. Returns when the
+/// session ends, the stream closes, or `show` returns false.
+pub async fn follow(
+    store: &Store,
+    client: &Client,
+    id: &str,
+    mut show: impl FnMut(&Reading, &[Message]) -> bool,
+) -> Result<(), CoreError> {
+    // Open the stream first, so nothing sent while reading is missed.
+    let mut events = client.events().await?;
+    let mut shown: Vec<Message> = Vec::new();
+    loop {
+        let reading = read(store, client, id).await?;
+        let fresh: Vec<Message> = reading
+            .messages
+            .iter()
+            .filter(|m| !shown.contains(m))
+            .cloned()
+            .collect();
+        if !fresh.is_empty() && !show(&reading, &fresh) {
+            return Ok(());
+        }
+        shown = reading.messages.clone();
+        if reading.session.ended {
+            return Ok(());
+        }
+        loop {
+            match events.next().await? {
+                None => return Ok(()),
+                Some(Event::Message { group, .. }) if group == reading.session.id => break,
+                Some(Event::Session { id, .. }) if id == reading.session.id => break,
+                Some(Event::Resync) => break,
+                Some(_) => {}
+            }
+        }
+    }
 }
 
 /// Leaves a session, which ends it for both writers. This device reads to

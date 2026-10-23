@@ -221,7 +221,15 @@ async fn post_message(
     } else {
         epoch
     };
+    let readers = crate::events::group_accounts(&mut tx, &group).await?;
     tx.commit().await?;
+    state.events.send(
+        readers,
+        quill_proto::events::Event::Message {
+            group: b64(&group),
+            seq: as_u64(seq),
+        },
+    );
     Ok(Json(Posted {
         seq: as_u64(seq),
         epoch: as_u64(epoch),

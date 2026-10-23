@@ -172,3 +172,93 @@ async fn a_withheld_message_shows_as_a_gap_and_sizes_are_padded() {
     assert!(r.messages.iter().any(|m| m.content == "Or did you?"));
     server.stop().await.unwrap();
 }
+
+/// The next notice, within a few seconds.
+async fn next(events: &mut quill_core::client::EventStream) -> quill_proto::events::Event {
+    tokio::time::timeout(std::time::Duration::from_secs(5), events.next())
+        .await
+        .expect("no notice in time")
+        .unwrap()
+        .expect("stream closed")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn notices_arrive_live_and_carry_no_content() {
+    use quill_proto::events::Event;
+    let server = server!();
+    let alice_c = server.account("alice").await.unwrap();
+    let (fox, _alice) = writer(&alice_c, "ink_fox").await;
+    let bob_c = server.account("bob").await.unwrap();
+    let (wren, bob) = writer(&bob_c, "quiet_wren").await;
+    let mut alice_events = alice_c.events().await.unwrap();
+    let mut bob_events = bob_c.events().await.unwrap();
+    let p = alice_c
+        .create_prompt(&CreatePrompt {
+            persona: fox.id,
+            title: "Lamps".into(),
+            body: "Lamps.".into(),
+            maturity: Maturity::General,
+            tags: Vec::new(),
+            state: Some(PromptState::Open),
+        })
+        .await
+        .unwrap();
+    // Alice published 5 packages: one claim leaves her pool low.
+    requests::send(&bob, &bob_c, &wren, p.id, "Pitch.", None)
+        .await
+        .unwrap();
+    let mut seen = vec![next(&mut alice_events).await, next(&mut alice_events).await];
+    seen.sort_by_key(|e| e.name());
+    assert!(
+        matches!(&seen[0], Event::KeyPackagesLow { persona, available: 4, .. } if *persona == fox.id),
+        "{seen:?}"
+    );
+    assert_eq!(seen[1], Event::Request { prompt: p.id });
+    // Bob hears nothing about Alice's queue.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(300), bob_events.next())
+            .await
+            .is_err()
+    );
+    server.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn following_a_session_shows_messages_as_they_arrive() {
+    let server = server!();
+    let (id, (alice, alice_c, _), (bob, bob_c, _)) = pair(&server).await;
+    let mut events = alice_c.events().await.unwrap();
+    sessions::write(&bob, &bob_c, &id, "Live.", None)
+        .await
+        .unwrap();
+    match next(&mut events).await {
+        quill_proto::events::Event::Message { group, .. } => assert_eq!(group, id),
+        other => panic!("{other:?}"),
+    }
+
+    let follower = {
+        let id = id.clone();
+        tokio::spawn(async move {
+            let mut got = Vec::new();
+            sessions::follow(&alice, &alice_c, &id, |_, fresh| {
+                got.extend(fresh.iter().map(|m| m.content.clone()));
+                !got.iter().any(|c| c == "Second.")
+            })
+            .await
+            .unwrap();
+            got
+        })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let started = std::time::Instant::now();
+    sessions::write(&bob, &bob_c, &id, "Second.", None)
+        .await
+        .unwrap();
+    let got = tokio::time::timeout(std::time::Duration::from_secs(5), follower)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert_eq!(got, ["Pitch.", "Live.", "Second."]);
+    server.stop().await.unwrap();
+}

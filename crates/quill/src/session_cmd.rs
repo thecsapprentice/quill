@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
-use quill_core::sessions::{self, Standing};
+use quill_core::sessions::{self, Message, Reading, Standing};
 use serde_json::json;
 
 use crate::Ctx;
@@ -18,6 +18,9 @@ pub enum SessionCommand {
         /// Only this channel.
         #[arg(long)]
         channel: Option<String>,
+        /// Stay open, printing new and changed messages as they arrive.
+        #[arg(long)]
+        follow: bool,
     },
     /// Write to a session.
     Write {
@@ -56,6 +59,31 @@ fn standing_text(s: &Standing) -> String {
         Standing::Waiting => "waiting for another of your devices to add this one".into(),
         Standing::NoKeys => "no keys for this persona on this device".into(),
         Standing::Broken(why) => format!("stopped: {why}"),
+    }
+}
+
+fn print_messages(reading: &Reading, messages: &[&Message]) {
+    for m in messages {
+        let who = if m.own {
+            "you".to_owned()
+        } else {
+            sessions::sender_name(&reading.session, &m.sender)
+        };
+        let mark = if m.deleted {
+            " (deleted)"
+        } else if m.edited() {
+            " (edited)"
+        } else {
+            ""
+        };
+        println!("#{} [{}] {who}{mark}:", m.seq, m.channel);
+        if m.deleted {
+            println!("    deleted by author");
+            continue;
+        }
+        for line in m.content.lines() {
+            println!("    {line}");
+        }
     }
 }
 
@@ -99,37 +127,32 @@ pub async fn list(ctx: &Ctx) -> Result<()> {
 pub async fn session(ctx: &Ctx, cmd: SessionCommand) -> Result<()> {
     let client = ctx.client()?;
     match cmd {
-        SessionCommand::Read { id, channel } => {
+        SessionCommand::Read {
+            id,
+            channel,
+            follow,
+        } => {
+            let wanted = |m: &&Message| channel.as_ref().is_none_or(|c| *c == m.channel);
+            if follow {
+                let json = ctx.json;
+                return Ok(
+                    sessions::follow(&ctx.store, &client, &id, |reading, fresh| {
+                        let fresh: Vec<&Message> = fresh.iter().filter(wanted).collect();
+                        if json {
+                            for m in fresh {
+                                println!("{}", serde_json::to_string(m).unwrap_or_default());
+                            }
+                        } else {
+                            print_messages(reading, &fresh);
+                        }
+                        true
+                    })
+                    .await?,
+                );
+            }
             let reading = sessions::read(&ctx.store, &client, &id).await?;
-            let messages: Vec<_> = reading
-                .messages
-                .iter()
-                .filter(|m| channel.as_ref().is_none_or(|c| *c == m.channel))
-                .collect();
-            ctx.print(&messages, |messages| {
-                for m in messages {
-                    let who = if m.own {
-                        "you".to_owned()
-                    } else {
-                        sessions::sender_name(&reading.session, &m.sender)
-                    };
-                    let mark = if m.deleted {
-                        " (deleted)"
-                    } else if m.edited() {
-                        " (edited)"
-                    } else {
-                        ""
-                    };
-                    println!("#{} [{}] {who}{mark}:", m.seq, m.channel);
-                    if m.deleted {
-                        println!("    deleted by author");
-                        continue;
-                    }
-                    for line in m.content.lines() {
-                        println!("    {line}");
-                    }
-                }
-            })?;
+            let messages: Vec<&Message> = reading.messages.iter().filter(wanted).collect();
+            ctx.print(&messages, |messages| print_messages(&reading, messages))?;
             for g in &reading.gaps {
                 eprintln!(
                     "warning: {} message(s) from one device never arrived; the server may be holding them back",

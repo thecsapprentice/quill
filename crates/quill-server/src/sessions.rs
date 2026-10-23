@@ -9,6 +9,7 @@ use axum::{
     routing::{delete, get, post},
 };
 use quill_proto::{
+    events::Event,
     keys::{actor_uri, b64, unb64},
     sessions::{DeviceWelcome, LeaveWelcome, Session, SessionMember},
 };
@@ -177,6 +178,13 @@ async fn leave_welcome(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
+    state.events.send(
+        vec![authed.account_id],
+        Event::Session {
+            id: b64(&group),
+            ended: false,
+        },
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -221,6 +229,14 @@ async fn leave(
         .bind(&group)
         .execute(&mut *tx)
         .await?;
+    let members = crate::events::group_accounts(&mut tx, &group).await?;
     tx.commit().await?;
+    state.events.send(
+        members,
+        Event::Session {
+            id: b64(&group),
+            ended: true,
+        },
+    );
     Ok(StatusCode::NO_CONTENT)
 }

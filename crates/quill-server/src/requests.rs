@@ -217,6 +217,14 @@ async fn send(
         }
     };
     tx.commit().await?;
+    if filed == "pending" {
+        state.events.send(
+            vec![author_account],
+            quill_proto::events::Event::Request {
+                prompt: body.prompt,
+            },
+        );
+    }
     Ok((StatusCode::CREATED, Json(RequestSent { id, expires_at })))
 }
 
@@ -503,7 +511,15 @@ async fn accept(
     .bind(id)
     .execute(&mut *tx)
     .await?;
+    let members = crate::events::group_accounts(&mut tx, &group).await?;
     tx.commit().await?;
+    state.events.send(
+        members,
+        quill_proto::events::Event::Session {
+            id: b64(&group),
+            ended: false,
+        },
+    );
     Ok(Json(GroupState {
         group_id: b64(&group),
         epoch: u64::try_from(epoch).unwrap_or(0),

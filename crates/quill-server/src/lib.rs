@@ -4,6 +4,7 @@
 pub mod auth;
 pub mod config;
 pub mod error;
+pub mod events;
 pub mod groups;
 pub mod keys;
 mod markdown;
@@ -35,6 +36,8 @@ pub struct AppState {
     /// unknown account so response timing doesn't reveal which accounts exist.
     dummy_hash: Arc<String>,
     limiter: Arc<ratelimit::RateLimiter>,
+    /// Live notices for `GET /events`.
+    pub events: events::Events,
 }
 
 impl AppState {
@@ -58,6 +61,7 @@ impl AppState {
             config: Arc::new(config),
             dummy_hash: Arc::new(dummy),
             limiter: Arc::default(),
+            events: events::Events::default(),
         })
     }
 }
