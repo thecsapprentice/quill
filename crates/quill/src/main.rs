@@ -331,8 +331,16 @@ async fn upkeep(ctx: &Ctx) {
             "This device was removed from your login's devices: its persona keys are gone. Link it again with `quill device link`."
         ),
         Ok(report) => {
+            if report.caught_up.stale {
+                eprintln!(
+                    "This device was away longer than the server keeps your devices' messages. Link it again with `quill device link`; its keys and sessions stay."
+                );
+            }
             for (id, why) in &report.sessions.problems {
                 eprintln!("warning: couldn't sync session {id}: {why}");
+            }
+            if let Some(why) = &report.history_problem {
+                eprintln!("warning: couldn't share history with your other devices: {why}");
             }
         }
         Err(e) => eprintln!("warning: couldn't sync with your other devices: {e}"),
