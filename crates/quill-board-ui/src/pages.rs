@@ -281,14 +281,19 @@ fn tag_policy_hint(policy: TagPolicy, namespaces: &[TagNamespace]) -> String {
         .filter(|n| n.locked)
         .map(|n| n.name.clone())
         .collect();
+    let except = if curated.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ", except in {}, which use the server's list",
+            join_and(&curated)
+        )
+    };
     match policy {
         TagPolicy::Curated => "Only tags listed on this server can be used.".to_owned(),
-        TagPolicy::User | TagPolicy::Both if curated.is_empty() => {
-            "New tags are created as you use them.".to_owned()
-        }
-        TagPolicy::User | TagPolicy::Both => format!(
-            "New tags are created as you use them, except in {}, which use the server's list.",
-            join_and(&curated)
+        TagPolicy::Open => format!("New tags are created as you use them{except}."),
+        TagPolicy::Approval => format!(
+            "You can use new tags{except}. Others see a new tag once an administrator approves it."
         ),
     }
 }
@@ -613,6 +618,11 @@ fn action_label(action: AdminAction) -> &'static str {
         AdminAction::RenameTag => "Tag renamed",
         AdminAction::AliasTag => "Tag merged",
         AdminAction::DeleteTag => "Tag deleted",
+        AdminAction::ApproveTag => "Tag approved",
+        AdminAction::RejectTag => "Tag rejected",
+        AdminAction::HideTag => "Tag hidden",
+        AdminAction::ShowTag => "Tag shown",
+        AdminAction::ChangeSetting => "Setting changed",
     }
 }
 

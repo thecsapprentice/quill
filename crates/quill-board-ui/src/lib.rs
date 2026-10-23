@@ -59,6 +59,8 @@ pub struct Viewer {
     pub csrf: String,
     pub is_admin: bool,
     pub maturity_max: Maturity,
+    /// Tag requests waiting for approval (administrators only, else 0).
+    pub pending_tags: u64,
 }
 
 /// What every page needs: site identity, the visitor and navigation.
@@ -229,6 +231,8 @@ pub struct NewTagType {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminTagTypesView {
+    /// The "new tags from writers" setting.
+    pub new_tags: TagPolicy,
     pub namespaces: Vec<TagNamespace>,
     pub new: NewTagType,
     pub error: Option<String>,
@@ -248,6 +252,13 @@ pub struct AdminTagsView {
     pub new_namespace: String,
     pub new_name: String,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminTagRequestsView {
+    pub requests: Vec<AdminTag>,
+    pub namespaces: Vec<TagNamespace>,
+    pub new_tags: TagPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,7 +1,7 @@
 //! Page chrome and pieces shared by several pages.
 
 use dioxus::prelude::*;
-use quill_proto::board::{Prompt, PromptState, Tag};
+use quill_proto::board::{Prompt, PromptState, Tag, TagStatus};
 
 use crate::{
     CSRF_FIELD, Chrome, Nav, maturity_label, prompt_url, short_date, state_label, tag_url,
@@ -30,7 +30,14 @@ pub(crate) fn header(chrome: &Chrome) -> Element {
                         {nav_link(chrome, Nav::Settings, "/settings", "Settings")}
                         if viewer.is_admin {
                             {nav_link(chrome, Nav::Admin, "/admin/reports", "Reports")}
-                            {nav_link(chrome, Nav::ServerSettings, "/admin/settings", "Server settings")}
+                            a { href: "/admin/settings",
+                                "aria-current": (chrome.current == Nav::ServerSettings).then_some("page"),
+                                "Server settings"
+                                if viewer.pending_tags > 0 {
+                                    " "
+                                    span { class: "count", title: "Tag requests waiting", "{viewer.pending_tags}" }
+                                }
+                            }
                         }
                         form { method: "post", action: "/logout",
                             input { r#type: "hidden", name: CSRF_FIELD, value: "{viewer.csrf}" }
@@ -79,9 +86,28 @@ pub(crate) fn tag_list(tags: &[Tag]) -> Element {
         ul { class: "tags", "aria-label": "Tags",
             for tag in tags.iter() {
                 li { key: "{tag.key()}",
-                    a { href: "{tag_url(tag)}", title: "Show prompts tagged {tag.namespace}: {tag.display}",
-                        span { class: "tag-ns", "{tag.namespace}: " }
-                        "{tag.display}"
+                    match tag.status {
+                        TagStatus::Visible => rsx! {
+                            a { href: "{tag_url(tag)}", title: "Show prompts tagged {tag.namespace}: {tag.display}",
+                                span { class: "tag-ns", "{tag.namespace}: " }
+                                "{tag.display}"
+                            }
+                        },
+                        // Only its author and administrators get these.
+                        TagStatus::Pending => rsx! {
+                            span { class: "tag-quiet",
+                                span { class: "tag-ns", "{tag.namespace}: " }
+                                "{tag.display} "
+                                em { "(awaiting approval)" }
+                            }
+                        },
+                        TagStatus::Hidden => rsx! {
+                            span { class: "tag-quiet",
+                                span { class: "tag-ns", "{tag.namespace}: " }
+                                "{tag.display} "
+                                em { "(hidden)" }
+                            }
+                        },
                     }
                 }
             }

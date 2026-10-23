@@ -8,8 +8,8 @@ use clap::{Args, Subcommand};
 use quill_core::Client;
 use quill_proto::board::{
     AdminTagQuery, CreateNamespace, CreatePrompt, CreateReport, CreateTag, Maturity, Prompt,
-    PromptQuery, PromptState, ReportReason, Resolution, TagQuery, UpdateAccountSettings,
-    UpdateNamespace, UpdatePrompt, UpdateTag,
+    PromptQuery, PromptState, ReportReason, Resolution, TagPolicy, TagQuery, TagStatus,
+    UpdateAccountSettings, UpdateNamespace, UpdatePrompt, UpdateServerSettings, UpdateTag,
 };
 use uuid::Uuid;
 
@@ -179,6 +179,12 @@ pub enum AdminCommand {
         #[arg(long)]
         required: Option<bool>,
     },
+    /// Show server settings, or change them.
+    Settings {
+        /// Whether writers may create new tags: open, approval or curated.
+        #[arg(long)]
+        new_tags: Option<TagPolicy>,
+    },
     /// List tags with how many prompts use them, aliases included.
     Tags {
         #[arg(long)]
@@ -186,7 +192,16 @@ pub enum AdminCommand {
         /// Text the slug or display name contains.
         #[arg(long)]
         search: Option<String>,
+        /// visible, hidden or pending (tag requests).
+        #[arg(long)]
+        status: Option<TagStatus>,
     },
+    /// Approve a tag request (namespace:slug).
+    ApproveTag { tag: String },
+    /// Hide a tag: it stays on prompts, but only administrators see it.
+    HideTag { tag: String },
+    /// Show a hidden tag to everyone again.
+    ShowTag { tag: String },
     /// Delete a tag (namespace:slug) and remove it from every prompt.
     DeleteTag { tag: String },
     /// Create a curated tag, or promote a user tag to curated.
@@ -534,11 +549,33 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                 );
             })
         }
-        AdminCommand::Tags { namespace, search } => {
+        AdminCommand::Settings { new_tags } => {
+            let settings = if new_tags.is_some() {
+                client
+                    .admin_update_settings(&UpdateServerSettings { new_tags })
+                    .await?
+            } else {
+                client.admin_settings().await?
+            };
+            ctx.print(&settings, |s| {
+                println!("new tags from writers: {}", s.new_tags)
+            })
+        }
+        AdminCommand::ApproveTag { tag } => {
+            set_status(ctx, &tag, TagStatus::Visible, "approved").await
+        }
+        AdminCommand::ShowTag { tag } => set_status(ctx, &tag, TagStatus::Visible, "shown").await,
+        AdminCommand::HideTag { tag } => set_status(ctx, &tag, TagStatus::Hidden, "hidden").await,
+        AdminCommand::Tags {
+            namespace,
+            search,
+            status,
+        } => {
             let tags = client
                 .admin_tags(&AdminTagQuery {
                     namespace,
                     search,
+                    status,
                     limit: None,
                 })
                 .await?;
@@ -547,9 +584,10 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     println!("no tags");
                 }
                 for t in list {
-                    let kind = match &t.alias_of {
-                        Some(target) => format!("alias of {target}"),
-                        None => t.tag.origin.to_string(),
+                    let kind = match (&t.alias_of, t.tag.status) {
+                        (Some(target), _) => format!("alias of {target}"),
+                        (None, TagStatus::Visible) => t.tag.origin.to_string(),
+                        (None, status) => format!("{}, {status}", t.tag.origin),
                     };
                     println!(
                         "{:<36} {:<24} {:<22} {} prompt(s)",
@@ -588,7 +626,7 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     slug,
                     &UpdateTag {
                         display: Some(name),
-                        alias_of: None,
+                        ..UpdateTag::default()
                     },
                 )
                 .await?;
@@ -601,12 +639,28 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     ns,
                     slug,
                     &UpdateTag {
-                        display: None,
                         alias_of: Some(target.clone()),
+                        ..UpdateTag::default()
                     },
                 )
                 .await?;
             ctx.print(&t, |t| println!("{} is now an alias of {target}", t.key()))
         }
     }
+}
+
+async fn set_status(ctx: &Ctx, tag: &str, status: TagStatus, done: &str) -> Result<()> {
+    let (ns, slug) = split_key(tag)?;
+    let t = ctx
+        .client()?
+        .admin_update_tag(
+            ns,
+            slug,
+            &UpdateTag {
+                status: Some(status),
+                ..UpdateTag::default()
+            },
+        )
+        .await?;
+    ctx.print(&t, |t| println!("{} {done}", t.key()))
 }

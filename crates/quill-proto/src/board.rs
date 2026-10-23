@@ -70,20 +70,43 @@ string_enum! {
 }
 
 string_enum! {
-    /// Which tags users may attach to prompts.
+    /// Whether writers may create new tags by using them. A tag type marked
+    /// curated-only refuses new tags whatever this says.
     TagPolicy {
-        /// Only tags an administrator created.
+        /// New tags are created as writers use them.
+        Open => "open",
+        /// New tags are created awaiting an administrator's approval.
+        Approval => "approval",
+        /// Only existing tags can be used.
         Curated => "curated",
-        /// Users may create tags in any unlocked namespace.
-        User => "user",
-        /// Curated tags plus user tags in unlocked namespaces.
-        Both => "both",
     }
 }
 
 impl TagPolicy {
-    pub fn allows_user_tags(self) -> bool {
+    /// Whether writers may create tags at all (perhaps pending approval).
+    pub fn allows_new_tags(self) -> bool {
         !matches!(self, Self::Curated)
+    }
+}
+
+string_enum! {
+    /// Who can see a tag.
+    TagStatus {
+        /// Everyone.
+        Visible => "visible",
+        /// Administrators only. It stays on its prompts.
+        Hidden => "hidden",
+        /// A writer's new tag awaiting approval: administrators and the
+        /// authors of prompts carrying it.
+        Pending => "pending",
+    }
+}
+
+// `string_enum!` writes the derives, so the default is implemented by hand.
+#[allow(clippy::derivable_impls)]
+impl Default for TagStatus {
+    fn default() -> Self {
+        Self::Visible
     }
 }
 
@@ -125,6 +148,11 @@ string_enum! {
         RenameTag => "rename_tag",
         AliasTag => "alias_tag",
         DeleteTag => "delete_tag",
+        ApproveTag => "approve_tag",
+        RejectTag => "reject_tag",
+        HideTag => "hide_tag",
+        ShowTag => "show_tag",
+        ChangeSetting => "change_setting",
     }
 }
 
@@ -149,6 +177,9 @@ pub struct Tag {
     pub slug: String,
     pub display: String,
     pub origin: TagOrigin,
+    /// Anything but `visible` is only ever sent to someone allowed to see it.
+    #[serde(default)]
+    pub status: TagStatus,
 }
 
 impl Tag {
@@ -213,6 +244,8 @@ pub struct AdminTagQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub search: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<TagStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
 }
 
@@ -248,6 +281,26 @@ pub struct UpdateTag {
     /// using it are moved to the target.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alias_of: Option<String>,
+    /// `visible` approves a pending tag or shows a hidden one; `hidden` hides
+    /// it. `pending` can't be set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<TagStatus>,
+}
+
+/// `GET /admin/settings`: settings administrators change while the server runs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerSettings {
+    /// Whether writers may create new tags.
+    pub new_tags: TagPolicy,
+}
+
+/// `PATCH /admin/settings`. Absent fields are unchanged.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateServerSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_tags: Option<TagPolicy>,
 }
 
 // ---- Prompts -------------------------------------------------------------

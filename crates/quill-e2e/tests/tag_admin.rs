@@ -231,6 +231,7 @@ async fn deleting_a_tag_removes_it_everywhere() {
             &UpdateTag {
                 alias_of: Some("theme:lighthouses".into()),
                 display: None,
+                status: None,
             },
         )
         .await
@@ -354,6 +355,7 @@ async fn creating_tags_and_types_is_logged() {
             &UpdateTag {
                 display: Some("Outer space".into()),
                 alias_of: None,
+                status: None,
             },
         )
         .await

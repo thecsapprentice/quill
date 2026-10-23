@@ -313,6 +313,30 @@ h1 {
   opacity: 0.75;
 }
 
+/* Tags only the author or administrators can see. */
+.tag-quiet {
+  color: var(--muted);
+  border-bottom: 1px dashed var(--line);
+}
+
+.tag-quiet em {
+  font-size: 0.85em;
+}
+
+/* Number of items waiting, next to a navigation link. */
+.count {
+  display: inline-block;
+  min-width: 1.35em;
+  padding: 0 0.35em;
+  border-radius: 0.7em;
+  background: var(--act);
+  color: var(--act-ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.35em;
+  text-align: center;
+}
+
 /* ---- State and rating ---- */
 
 .state::before {
@@ -624,6 +648,13 @@ textarea.short {
 .report form {
   display: inline-block;
   margin: 0.5rem 0.75rem 0 0;
+}
+
+/* Forms that are one button in a row of actions line up with the links. */
+.report .actions form,
+.form-card .actions form {
+  display: inline-block;
+  margin: 0;
 }
 
 .log {

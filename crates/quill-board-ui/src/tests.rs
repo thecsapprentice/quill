@@ -2,7 +2,7 @@ use quill_proto::{
     api::Persona,
     board::{
         AccountSettings, AdminAction, AdminLogEntry, AdminTag, Maturity, Prompt, PromptAuthor,
-        PromptState, Report, ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy,
+        PromptState, Report, ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy, TagStatus,
     },
 };
 use time::macros::datetime;
@@ -17,6 +17,7 @@ fn chrome(signed_in: bool, admin: bool) -> Chrome {
             csrf: "csrf-token-123".into(),
             is_admin: admin,
             maturity_max: Maturity::Teen,
+            pending_tags: if admin { 3 } else { 0 },
         }),
         source_url: "https://github.com/thecsapprentice/quill".into(),
         version: "0.1.0".into(),
@@ -43,6 +44,7 @@ fn prompt(title: &str, maturity: Maturity) -> Prompt {
             slug: "horror".into(),
             display: "Horror".into(),
             origin: TagOrigin::Server,
+            status: TagStatus::Visible,
         }],
         accepting_sessions: false,
         removed: false,
@@ -165,7 +167,7 @@ fn forms_render_with_values_and_errors() {
             state: PromptState::Open,
             error: Some("Tag \"x\" is invalid".into()),
             tag_options: Vec::new(),
-            tag_policy: TagPolicy::Both,
+            tag_policy: TagPolicy::Open,
             namespaces: vec![
                 TagNamespace {
                     name: "genre".into(),
@@ -208,7 +210,7 @@ fn forms_render_with_values_and_errors() {
             state: PromptState::Open,
             error: None,
             tag_options: Vec::new(),
-            tag_policy: TagPolicy::Both,
+            tag_policy: TagPolicy::Open,
             namespaces: Vec::new(),
         },
     );
@@ -297,6 +299,7 @@ fn admin_tag(slug: &str, uses: u64, alias_of: Option<&str>) -> AdminTag {
             slug: slug.into(),
             display: "<Horror>".into(),
             origin: TagOrigin::User,
+            status: TagStatus::Visible,
         },
         uses,
         alias_of: alias_of.map(str::to_owned),
@@ -312,6 +315,7 @@ fn server_settings_pages() {
     let types = admin_tag_types_page(
         &c,
         AdminTagTypesView {
+            new_tags: TagPolicy::Approval,
             namespaces: vec![genre()],
             new: NewTagType {
                 name: "setting".into(),
@@ -325,7 +329,11 @@ fn server_settings_pages() {
     assert!(types.contains(r#"value="setting""#));
     assert!(types.contains("role=\"alert\""));
     assert!(types.contains(r#"href="/admin/settings" aria-current="page""#));
-    assert_eq!(types.matches(r#"name="csrf""#).count(), 3);
+    // The header counts waiting tag requests for administrators.
+    assert!(types.contains(r#"<span class="count" title="Tag requests waiting">3</span>"#));
+    // The new-tags switch, set to approval; plus two type forms and the add form.
+    assert!(types.contains(r#"value="approval" checked=true"#));
+    assert_eq!(types.matches(r#"name="csrf""#).count(), 4);
 
     let tags = admin_tags_page(
         &c,
@@ -423,4 +431,86 @@ fn admin_log_shows_tag_and_report_entries() {
     assert!(html.contains("Report received"));
     assert!(html.contains("<code>00ff00ff00ff</code>"));
     assert!(html.contains("View prompt"));
+}
+
+#[test]
+fn tags_only_some_viewers_see() {
+    let mut p = prompt("Lamps", Maturity::General);
+    let tag = |slug: &str, status| Tag {
+        namespace: "theme".into(),
+        slug: slug.into(),
+        display: slug.into(),
+        origin: TagOrigin::User,
+        status,
+    };
+    p.tags = vec![
+        tag("open", TagStatus::Visible),
+        tag("waiting", TagStatus::Pending),
+        tag("secret", TagStatus::Hidden),
+    ];
+    let html = prompt_page(
+        &chrome(true, false),
+        PromptView {
+            prompt: p,
+            is_author: true,
+            held_back: None,
+        },
+    );
+    assert!(html.contains(r#"href="/?include=theme%3Aopen""#));
+    // Not offered as filters: they wouldn't work for anyone else.
+    assert!(!html.contains("include=theme%3Awaiting"));
+    assert!(!html.contains("include=theme%3Asecret"));
+    assert!(html.contains("waiting <em>(awaiting approval)</em>"));
+    assert!(html.contains("secret <em>(hidden)</em>"));
+}
+
+#[test]
+fn tag_requests_and_status_controls() {
+    let c = Chrome {
+        current: Nav::ServerSettings,
+        ..chrome(true, true)
+    };
+    let mut pending = admin_tag("selkies", 2, None);
+    pending.tag.status = TagStatus::Pending;
+    let requests = admin_tag_requests_page(
+        &c,
+        AdminTagRequestsView {
+            requests: vec![pending.clone()],
+            namespaces: vec![genre()],
+            new_tags: TagPolicy::Open,
+        },
+    );
+    assert!(requests.contains(r#"action="/admin/settings/tags/genre/selkies/status""#));
+    assert!(requests.contains(r#"name="back" value="requests""#));
+    assert!(requests.contains(r#"href="/admin/settings/tags/genre/selkies#merge""#));
+    assert!(requests.contains(r#"href="/admin/settings/tags/genre/selkies/delete""#));
+    assert!(requests.contains("so no new requests arrive"));
+
+    let tag_view = |tag: AdminTag| AdminTagView {
+        tag,
+        namespace_display: "Genre".into(),
+        rename: String::new(),
+        alias_target: String::new(),
+        tag_options: Vec::new(),
+        error: None,
+    };
+    let page = admin_tag_page(&c, tag_view(pending.clone()));
+    assert!(page.contains("Approve tag"));
+    assert!(page.contains("Reject tag"));
+    assert!(!page.contains(">Delete tag<"));
+    let visible = admin_tag_page(&c, tag_view(admin_tag("horror", 1, None)));
+    assert!(visible.contains("Hide tag"));
+    let mut hidden = admin_tag("horror", 1, None);
+    hidden.tag.status = TagStatus::Hidden;
+    assert!(admin_tag_page(&c, tag_view(hidden)).contains("Show tag"));
+
+    let reject = admin_tag_delete_page(
+        &c,
+        AdminTagDeleteView {
+            tag: pending,
+            namespace: genre(),
+        },
+    );
+    assert!(reject.contains("Reject &#60;Horror&#62;?"));
+    assert!(reject.contains(">Reject tag<"));
 }

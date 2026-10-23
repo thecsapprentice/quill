@@ -7,10 +7,12 @@ use axum::{
     response::Response,
 };
 use quill_board_ui::{
-    AdminTagDeleteView, AdminTagTypesView, AdminTagView, AdminTagsView, Nav, NewTagType,
+    AdminTagDeleteView, AdminTagRequestsView, AdminTagTypesView, AdminTagView, AdminTagsView, Nav,
+    NewTagType,
 };
 use quill_proto::board::{
-    AdminTagQuery, CreateNamespace, CreateTag, TagQuery, UpdateNamespace, UpdateTag,
+    AdminTagQuery, CreateNamespace, CreateTag, TagPolicy, TagQuery, TagStatus, UpdateNamespace,
+    UpdateServerSettings, UpdateTag,
 };
 use serde::Deserialize;
 
@@ -23,7 +25,7 @@ use super::{
 use crate::{
     AppState,
     error::ApiError,
-    prompts,
+    prompts, server_settings,
     tag_admin::{self, ADMIN_TAG_LIMIT},
 };
 
@@ -88,18 +90,142 @@ async fn render_tag_types(
     error: Option<String>,
 ) -> Response {
     let c = chrome(state, Some(s), Nav::ServerSettings, notice);
-    match prompts::namespaces(state).await {
-        Ok(namespaces) => html(
+    let loaded = async {
+        Ok::<_, ApiError>((
+            prompts::namespaces(state).await?,
+            server_settings::settings(state).await?.new_tags,
+        ))
+    }
+    .await;
+    match loaded {
+        Ok((namespaces, new_tags)) => html(
             status_for(error.as_ref()),
             quill_board_ui::admin_tag_types_page(
                 &c,
                 AdminTagTypesView {
+                    new_tags,
                     namespaces,
                     new,
                     error,
                 },
             ),
         ),
+        Err(e) => error_page(&c, e),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct NewTagsForm {
+    csrf: Option<String>,
+    new_tags: Option<String>,
+}
+
+pub async fn new_tags_save(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Form(form): Form<NewTagsForm>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let c = chrome(&state, Some(&s), Nav::ServerSettings, None);
+    if !s.csrf_matches(form.csrf.as_deref()) {
+        return csrf_failed(&c);
+    }
+    let Some(new_tags) = opt(&form.new_tags).and_then(|v| v.parse::<TagPolicy>().ok()) else {
+        return error_page(&c, ApiError::BadRequest("Choose a setting.".into()));
+    };
+    let body = UpdateServerSettings {
+        new_tags: Some(new_tags),
+    };
+    match server_settings::update(&state, s.account_id, &body).await {
+        Ok(_) => redirect("/admin/settings/tag-types?notice=new-tags-saved"),
+        Err(e) => error_page(&c, e),
+    }
+}
+
+pub async fn tag_requests(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Query(q): Query<NoticeQuery>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let c = chrome(&state, Some(&s), Nav::ServerSettings, opt(&q.notice));
+    let loaded = async {
+        let requests = tag_admin::list_tags(
+            &state,
+            &AdminTagQuery {
+                status: Some(TagStatus::Pending),
+                ..AdminTagQuery::default()
+            },
+        )
+        .await?;
+        Ok::<_, ApiError>(AdminTagRequestsView {
+            requests,
+            namespaces: prompts::namespaces(&state).await?,
+            new_tags: server_settings::settings(&state).await?.new_tags,
+        })
+    }
+    .await;
+    match loaded {
+        Ok(view) => html(
+            StatusCode::OK,
+            quill_board_ui::admin_tag_requests_page(&c, view),
+        ),
+        Err(e) => error_page(&c, e),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct StatusForm {
+    csrf: Option<String>,
+    status: Option<String>,
+    /// `requests` to return to the requests list, else the tag's page.
+    back: Option<String>,
+}
+
+pub async fn tag_status(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Path((namespace, slug)): Path<(String, String)>,
+    Form(form): Form<StatusForm>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let c = chrome(&state, Some(&s), Nav::ServerSettings, None);
+    if !s.csrf_matches(form.csrf.as_deref()) {
+        return csrf_failed(&c);
+    }
+    let Some(status) = opt(&form.status).and_then(|v| v.parse::<TagStatus>().ok()) else {
+        return error_page(&c, ApiError::BadRequest("Choose a status.".into()));
+    };
+    let before = match tag_admin::get_tag(&state, &namespace, &slug).await {
+        Ok(t) => t.tag.status,
+        Err(e) => return error_page(&c, e),
+    };
+    let update = UpdateTag {
+        status: Some(status),
+        ..UpdateTag::default()
+    };
+    let notice = match (before, status) {
+        (TagStatus::Pending, TagStatus::Visible) => "tag-approved",
+        (_, TagStatus::Hidden) => "tag-hidden",
+        _ => "tag-shown",
+    };
+    match tag_admin::update_tag(&state, s.account_id, &namespace, &slug, &update).await {
+        Ok(_) if opt(&form.back) == Some("requests") => {
+            redirect(&format!("/admin/settings/tag-requests?notice={notice}"))
+        }
+        Ok(tag) => redirect(&format!(
+            "{}?notice={notice}",
+            quill_board_ui::admin_tag_url(&tag)
+        )),
         Err(e) => error_page(&c, e),
     }
 }
@@ -200,6 +326,7 @@ async fn render_tags(
     let query = AdminTagQuery {
         namespace: namespace.clone(),
         search: Some(search.clone()),
+        status: None,
         limit: Some(ADMIN_TAG_LIMIT),
     };
     let result = async {
@@ -402,7 +529,7 @@ pub async fn tag_rename(
 ) -> Response {
     let update = UpdateTag {
         display: Some(form.display.clone().unwrap_or_default()),
-        alias_of: None,
+        ..UpdateTag::default()
     };
     change_tag(state, session, key, form, update).await
 }
@@ -414,8 +541,8 @@ pub async fn tag_merge(
     Form(form): Form<TagForm>,
 ) -> Response {
     let update = UpdateTag {
-        display: None,
         alias_of: Some(form.target.clone().unwrap_or_default().trim().to_owned()),
+        ..UpdateTag::default()
     };
     change_tag(state, session, key, form, update).await
 }
@@ -475,7 +602,12 @@ pub async fn tag_delete(
             ApiError::BadRequest("Tick the box to confirm deleting the tag.".into()),
         );
     }
+    let rejecting = match tag_admin::get_tag(&state, &namespace, &slug).await {
+        Ok(t) => t.tag.status == TagStatus::Pending,
+        Err(e) => return error_page(&c, e),
+    };
     match tag_admin::delete_tag(&state, s.account_id, &namespace, &slug).await {
+        Ok(_) if rejecting => redirect("/admin/settings/tag-requests?notice=tag-rejected"),
         Ok(_) => redirect(&format!(
             "/admin/settings/tags?namespace={namespace}&notice=tag-deleted"
         )),

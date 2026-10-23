@@ -699,3 +699,135 @@ async fn server_settings_manage_tag_types_and_tags() {
     assert!(log.body.contains("<code>genre:horror</code>"));
     server.stop().await.unwrap();
 }
+
+#[tokio::test]
+async fn tag_requests_through_the_board() {
+    let server = server!();
+    let mut admin = Browser::new(&server);
+    let csrf = admin.register("moderator", "mod_desk").await;
+    let pool = server.db().await.unwrap();
+    sqlx::query("UPDATE accounts SET is_admin = true WHERE login_name = 'moderator'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+
+    // Turn approval on with the switch.
+    let types = admin.get("/admin/settings/tag-types").await;
+    assert!(types.body.contains(r#"value="open" checked=true"#));
+    let saved = admin
+        .post(
+            "/admin/settings/new-tags",
+            &[("csrf", &csrf), ("new_tags", "approval")],
+        )
+        .await;
+    assert_eq!(
+        saved.location(),
+        "/admin/settings/tag-types?notice=new-tags-saved"
+    );
+
+    // A writer's new tag (post_prompt uses theme:Lighthouses) waits.
+    let mut writer = Browser::new(&server);
+    let writer_csrf = writer.register("alice", "ink_fox").await;
+    let form = writer.get("/new").await;
+    assert!(
+        form.body
+            .contains("Others see a new tag once an administrator approves it.")
+    );
+    let path = writer.post_prompt(&writer_csrf, "Lamps", "general").await;
+    let own = writer.get(&path).await;
+    assert!(
+        own.body
+            .contains("Lighthouses <em>(awaiting approval)</em>")
+    );
+    let mut anon = Browser::new(&server);
+    assert!(!anon.get(&path).await.body.contains("Lighthouses"));
+
+    // The admin sees the count and the request.
+    let home = admin.get("/").await;
+    assert!(
+        home.body
+            .contains(r#"title="Tag requests waiting">1</span>"#)
+    );
+    let requests = admin.get("/admin/settings/tag-requests").await;
+    assert!(requests.body.contains("theme:lighthouses"));
+    let approved = admin
+        .post(
+            "/admin/settings/tags/theme/lighthouses/status",
+            &[("csrf", &csrf), ("status", "visible"), ("back", "requests")],
+        )
+        .await;
+    assert_eq!(
+        approved.location(),
+        "/admin/settings/tag-requests?notice=tag-approved"
+    );
+    let after = admin
+        .get("/admin/settings/tag-requests?notice=tag-approved")
+        .await;
+    assert!(after.body.contains("Tag approved."));
+    assert!(after.body.contains("No tag requests waiting."));
+    assert!(!after.body.contains(r#"class="count""#));
+    assert!(anon.get(&path).await.body.contains("Lighthouses"));
+
+    // Reject a second request through the confirmation page.
+    let second = writer.post_prompt(&writer_csrf, "Again", "general").await;
+    let pool = server.db().await.unwrap();
+    sqlx::query(
+        "INSERT INTO tags (namespace, slug, display, origin, status)
+         VALUES ('theme', 'junk', 'Junk', 'user', 'pending')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+    let confirm = admin.get("/admin/settings/tags/theme/junk/delete").await;
+    assert!(confirm.body.contains("Reject Junk?"));
+    let rejected = admin
+        .post(
+            "/admin/settings/tags/theme/junk/delete",
+            &[("csrf", &csrf), ("confirm", "yes")],
+        )
+        .await;
+    assert_eq!(
+        rejected.location(),
+        "/admin/settings/tag-requests?notice=tag-rejected"
+    );
+
+    // Hide a tag from its page: gone for the author and visitors.
+    let hidden = admin
+        .post(
+            "/admin/settings/tags/genre/horror/status",
+            &[("csrf", &csrf), ("status", "hidden"), ("back", "tag")],
+        )
+        .await;
+    assert_eq!(
+        hidden.location(),
+        "/admin/settings/tags/genre/horror?notice=tag-hidden"
+    );
+    assert!(!writer.get(&second).await.body.contains("Horror"));
+    assert!(
+        !anon
+            .get("/?include=genre%3Ahorror")
+            .await
+            .body
+            .contains("Again")
+    );
+    assert!(
+        admin
+            .get(&second)
+            .await
+            .body
+            .contains("Horror <em>(hidden)</em>")
+    );
+
+    let log = admin.get("/admin/log").await;
+    for event in [
+        "Setting changed",
+        "Tag approved",
+        "Tag rejected",
+        "Tag hidden",
+    ] {
+        assert!(log.body.contains(event), "{event}");
+    }
+    server.stop().await.unwrap();
+}

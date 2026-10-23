@@ -21,8 +21,9 @@ personas, CLI skeleton, the server dependency ban.
 | 1b | Server-rendered board (`quill-board-ui`), sessions, CSRF | done (#2) |
 | 1c | Docker setup and demo data | done |
 | 1d | Admin settings: tag management and required tag types | done |
-| 1e | Tag picker on the prompt form | next |
-| 1f | Persona handle rules | planned |
+| 1e | Tag moderation: new-tag switch, hidden tags, tag requests | done |
+| 1f | Tag picker on the prompt form | next |
+| 1g | Persona handle rules | planned |
 
 ### 1c: Docker setup and demo data
 
@@ -73,17 +74,49 @@ As built: the board pages are under `/admin/settings` (tabs "Tag types" and
 refused (409) rather than logged twice. The admin log also refuses
 `TRUNCATE`, which row triggers alone didn't stop.
 
-### 1e: Tag picker on the prompt form
+### 1e: Tag moderation
+
+- **New tags from writers**, one switch in Server settings, changeable at any
+  time: *Allowed*, *Need approval* or *Not allowed*. It replaces the
+  `QUILL_TAG_POLICY` variable, which now only sets the starting value
+  (`open`, `approval` or `curated`; the old `user` and `both` mean `open`).
+  A tag type marked curated-only still refuses new tags whatever the switch
+  says. Each change is logged.
+- **Hidden tags.** An administrator can hide any tag. It stays on its
+  prompts but only administrators see it. For everyone else it isn't shown,
+  isn't suggested, isn't listed, and filtering by it behaves exactly like
+  filtering by a tag that doesn't exist, so nothing reveals it. An author
+  editing a prompt can't see its hidden tags, so saving keeps them.
+- **Tag requests.** With *Need approval*, a new tag a writer uses is created
+  as *awaiting approval*, using the hidden mechanism. Its author sees it on
+  their own prompt, marked as awaiting approval; nobody else does until it is
+  approved. A "Tag requests" tab lists them, and the header shows how many
+  are waiting. An administrator can:
+  - **approve** it (visible to everyone),
+  - **merge** it into an existing tag (its prompts move to that tag), or
+  - **reject** it (removed from its prompts, like deleting).
+  A tag awaiting approval still counts towards required tag types; if it is
+  rejected, the prompt needs a new tag of that type at its next edit.
+- API: `GET`/`PATCH /admin/settings`, a `status` on tags (`visible`,
+  `hidden`, `pending`), a status filter on `GET /admin/tags`, and `status` in
+  `PATCH /admin/tags/{namespace}/{slug}`. CLI commands to match.
+
+Done when: each switch setting, hiding, and each request outcome have
+end-to-end tests that check what anonymous visitors, the author, other
+writers and administrators each see, including through filters.
+
+### 1f: Tag picker on the prompt form
 
 - Chosen tags appear as removable chips, each with an × button.
 - Tags are added from a suggestion list or typed as `type:name`.
 - Required tag types (from 1d) are shown as prompts to fill.
+- Tags awaiting approval (from 1e) show as pending chips.
 - No JavaScript: "Add" reloads the form; × is a checkbox chip. See Decisions below.
 
 Done when: tags can be added and removed on the new and edit forms with the
 keyboard alone, and the form still works with JavaScript disabled.
 
-### 1f: Persona handle rules
+### 1g: Persona handle rules
 
 - Handles are already unique across the server, case-insensitive and ASCII
   only (enforced by the database and tested).
@@ -137,7 +170,7 @@ done.
 
 ## Decisions
 
-- **1e, JavaScript on the board (decided 2026-10-22): none.** Adding a tag
+- **1f, JavaScript on the board (decided 2026-10-22): none.** Adding a tag
   is a form button that reloads the form with the visitor's input kept and
   jumps back to the tag field. Removing a tag is instant without JavaScript:
   each chip is a checkbox styled as a badge with an ×. The CSP stays at
@@ -145,3 +178,6 @@ done.
   could be added later as an enhancement on top of this.
 - **1d, required tag types (decided 2026-10-22):** they apply to every save,
   of new prompts and edits alike.
+- **1e, tag moderation (decided 2026-10-22):** one live three-way switch for
+  new tags; authors see their own pending tags; requests can be approved,
+  merged or rejected; hidden tags can't be used in filters by non-admins.

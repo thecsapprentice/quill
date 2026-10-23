@@ -75,6 +75,12 @@ pub fn router() -> Router<AppState> {
             "/admin/settings/tag-types/{name}",
             post(settings::tag_type_update),
         )
+        .route("/admin/settings/new-tags", post(settings::new_tags_save))
+        .route("/admin/settings/tag-requests", get(settings::tag_requests))
+        .route(
+            "/admin/settings/tags/{namespace}/{slug}/status",
+            post(settings::tag_status),
+        )
         .route(
             "/admin/settings/tags",
             get(settings::tags).post(settings::tag_create),
@@ -189,6 +195,7 @@ pub(crate) fn chrome(
             csrf: s.csrf.clone(),
             is_admin: s.is_admin,
             maturity_max: s.maturity_max,
+            pending_tags: s.pending_tags,
         }),
         source_url: state.config.source_url.clone(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -219,6 +226,11 @@ fn notice_text(key: &str) -> Option<&'static str> {
         "tag-saved" => "Tag renamed.",
         "tag-merged" => "Tag merged.",
         "tag-deleted" => "Tag deleted.",
+        "tag-rejected" => "Tag rejected.",
+        "tag-approved" => "Tag approved.",
+        "tag-hidden" => "Tag hidden.",
+        "tag-shown" => "Tag shown.",
+        "new-tags-saved" => "Setting saved.",
         _ => return None,
     })
 }

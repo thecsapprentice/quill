@@ -16,7 +16,9 @@ use quill_proto::{
     api::{CreatePersona, Credentials},
     board::{CreatePrompt, CreateReport, ReportReason, Resolution},
 };
-use quill_server::{AppState, Config, connect_and_migrate, prompts, reports, routes, set_admin};
+use quill_server::{
+    AppState, Config, connect_and_migrate, prompts, reports, routes, server_settings, set_admin,
+};
 use uuid::Uuid;
 
 use crate::rng::Rng;
@@ -64,7 +66,6 @@ async fn run(args: Args) -> Result<()> {
     let mut config = Config::from_env()?;
     // Seeding creates accounts even on a server with registration closed.
     config.registration_open = true;
-    let user_tags = config.tag_policy.allows_user_tags();
     let pool = connect_and_migrate(&config.database_url).await?;
 
     let existing: i64 = sqlx::query_scalar("SELECT count(*) FROM accounts")
@@ -78,6 +79,12 @@ async fn run(args: Args) -> Result<()> {
         );
     }
     let state = AppState::new(pool.clone(), config).await?;
+    // Theme tags are new tags. With approval required they arrive as tag
+    // requests, which is useful to test; with new tags off, they're skipped.
+    let user_tags = server_settings::settings(&state)
+        .await?
+        .new_tags
+        .allows_new_tags();
     let mut rng = Rng::new(args.seed);
 
     // Accounts and personas.

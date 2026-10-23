@@ -13,7 +13,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use quill_proto::{
     board::{
         AccountSettings, CreatePrompt, CreateTag, Maturity, Prompt, PromptAuthor, PromptPage,
-        PromptQuery, PromptState, Tag, TagNamespace, TagOrigin, TagPolicy, TagQuery,
+        PromptQuery, PromptState, Tag, TagNamespace, TagOrigin, TagPolicy, TagQuery, TagStatus,
         UpdateAccountSettings, UpdatePrompt,
     },
     limits::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, SEARCH_QUERY_MAX_CHARS},
@@ -29,6 +29,7 @@ use crate::{
     error::ApiError,
     markdown,
     routes::ApiJson,
+    server_settings,
 };
 
 pub fn router() -> Router<AppState> {
@@ -65,6 +66,20 @@ pub async fn viewer_cap(pool: &PgPool, viewer: Option<Uuid>) -> Result<Maturity,
         Some(raw) => parse_enum(&raw),
         None => Err(ApiError::Unauthorized),
     }
+}
+
+/// Whether `viewer` is a server administrator.
+pub(crate) async fn viewer_is_admin(pool: &PgPool, viewer: Option<Uuid>) -> Result<bool, ApiError> {
+    let Some(account) = viewer else {
+        return Ok(false);
+    };
+    Ok(
+        sqlx::query_scalar("SELECT is_admin FROM accounts WHERE id = $1")
+            .bind(account)
+            .fetch_optional(pool)
+            .await?
+            .unwrap_or(false),
+    )
 }
 
 pub async fn account_settings(
@@ -145,13 +160,14 @@ async fn load_tags(pool: &PgPool, ids: &[i64]) -> Result<HashMap<i64, Tag>, ApiE
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(i64, String, String, String, String)> =
-        sqlx::query_as("SELECT id, namespace, slug, display, origin FROM tags WHERE id = ANY($1)")
-            .bind(ids)
-            .fetch_all(pool)
-            .await?;
+    let rows: Vec<(i64, String, String, String, String, String)> = sqlx::query_as(
+        "SELECT id, namespace, slug, display, origin, status FROM tags WHERE id = ANY($1)",
+    )
+    .bind(ids)
+    .fetch_all(pool)
+    .await?;
     rows.into_iter()
-        .map(|(id, namespace, slug, display, origin)| {
+        .map(|(id, namespace, slug, display, origin, status)| {
             Ok((
                 id,
                 Tag {
@@ -159,19 +175,31 @@ async fn load_tags(pool: &PgPool, ids: &[i64]) -> Result<HashMap<i64, Tag>, ApiE
                     slug,
                     display,
                     origin: parse_enum::<TagOrigin>(&origin)?,
+                    status: parse_enum(&status)?,
                 },
             ))
         })
         .collect()
 }
 
+/// Whether a viewer may see a tag on a prompt. Hidden tags are for
+/// administrators; tags awaiting approval also show to the prompt's author.
+fn tag_visible_to(tag: &Tag, admin: bool, is_author: bool) -> bool {
+    match tag.status {
+        TagStatus::Visible => true,
+        TagStatus::Hidden => admin,
+        TagStatus::Pending => admin || is_author,
+    }
+}
+
 /// Turns rows into API prompts. `viewer` decides whether the "removed" flag
-/// is shown (only to the author).
+/// is shown (only to the author) and which tags are included.
 async fn hydrate(
     pool: &PgPool,
     rows: Vec<PromptRow>,
     viewer: Option<Uuid>,
 ) -> Result<Vec<Prompt>, ApiError> {
+    let admin = viewer_is_admin(pool, viewer).await?;
     let mut ids: Vec<i64> = rows
         .iter()
         .flat_map(|r| r.tag_ids.iter().copied())
@@ -196,7 +224,9 @@ async fn hydrate(
                 tags: r
                     .tag_ids
                     .iter()
-                    .filter_map(|id| tags.get(id).cloned())
+                    .filter_map(|id| tags.get(id))
+                    .filter(|t| tag_visible_to(t, admin, viewer == Some(r.account_id)))
+                    .cloned()
                     .collect(),
                 accepting_sessions: false,
                 removed: r.removed && viewer == Some(r.account_id),
@@ -228,10 +258,12 @@ pub async fn load_prompt(
 // ---- Tag resolution ------------------------------------------------------
 
 /// Maps local `(namespace, slug)` pairs to canonical tag ids. Unknown pairs
-/// are absent from the result.
+/// are absent from the result, and so are tags whose canonical tag isn't
+/// visible when `visible_only` is set.
 pub(crate) async fn resolve_tags(
     conn: &mut PgConnection,
     keys: &[(String, String)],
+    visible_only: bool,
 ) -> Result<HashMap<(String, String), i64>, ApiError> {
     if keys.is_empty() {
         return Ok(HashMap::new());
@@ -240,12 +272,15 @@ pub(crate) async fn resolve_tags(
     let rows: Vec<(String, String, i64)> = sqlx::query_as(
         "SELECT t.namespace, t.slug, COALESCE(t.canonical_id, t.id)
          FROM tags t
+         LEFT JOIN tags c ON c.id = t.canonical_id
          JOIN unnest($1::text[], $2::text[]) AS f(ns, slug)
            ON t.namespace = f.ns AND t.slug = f.slug
-         WHERE t.instance = ''",
+         WHERE t.instance = ''
+           AND (NOT $3 OR COALESCE(c.status, t.status) = 'visible')",
     )
     .bind(&namespaces)
     .bind(&slugs)
+    .bind(visible_only)
     .fetch_all(&mut *conn)
     .await?;
     Ok(rows.into_iter().map(|(n, s, id)| ((n, s), id)).collect())
@@ -255,19 +290,25 @@ pub(crate) async fn resolve_tags(
 /// and the namespace allow it. Returns canonical ids in the author's order.
 async fn resolve_for_write(
     conn: &mut PgConnection,
-    policy: TagPolicy,
     specs: Vec<TagSpec>,
 ) -> Result<Vec<i64>, ApiError> {
     let keys: Vec<(String, String)> = specs
         .iter()
         .map(|s| (s.namespace.clone(), s.slug.clone()))
         .collect();
-    let known = resolve_tags(conn, &keys).await?;
+    let known = resolve_tags(conn, &keys, false).await?;
+    let mut policy = None;
     let mut ids = Vec::with_capacity(specs.len());
     for spec in specs {
         let id = match known.get(&(spec.namespace.clone(), spec.slug.clone())) {
             Some(id) => *id,
-            None => create_user_tag_in(conn, policy, &spec).await?.0,
+            None => {
+                let policy = match policy {
+                    Some(p) => p,
+                    None => *policy.insert(server_settings::tag_policy(conn).await?),
+                };
+                create_user_tag_in(conn, policy, &spec).await?.0
+            }
         };
         if !ids.contains(&id) {
             ids.push(id);
@@ -287,10 +328,10 @@ async fn create_user_tag_in(
             .bind(&spec.namespace)
             .fetch_optional(&mut *conn)
             .await?;
-    let not_available = || {
+    let missing = |why: String| {
         ApiError::BadRequest(format!(
-            "\"{}:{}\" is not a tag on this server, and new tags can't be created in \"{}\"",
-            spec.namespace, spec.display, spec.namespace
+            "\"{}:{}\" is not a tag on this server, and {why}",
+            spec.namespace, spec.display
         ))
     };
     match locked {
@@ -300,17 +341,33 @@ async fn create_user_tag_in(
                 spec.namespace
             )));
         }
-        Some(true) => return Err(not_available()),
-        Some(false) if !policy.allows_user_tags() => return Err(not_available()),
+        Some(true) => {
+            return Err(missing(format!(
+                "new tags can't be created in \"{}\"",
+                spec.namespace
+            )));
+        }
+        Some(false) if !policy.allows_new_tags() => {
+            return Err(missing("this server doesn't accept new tags".to_owned()));
+        }
         Some(false) => {}
     }
+    // With approval required, the tag waits, hidden from everyone but its
+    // authors and the administrators.
+    let status = if policy == TagPolicy::Approval {
+        TagStatus::Pending
+    } else {
+        TagStatus::Visible
+    };
     let inserted: Option<i64> = sqlx::query_scalar(
-        "INSERT INTO tags (namespace, slug, display, origin) VALUES ($1, $2, $3, 'user')
+        "INSERT INTO tags (namespace, slug, display, origin, status)
+         VALUES ($1, $2, $3, 'user', $4)
          ON CONFLICT (instance, namespace, slug) DO NOTHING RETURNING id",
     )
     .bind(&spec.namespace)
     .bind(&spec.slug)
     .bind(&spec.display)
+    .bind(status.as_str())
     .fetch_optional(&mut *conn)
     .await?;
     if let Some(id) = inserted {
@@ -371,7 +428,10 @@ pub async fn search_prompts(
     let include_keys = validate::tag_filter(q.include.as_deref())?;
     let exclude_keys = validate::tag_filter(q.exclude.as_deref())?;
     let mut conn = state.pool.acquire().await?;
-    let known_include = resolve_tags(&mut conn, &include_keys).await?;
+    // Tags only administrators may see filter like unknown tags for everyone
+    // else, so filtering can't reveal them.
+    let visible_only = !viewer_is_admin(&state.pool, viewer).await?;
+    let known_include = resolve_tags(&mut conn, &include_keys, visible_only).await?;
     if known_include.len() < include_keys.len() {
         // A required tag doesn't exist, so nothing can match.
         return Ok(PromptPage {
@@ -380,7 +440,7 @@ pub async fn search_prompts(
         });
     }
     let include: Vec<i64> = known_include.into_values().collect();
-    let exclude: Vec<i64> = resolve_tags(&mut conn, &exclude_keys)
+    let exclude: Vec<i64> = resolve_tags(&mut conn, &exclude_keys, visible_only)
         .await?
         .into_values()
         .collect();
@@ -499,7 +559,7 @@ pub async fn post_prompt(
     if owns.is_none() {
         return Err(ApiError::BadRequest("unknown persona".into()));
     }
-    let tag_ids = resolve_for_write(&mut tx, state.config.tag_policy, specs).await?;
+    let tag_ids = resolve_for_write(&mut tx, specs).await?;
     check_required_types(&mut tx, &tag_ids).await?;
     let id = Uuid::now_v7();
     sqlx::query(
@@ -572,7 +632,25 @@ pub async fn edit_prompt(
         Some((false, tags)) => tags,
     };
     let tag_ids = match specs {
-        Some(specs) => Some(resolve_for_write(&mut tx, state.config.tag_policy, specs).await?),
+        Some(specs) => {
+            let mut ids = resolve_for_write(&mut tx, specs).await?;
+            // Editors who can't see a prompt's hidden tags can't remove them
+            // either: they weren't on the form, so keep them.
+            if !viewer_is_admin(&state.pool, Some(account)).await? {
+                let hidden: Vec<i64> = sqlx::query_scalar(
+                    "SELECT id FROM tags WHERE id = ANY($1) AND status = 'hidden'",
+                )
+                .bind(&current_tags)
+                .fetch_all(&mut *tx)
+                .await?;
+                for id in current_tags.iter().filter(|id| hidden.contains(id)) {
+                    if !ids.contains(id) {
+                        ids.push(*id);
+                    }
+                }
+            }
+            Some(ids)
+        }
         None => None,
     };
     // Any edit must meet the current required tag types. Changing only the
@@ -725,8 +803,8 @@ async fn list_tags(
 pub async fn search_tags(state: &AppState, q: &TagQuery) -> Result<Vec<Tag>, ApiError> {
     let limit = q.limit.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE);
     let mut qb = QueryBuilder::new(
-        "SELECT namespace, slug, display, origin FROM tags
-         WHERE instance = '' AND canonical_id IS NULL",
+        "SELECT namespace, slug, display, origin, status FROM tags
+         WHERE instance = '' AND canonical_id IS NULL AND status = 'visible'",
     );
     if let Some(ns) = q.namespace.as_deref() {
         qb.push(" AND namespace = ")
@@ -743,15 +821,16 @@ pub async fn search_tags(state: &AppState, q: &TagQuery) -> Result<Vec<Tag>, Api
     }
     qb.push(" ORDER BY (origin = 'server') DESC, namespace, slug LIMIT ")
         .push_bind(i64::from(limit));
-    let rows: Vec<(String, String, String, String)> =
+    let rows: Vec<(String, String, String, String, String)> =
         qb.build_query_as().fetch_all(&state.pool).await?;
     rows.into_iter()
-        .map(|(namespace, slug, display, origin)| {
+        .map(|(namespace, slug, display, origin, status)| {
             Ok(Tag {
                 namespace,
                 slug,
                 display,
                 origin: parse_enum(&origin)?,
+                status: parse_enum(&status)?,
             })
         })
         .collect()
@@ -762,20 +841,22 @@ pub(crate) async fn load_tag(
     namespace: &str,
     slug: &str,
 ) -> Result<Tag, ApiError> {
-    let (namespace, slug, display, origin): (String, String, String, String) = sqlx::query_as(
-        "SELECT namespace, slug, display, origin FROM tags
-         WHERE instance = '' AND namespace = $1 AND slug = $2",
-    )
-    .bind(namespace)
-    .bind(slug)
-    .fetch_optional(&mut *conn)
-    .await?
-    .ok_or(ApiError::NotFound)?;
+    let (namespace, slug, display, origin, status): (String, String, String, String, String) =
+        sqlx::query_as(
+            "SELECT namespace, slug, display, origin, status FROM tags
+             WHERE instance = '' AND namespace = $1 AND slug = $2",
+        )
+        .bind(namespace)
+        .bind(slug)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     Ok(Tag {
         namespace,
         slug,
         display,
         origin: parse_enum(&origin)?,
+        status: parse_enum(&status)?,
     })
 }
 
@@ -791,7 +872,8 @@ async fn create_user_tag(
         display: validate::tag_display(&body.display)?,
     };
     let mut conn = state.pool.acquire().await?;
-    let (_, created) = create_user_tag_in(&mut conn, state.config.tag_policy, &spec).await?;
+    let policy = server_settings::tag_policy(&mut conn).await?;
+    let (_, created) = create_user_tag_in(&mut conn, policy, &spec).await?;
     let tag = load_tag(&mut conn, &spec.namespace, &spec.slug).await?;
     let status = if created {
         StatusCode::CREATED

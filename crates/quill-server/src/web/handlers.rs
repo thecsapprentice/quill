@@ -234,7 +234,7 @@ async fn prompt_form_view(
         state: parse_opt(&form.state).unwrap_or(PromptState::Open),
         error,
         tag_options: tag_options(state).await,
-        tag_policy: state.config.tag_policy,
+        tag_policy: crate::server_settings::settings(state).await?.new_tags,
         namespaces: prompts::namespaces(state).await?,
     })
 }

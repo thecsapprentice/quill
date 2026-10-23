@@ -78,7 +78,7 @@ async fn search(client: &Client, q: PromptQuery) -> Vec<String> {
 async fn instance_and_account_defaults() {
     let server = server!();
     let info = server.client().instance().await.unwrap();
-    assert_eq!(info.tag_policy, TagPolicy::Both);
+    assert_eq!(info.tag_policy, TagPolicy::Open);
     assert_eq!(info.default_maturity_max, Maturity::Teen);
 
     let client = server.account("alice").await.unwrap();
@@ -817,6 +817,7 @@ async fn admin_tag_management_and_aliases() {
             &UpdateTag {
                 alias_of: Some("theme:sea".into()),
                 display: Some("Ocean (old)".into()),
+                status: None,
             },
         )
         .await
@@ -885,6 +886,7 @@ async fn admin_tag_management_and_aliases() {
             &UpdateTag {
                 alias_of: Some("theme:ocean".into()),
                 display: None,
+                status: None,
             },
         )
         .await

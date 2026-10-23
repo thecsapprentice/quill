@@ -11,7 +11,7 @@ use axum::{
 use quill_proto::{
     board::{
         AdminAction, AdminTag, AdminTagQuery, CreateNamespace, CreateTag, DeletedTag, Tag,
-        TagNamespace, UpdateNamespace, UpdateTag,
+        TagNamespace, TagStatus, UpdateNamespace, UpdateTag,
     },
     limits::MAX_PAGE_SIZE,
     validate,
@@ -161,23 +161,24 @@ pub async fn update_namespace(
 
 // ---- Tags ----------------------------------------------------------------
 
-type AdminTagRow = (String, String, String, String, Option<String>, i64);
+type AdminTagRow = (String, String, String, String, String, Option<String>, i64);
 
 fn to_admin_tag(row: AdminTagRow) -> Result<AdminTag, ApiError> {
-    let (namespace, slug, display, origin, alias_of, uses) = row;
+    let (namespace, slug, display, origin, status, alias_of, uses) = row;
     Ok(AdminTag {
         tag: Tag {
             namespace,
             slug,
             display,
             origin: parse_enum(&origin)?,
+            status: parse_enum(&status)?,
         },
         uses: u64::try_from(uses).unwrap_or(0),
         alias_of,
     })
 }
 
-const ADMIN_TAG_SELECT: &str = "SELECT t.namespace, t.slug, t.display, t.origin,
+const ADMIN_TAG_SELECT: &str = "SELECT t.namespace, t.slug, t.display, t.origin, t.status,
             c.namespace || ':' || c.slug,
             (SELECT count(*) FROM prompts p WHERE p.tag_ids @> ARRAY[t.id])
      FROM tags t LEFT JOIN tags c ON c.id = t.canonical_id
@@ -201,6 +202,9 @@ pub async fn list_tags(state: &AppState, q: &AdminTagQuery) -> Result<Vec<AdminT
             .push(" OR lower(t.display) LIKE ")
             .push_bind(pattern)
             .push(")");
+    }
+    if let Some(status) = q.status {
+        qb.push(" AND t.status = ").push_bind(status.as_str());
     }
     qb.push(" ORDER BY t.namespace, t.slug LIMIT ")
         .push_bind(i64::from(limit));
@@ -243,7 +247,9 @@ pub async fn create_tag(state: &AppState, admin: Uuid, body: &CreateTag) -> Resu
     sqlx::query(
         "INSERT INTO tags (namespace, slug, display, origin) VALUES ($1, $2, $3, 'server')
          ON CONFLICT (instance, namespace, slug)
-         DO UPDATE SET origin = 'server', display = EXCLUDED.display",
+         DO UPDATE SET origin = 'server', display = EXCLUDED.display,
+             -- Curating a requested tag approves it; a hidden tag stays hidden.
+             status = CASE WHEN tags.status = 'pending' THEN 'visible' ELSE tags.status END",
     )
     .bind(&namespace)
     .bind(&slug)
@@ -262,20 +268,39 @@ pub async fn create_tag(state: &AppState, admin: Uuid, body: &CreateTag) -> Resu
     Ok(tag)
 }
 
+/// Tag requests waiting for an administrator.
+pub async fn pending_count(state: &AppState) -> Result<u64, ApiError> {
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM tags WHERE status = 'pending'")
+        .fetch_one(&state.pool)
+        .await?;
+    Ok(u64::try_from(n).unwrap_or(0))
+}
+
+struct LockedTag {
+    id: i64,
+    display: String,
+    status: TagStatus,
+}
+
 async fn lock_tag(
     conn: &mut PgConnection,
     namespace: &str,
     slug: &str,
-) -> Result<(i64, String), ApiError> {
-    sqlx::query_as(
-        "SELECT id, display FROM tags
+) -> Result<LockedTag, ApiError> {
+    let (id, display, status): (i64, String, String) = sqlx::query_as(
+        "SELECT id, display, status FROM tags
          WHERE instance = '' AND namespace = $1 AND slug = $2 FOR UPDATE",
     )
     .bind(namespace)
     .bind(slug)
     .fetch_optional(&mut *conn)
     .await?
-    .ok_or(ApiError::NotFound)
+    .ok_or(ApiError::NotFound)?;
+    Ok(LockedTag {
+        id,
+        display,
+        status: parse_enum(&status)?,
+    })
 }
 
 /// Renames a tag, or merges it into another tag as an alias.
@@ -287,8 +312,33 @@ pub async fn update_tag(
     body: &UpdateTag,
 ) -> Result<Tag, ApiError> {
     let mut tx = state.pool.begin().await?;
-    let (id, old_display) = lock_tag(&mut tx, namespace, slug).await?;
+    let LockedTag {
+        id,
+        display: old_display,
+        status,
+    } = lock_tag(&mut tx, namespace, slug).await?;
     let key = format!("{namespace}:{slug}");
+
+    if body.status == Some(TagStatus::Pending) {
+        return Err(ApiError::BadRequest(
+            "only writers' new tags can be awaiting approval".into(),
+        ));
+    }
+    if let Some(new_status) = body.status.filter(|s| *s != status) {
+        let action = match (status, new_status) {
+            (TagStatus::Pending, TagStatus::Visible) => AdminAction::ApproveTag,
+            (_, TagStatus::Visible) => AdminAction::ShowTag,
+            (_, TagStatus::Hidden | TagStatus::Pending) => AdminAction::HideTag,
+        };
+        sqlx::query("UPDATE tags SET status = $2 WHERE id = $1")
+            .bind(id)
+            .bind(new_status.as_str())
+            .execute(&mut *tx)
+            .await?;
+        let detail = (status == TagStatus::Pending && new_status == TagStatus::Hidden)
+            .then_some("was awaiting approval; kept hidden");
+        log_action(&mut tx, admin, action, &key, detail).await?;
+    }
 
     if let Some(display) = body.display.as_deref() {
         let display = validate::tag_display(display)?;
@@ -306,7 +356,7 @@ pub async fn update_tag(
     if let Some(target) = body.alias_of.as_deref() {
         let spec = validate::tag_spec(target)?;
         let target_key = (spec.namespace, spec.slug);
-        let target_id = *resolve_tags(&mut tx, std::slice::from_ref(&target_key))
+        let target_id = *resolve_tags(&mut tx, std::slice::from_ref(&target_key), false)
             .await?
             .get(&target_key)
             .ok_or_else(|| ApiError::BadRequest(format!("unknown tag \"{target}\"")))?;
@@ -334,8 +384,18 @@ pub async fn update_tag(
         .execute(&mut *tx)
         .await?
         .rows_affected();
+        // A merged request is resolved: the name now just points at the target.
+        sqlx::query("UPDATE tags SET status = 'visible' WHERE id = $1 AND status = 'pending'")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        let request = if status == TagStatus::Pending {
+            "request merged; "
+        } else {
+            ""
+        };
         let detail = format!(
-            "now an alias of {}:{}; {moved} prompt(s) moved",
+            "{request}now an alias of {}:{}; {moved} prompt(s) moved",
             target_key.0, target_key.1
         );
         log_action(&mut tx, admin, AdminAction::AliasTag, &key, Some(&detail)).await?;
@@ -353,7 +413,11 @@ pub async fn delete_tag(
     slug: &str,
 ) -> Result<DeletedTag, ApiError> {
     let mut tx = state.pool.begin().await?;
-    let (id, display) = lock_tag(&mut tx, namespace, slug).await?;
+    let LockedTag {
+        id,
+        display,
+        status,
+    } = lock_tag(&mut tx, namespace, slug).await?;
     let prompts_updated = sqlx::query(
         "UPDATE prompts SET tag_ids = array_remove(tag_ids, $1) WHERE tag_ids @> ARRAY[$1::bigint]",
     )
@@ -375,7 +439,13 @@ pub async fn delete_tag(
         detail.push_str(&format!("; {aliases} alias(es) deleted too"));
     }
     let key = format!("{namespace}:{slug}");
-    log_action(&mut tx, admin, AdminAction::DeleteTag, &key, Some(&detail)).await?;
+    // Deleting a tag awaiting approval is how a request is rejected.
+    let action = if status == TagStatus::Pending {
+        AdminAction::RejectTag
+    } else {
+        AdminAction::DeleteTag
+    };
+    log_action(&mut tx, admin, action, &key, Some(&detail)).await?;
     tx.commit().await?;
     Ok(DeletedTag { prompts_updated })
 }
