@@ -31,16 +31,23 @@ pub enum Table {
     Pins,
     /// OpenMLS's state (key material, groups), by its own keys.
     Mls,
+    /// This device's place among the login's devices: its account device
+    /// key, the personal group and how far its log has been read.
+    Account,
+    /// What the login's other devices announced: their persona devices.
+    Siblings,
 }
 
 impl Table {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::Meta,
         Self::Profile,
         Self::Identities,
         Self::Devices,
         Self::Pins,
         Self::Mls,
+        Self::Account,
+        Self::Siblings,
     ];
 
     pub fn name(self) -> &'static str {
@@ -51,6 +58,8 @@ impl Table {
             Self::Devices => "devices",
             Self::Pins => "pins",
             Self::Mls => "mls",
+            Self::Account => "account",
+            Self::Siblings => "siblings",
         }
     }
 }

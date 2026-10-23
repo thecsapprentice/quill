@@ -108,6 +108,10 @@ cargo run -p quill -- keys init --as your_handle      # also publishes KeyPackag
 cargo run -p quill -- keys status --as your_handle    # KeyPackages waiting; `keys publish` tops up
 cargo run -p quill -- keys show some_handle
 cargo run -p quill -- device list --as your_handle
+# A second computer: link it from one you already use (compare the words both show).
+cargo run -p quill -- device link                 # on the new computer
+cargo run -p quill -- device approve 'quill-link:1:...'   # on the one in use
+cargo run -p quill -- devices                     # this login's devices
 cargo run -p quill -- admin namespace-set genre --required true   # every prompt needs a genre
 cargo run -p quill -- admin tags --namespace theme                  # tags with usage counts
 cargo run -p quill -- admin settings --new-tags approval            # writers' new tags need approval

@@ -21,6 +21,9 @@ use tls_codec::{Deserialize as _, Serialize as _};
 
 use crate::{CoreError, Store, keys::DeviceKey};
 
+/// A client table's entries, as `(key, value)`.
+pub(crate) type Entries = Vec<(Vec<u8>, Vec<u8>)>;
+
 /// The one ciphersuite Quill uses (RFC 9420's mandatory-to-implement).
 pub const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 /// Leaf extension carrying the device certificate (protocol draft, 6).
@@ -29,7 +32,7 @@ pub const DEVICE_CERT_EXTENSION: u16 = 0xF0A1;
 pub const KEY_PACKAGE_DAYS: u64 = 28;
 const DAY_SECS: u64 = 86_400;
 
-fn mls_err(what: &str, e: impl std::fmt::Display) -> CoreError {
+pub(crate) fn mls_err(what: &str, e: impl std::fmt::Display) -> CoreError {
     CoreError::Keys(format!("{what}: {e}"))
 }
 
@@ -85,6 +88,42 @@ impl<'a> OpenMlsProvider for Provider<'a> {
     }
 }
 
+impl Provider<'_> {
+    /// Reads a client table, seeing writes held in an open batch.
+    pub(crate) fn get(
+        &self,
+        table: crate::store::kv::Table,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, CoreError> {
+        self.storage
+            .get_in(table, key)
+            .map_err(|e| mls_err("client state", e))
+    }
+
+    /// Every entry of a client table (not seeing an open batch's writes).
+    pub(crate) fn scan(&self, table: crate::store::kv::Table) -> Result<Entries, CoreError> {
+        Ok(self
+            .storage
+            .store()
+            .scan(table, b"")?
+            .into_iter()
+            .map(|(k, v)| (k, v.to_vec()))
+            .collect())
+    }
+
+    /// Writes a client table within the open batch (`None` deletes).
+    pub(crate) fn set(
+        &self,
+        table: crate::store::kv::Table,
+        key: &[u8],
+        value: Option<Vec<u8>>,
+    ) -> Result<(), CoreError> {
+        self.storage
+            .set_in(table, key.to_vec(), value)
+            .map_err(|e| mls_err("client state", e))
+    }
+}
+
 /// Signs as this device: its Ed25519 key is its MLS signature key.
 pub(crate) struct DeviceSigner<'k>(pub &'k SigningKey);
 
@@ -100,7 +139,7 @@ impl Signer for DeviceSigner<'_> {
     }
 }
 
-fn credential(actor_uri: &str, device: &DeviceKey) -> CredentialWithKey {
+pub(crate) fn credential(actor_uri: &str, device: &DeviceKey) -> CredentialWithKey {
     CredentialWithKey {
         credential: BasicCredential::new(actor_uri.as_bytes().to_vec()).into(),
         signature_key: device.public().to_vec().into(),

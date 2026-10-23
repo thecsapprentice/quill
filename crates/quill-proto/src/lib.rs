@@ -8,6 +8,7 @@
 pub mod api;
 pub mod board;
 pub mod color;
+pub mod groups;
 pub mod handles;
 pub mod keys;
 pub mod limits;

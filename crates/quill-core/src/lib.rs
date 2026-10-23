@@ -6,10 +6,12 @@
 //! state; that is why the server must never depend on it.
 
 pub mod client;
+pub mod devices;
 pub mod keys;
 pub mod mls;
 pub mod profile;
 pub mod store;
+pub mod words;
 
 pub use client::{Client, CoreError};
 pub use profile::Profile;

@@ -81,9 +81,12 @@ enum Command {
     /// Persona identity keys: create, publish, and check anyone's.
     #[command(subcommand)]
     Keys(keys_cmd::KeysCommand),
-    /// A persona's devices: list and revoke.
+    /// Devices: link a new computer, approve one, list a persona's devices,
+    /// revoke or remove.
     #[command(subcommand)]
     Device(keys_cmd::DeviceCommand),
+    /// This login's devices and their persona devices.
+    Devices,
 }
 
 #[derive(Args)]
@@ -191,6 +194,10 @@ async fn run(cli: Cli) -> Result<()> {
         json: cli.json,
     };
 
+    if needs_upkeep(&cli.command) {
+        upkeep(&ctx).await;
+    }
+
     match cli.command {
         Command::Server { url: None } => {
             let server = ctx.store.server()?.unwrap_or_default();
@@ -266,8 +273,41 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Store(cmd) => local::command(&mut ctx, cmd)?,
         Command::Keys(cmd) => keys_cmd::keys(&ctx, cmd).await?,
         Command::Device(cmd) => keys_cmd::device(&ctx, cmd).await?,
+        Command::Devices => keys_cmd::devices(&ctx).await?,
     }
     Ok(())
+}
+
+/// Commands that act as a signed-in writer get upkeep first.
+fn needs_upkeep(command: &Command) -> bool {
+    !matches!(
+        command,
+        Command::Server { .. }
+            | Command::Instance
+            | Command::Register(_)
+            | Command::Login(_)
+            | Command::Logout
+            | Command::Store(_)
+            | Command::Device(keys_cmd::DeviceCommand::Link { .. })
+    )
+}
+
+/// Catches up with this login's other devices and keeps KeyPackage pools
+/// full. Problems are reported but don't stop the command.
+async fn upkeep(ctx: &Ctx) {
+    if !matches!(ctx.store.token(), Ok(Some(_))) {
+        return;
+    }
+    let Ok(client) = ctx.client() else {
+        return;
+    };
+    match quill_core::devices::maintain(&ctx.store, &client).await {
+        Ok(report) if report.caught_up.removed => eprintln!(
+            "This device was removed from your login's devices: its persona keys are gone. Link it again with `quill device link`."
+        ),
+        Ok(_) => {}
+        Err(e) => eprintln!("warning: couldn't sync with your other devices: {e}"),
+    }
 }
 
 async fn persona(ctx: &Ctx, cmd: PersonaCommand) -> Result<()> {

@@ -382,6 +382,14 @@ impl Store {
         self.kv.apply(ops)
     }
 
+    pub(crate) fn scan(
+        &self,
+        table: Table,
+        prefix: &[u8],
+    ) -> Result<Vec<(Vec<u8>, kv::Secret)>, StoreError> {
+        self.kv.scan(table, prefix)
+    }
+
     /// How many entries a table holds (tests).
     #[cfg(test)]
     pub(crate) fn scan_count(&self, table: Table) -> usize {

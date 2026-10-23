@@ -3443,6 +3443,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tls_codec",
+ "tokio",
  "url",
  "uuid",
  "windows-native-keyring-store",

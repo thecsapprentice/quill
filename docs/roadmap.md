@@ -238,10 +238,10 @@ before device linking, which needs it.
 | --- | --- | --- |
 | 2a | Encrypted local store in `quill-core`; the CLI's login moves into it | done (#9) |
 | 2b | Identity keys per persona, device keys and certificates; the server's device directory | done (#10) |
-| 2c | OpenMLS on the client; KeyPackage upload and claim; certificate checks on claimed packages | next |
-| 2d | Device linking and the personal device group | planned |
+| 2c | OpenMLS on the client; KeyPackage upload and claim; certificate checks on claimed packages | done (#11) |
+| 2d | Device linking and the personal device group, on the group message log and epoch sequencer | next |
 | 2e | Collaboration requests: request, approve, silent decline, 30-day expiry, one pending per prompt | planned |
-| 2f | Session creation and Welcome delivery; the epoch sequencer | planned |
+| 2f | Session creation and Welcome delivery, on 2d's group message log | planned |
 | 2g | Messages: ordering (HLC), history that is never lost, live delivery over SSE | planned |
 | 2h | Channels within a session | planned |
 | 2i | Attachments and size limits or quotas | planned |
@@ -393,9 +393,69 @@ checks; tampered, substituted or uncertified packages are refused by the
 claimer even when the server hands them out; the pool drains to the
 last-resort package and refills; and MLS state survives reopening the store.
 
+### 2d: Device linking and the personal device group
+
+A writer's second computer joins their personas: it receives the
+personas' identity keys from a device they already use, over an MLS group
+that only their own devices belong to. Decided 2026-10-23: the group
+message log and epoch sequencer are built here (moved from 2f), and only
+full devices are linked; limited devices wait for the web client.
+
+- **Group message log (any MLS group).** The server keeps an ordered log
+  per group and reads only the clear header of each `PrivateMessage`
+  (`quill-mls-envelope`: group id, epoch, content type). The first commit
+  for the current epoch wins and advances it; a late commit, or a message
+  for an old epoch, gets `409` and the client catches up and retries.
+  Groups use ciphertext only (no `PublicMessage`), so commits are as opaque
+  as text. 2f adds session groups on top.
+- **The personal device group.** One per login, holding only its devices.
+  Each device joins it with a separate **account device key**, never
+  published and tied to no persona, so the group says nothing about
+  personas. The server knows the group belongs to the login, as it already
+  knows the login's personas.
+- **Linking**, following the protocol draft:
+  1. On the new device, signed in to the same login: `quill device link`.
+     It makes its account device key and a KeyPackage, posts them to a
+     mailbox that expires in 10 minutes, and shows a code:
+     `quill-link:1:HOST:LINK_ID:FINGERPRINT`, plus 6 words from the
+     fingerprint (BIP-39 English).
+  2. On a device already in use: `quill device approve CODE` (or the link
+     id and the 6 words). It checks the KeyPackage against the fingerprint,
+     so the server can't swap in its own, adds the new device to the
+     personal group, and sends it, inside the group, every persona's
+     identity key and the trust pins.
+  3. Both devices then show 6 confirmation words derived from the group's
+     epoch authenticator. They match only if both are in the same group, so
+     the server can't hand the new device a group of its own making. The
+     new device keeps the keys only after the user confirms.
+  4. The new device certifies its own device key for each persona,
+     registers it and fills its KeyPackage pool, as `keys init` does.
+- **Staying in sync.** Every command catches up on the personal group
+  first: new devices, removals, and keys granted after an identity key was
+  replaced elsewhere. Each device announces in the group which persona
+  devices are its own.
+- **Keeping KeyPackage pools full.** Until now pools were refilled only by
+  `keys init` and `keys publish`. Now every command that talks to the
+  server first checks this device's pool for each persona (one request):
+  below 10 one-time packages it refills to 20, and it renews the
+  last-resort package within 7 days of expiry. In 2f, a device that joined
+  a session through its last-resort package sends a key update on its next
+  run; in 2g, the server tells open clients over the live event stream
+  when their pool runs low.
+- **Removing a device:** `quill device remove ID` takes it out of the group
+  (rotating the group's keys) and revokes each of its persona devices. A
+  removed device that catches up deletes the identity keys it held.
+- **CLI:** `quill device link`, `quill device approve`, `quill devices`
+  (the login's devices and their persona devices), `quill device remove`.
+
+Done when: a second and third device link in any order and all three stay
+in sync; a substituted KeyPackage or a server-made group is caught by the
+fingerprint or the confirmation words; two devices committing at once both
+end up consistent; and a removed device can read nothing sent after.
+
 ### Later sub-phases
 
-2d to 2k follow the [plan](plan.md#writing-session-cryptography) and the
+2e to 2k follow the [plan](plan.md#writing-session-cryptography) and the
 [protocol draft](protocol-draft.md), with keys per persona throughout: one
 KeyPackage pool per persona and device, and one personal device group per
 account carrying every persona's identity key. Each gets a detailed section
@@ -418,7 +478,25 @@ like the ones above when it's next.
 | 4a | Malicious-server test suite |
 | 4b | Fuzzing of every untrusted-input parser |
 | 4c | Operations runbook, disclosure policy, Tor onion service |
-| 4d | External review and fixes |
+| 4d | Settings review: every hard-coded limit and tuning value becomes a server setting or a client configuration entry (see below) |
+| 4e | External review and fixes |
+
+### 4d: Settings review (planned)
+
+Requested 2026-10-23. Many values are constants in the code today; this
+pass lists them all and moves each into server settings or a client
+configuration file, with today's values as defaults and documented safe
+ranges. Known so far:
+
+- **Client:** the KeyPackage pool target (20) and refill threshold (10),
+  last-resort renewal window (7 days), KeyPackage lifetime (28 days),
+  passphrase minimum (12 characters) and Argon2id cost.
+- **Server:**
+  - Limits: KeyPackages per device (100), claims per account per hour
+    (60), link mailbox lifetime (10 minutes) and links per hour (10),
+    reports per hour.
+  - Admin log: page sizes, accounts shown per row (5).
+  - Certificates: clock-skew allowance (10 minutes).
 
 ## Phases 5 and 6
 
@@ -456,3 +534,7 @@ done.
   keys and values), dropping the page layer, and adding OpenSSL to client
   builds; nothing else changes. Once real users exist, a one-time local
   conversion is needed too. Decide for good before the Phase 4 review.
+- **2d, scope (decided 2026-10-23):** the group message log and epoch
+  sequencer move from 2f into 2d, since the personal device group needs
+  them; 2f builds session groups on them. Only full devices are linked;
+  limited devices come with the web client.

@@ -43,6 +43,7 @@ pub fn api() -> Router<AppState> {
         .merge(crate::reserved::router())
         .merge(crate::notices::router())
         .merge(crate::keys::router())
+        .merge(crate::groups::router())
 }
 
 async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, ApiError> {
