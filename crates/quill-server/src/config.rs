@@ -52,7 +52,10 @@ impl Config {
             reserved_handles_file: std::env::var_os("QUILL_RESERVED_HANDLES_FILE")
                 .filter(|v| !v.is_empty())
                 .map(Into::into),
-            limits: Limits::default(),
+            limits: Limits {
+                retention_days: retention_days()?,
+                ..Limits::default()
+            },
             attachments: parse_or("QUILL_ATTACHMENTS", true)?,
         })
     }
@@ -73,6 +76,17 @@ impl Config {
             attachments: true,
         }
     }
+}
+
+/// `QUILL_RETENTION_DAYS`: how long the server keeps any ciphertext, read
+/// or not (2k). Clients that are away longer catch up from their other
+/// devices.
+fn retention_days() -> Result<u32> {
+    let days: u32 = parse_or("QUILL_RETENTION_DAYS", Limits::default().retention_days)?;
+    if !(1..=3650).contains(&days) {
+        anyhow::bail!("QUILL_RETENTION_DAYS must be from 1 to 3650");
+    }
+    Ok(days)
 }
 
 /// `QUILL_TAG_POLICY` sets the starting value of the "new tags" setting;

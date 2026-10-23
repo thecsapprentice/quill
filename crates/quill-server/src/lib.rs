@@ -16,6 +16,7 @@ mod ratelimit;
 pub mod reports;
 pub mod requests;
 pub mod reserved;
+pub mod retention;
 pub mod routes;
 pub mod server_settings;
 pub mod sessions;

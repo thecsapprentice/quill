@@ -55,6 +55,11 @@ pub struct Session {
     /// Rejoin requests waiting in the session (2j).
     #[serde(default)]
     pub rejoins: Vec<Rejoin>,
+    /// The caller's persona's devices that fell behind: they last read
+    /// before the part of the log that's been deleted, so they can't follow
+    /// the group (2k).
+    #[serde(default)]
+    pub stale_devices: Vec<Uuid>,
 }
 
 /// A restored device's request to be let back into a session (2j).

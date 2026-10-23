@@ -77,6 +77,7 @@ async fn serve(config: Config) -> Result<()> {
     let bind = config.bind;
     let pool = connect_and_migrate(&config.database_url).await?;
     let state = AppState::new(pool, config).await?;
+    quill_server::retention::spawn(state.clone());
 
     let listener = tokio::net::TcpListener::bind(bind)
         .await

@@ -103,6 +103,19 @@ async fn list(
     .bind(&groups)
     .fetch_all(&mut *conn)
     .await?;
+    // The login's persona devices that last read before the deleted part
+    // of the log.
+    let stale: Vec<(Vec<u8>, Uuid)> = sqlx::query_as(
+        "SELECT k.group_id, k.device_id
+         FROM session_acks k JOIN mls_groups g ON g.group_id = k.group_id
+         JOIN devices d ON d.id = k.device_id JOIN actors a ON a.id = d.actor_id
+         WHERE k.group_id = ANY($1) AND a.account_id = $2 AND d.revocation IS NULL
+           AND k.seq < g.pruned_through",
+    )
+    .bind(&groups)
+    .bind(authed.account_id)
+    .fetch_all(&mut *conn)
+    .await?;
     let domain = &state.config.domain;
     Ok(Json(
         rows.into_iter()
@@ -143,6 +156,7 @@ async fn list(
                             request: b64(request),
                         })
                         .collect(),
+                    stale_devices: stale.iter().filter(|k| k.0 == group).map(|k| k.1).collect(),
                 },
             )
             .collect(),
@@ -198,6 +212,18 @@ async fn leave_welcome(
     .bind(&group)
     .bind(body.device)
     .bind(&welcome)
+    .bind(i64::try_from(body.from_seq).unwrap_or(i64::MAX))
+    .execute(&mut *tx)
+    .await?;
+    // The device needs nothing from before its Welcome: it counts as having
+    // read that far (2k), so it isn't taken for one that fell behind.
+    sqlx::query(
+        "INSERT INTO session_acks (group_id, device_id, seq) VALUES ($1, $2, $3)
+         ON CONFLICT (group_id, device_id)
+         DO UPDATE SET seq = GREATEST(session_acks.seq, EXCLUDED.seq)",
+    )
+    .bind(&group)
+    .bind(body.device)
     .bind(i64::try_from(body.from_seq).unwrap_or(i64::MAX))
     .execute(&mut *tx)
     .await?;
@@ -266,7 +292,7 @@ async fn leave(
 }
 
 /// How long an acknowledged message stays before it's deleted.
-const GRACE_DAYS: i32 = 7;
+pub(crate) const GRACE_DAYS: i32 = 7;
 
 /// `POST /sessions/{id}/ack`: one of the caller's devices has read the log
 /// this far. Then deletes what every device has.
@@ -322,10 +348,18 @@ async fn ack(
 }
 
 /// Deletes the messages every current device of the session's personas
-/// has acknowledged, once they're older than the grace period. A device
-/// that hasn't acknowledged anything holds everything.
+/// has acknowledged, once they're older than the grace period, and the
+/// blobs they carried. A device that hasn't acknowledged anything holds
+/// everything.
 pub(crate) async fn prune(conn: &mut PgConnection, group: &[u8]) -> Result<u64, ApiError> {
-    let deleted = sqlx::query(
+    let deleted = prune_messages(conn, group).await?;
+    crate::retention::delete_orphan_blobs(conn, Some(group)).await?;
+    Ok(deleted)
+}
+
+/// The messages part of [`prune`]; records how far the log is deleted.
+pub(crate) async fn prune_messages(conn: &mut PgConnection, group: &[u8]) -> Result<u64, ApiError> {
+    let deleted: i64 = sqlx::query_scalar(
         "WITH needed AS (
              SELECT d.id FROM devices d
              JOIN session_members m ON m.actor_id = d.actor_id AND m.group_id = $1
@@ -334,27 +368,32 @@ pub(crate) async fn prune(conn: &mut PgConnection, group: &[u8]) -> Result<u64, 
          ), floor AS (
              SELECT min(coalesce(k.seq, 0)) AS seq FROM needed n
              LEFT JOIN session_acks k ON k.device_id = n.id AND k.group_id = $1
+         ), gone AS (
+             DELETE FROM group_messages
+             WHERE group_id = $1 AND seq <= (SELECT seq FROM floor)
+               AND logged_at < now() - make_interval(days => $2)
+             RETURNING seq
+         ), marked AS (
+             UPDATE mls_groups SET pruned_through = GREATEST(pruned_through, (SELECT max(seq) FROM gone))
+             WHERE group_id = $1 AND EXISTS (SELECT 1 FROM gone)
+             RETURNING 1
          )
-         DELETE FROM group_messages
-         WHERE group_id = $1 AND seq <= (SELECT seq FROM floor)
-           AND logged_at < now() - make_interval(days => $2)",
+         SELECT count(*) FROM gone",
     )
     .bind(group)
     .bind(GRACE_DAYS)
-    .execute(&mut *conn)
+    .fetch_one(&mut *conn)
     .await?;
-    // Blobs go with the messages that carry them; ones no message ever
-    // named go after a day.
-    sqlx::query(
-        "DELETE FROM blobs b WHERE b.group_id = $1 AND (
-             (b.seq IS NOT NULL AND NOT EXISTS (
-                 SELECT 1 FROM group_messages m WHERE m.group_id = b.group_id AND m.seq = b.seq))
-             OR (b.seq IS NULL AND b.uploaded_at < now() - interval '1 day'))",
-    )
-    .bind(group)
-    .execute(&mut *conn)
-    .await?;
-    Ok(deleted.rows_affected())
+    Ok(u64::try_from(deleted).unwrap_or(0))
+}
+
+/// Deletes rejoin requests too old to act on.
+pub(crate) async fn drop_old_rejoins(conn: &mut PgConnection) -> Result<(), ApiError> {
+    sqlx::query("DELETE FROM session_rejoins WHERE created_at < now() - make_interval(days => $1)")
+        .bind(REJOIN_DAYS)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
 }
 
 // ---- Rejoin requests (2j) ----------------------------------------------------
@@ -399,10 +438,7 @@ async fn rejoin(
         &key,
     )
     .map_err(|e| ApiError::BadRequest(format!("rejoin request refused: {e}")))?;
-    sqlx::query("DELETE FROM session_rejoins WHERE created_at < now() - make_interval(days => $1)")
-        .bind(REJOIN_DAYS)
-        .execute(&mut *tx)
-        .await?;
+    drop_old_rejoins(&mut tx).await?;
     sqlx::query(
         "INSERT INTO session_rejoins (id, group_id, actor_id, request) VALUES ($1, $2, $3, $4)
          ON CONFLICT (group_id, actor_id)

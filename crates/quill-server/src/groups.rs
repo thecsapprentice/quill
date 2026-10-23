@@ -285,6 +285,18 @@ async fn read_messages(
     group_epoch(&mut conn, authed.account_id, &group, false).await?;
     let limit = i64::from(q.limit.unwrap_or(100).clamp(1, 500));
     let after = i64::try_from(q.after.unwrap_or(0)).unwrap_or(i64::MAX);
+    let pruned: i64 =
+        sqlx::query_scalar("SELECT pruned_through FROM mls_groups WHERE group_id = $1")
+            .bind(&group)
+            .fetch_one(&mut *conn)
+            .await?;
+    if after < pruned {
+        // The reader has missed commits that are gone: it can't follow
+        // the group any more (2k).
+        return Err(ApiError::Gone(format!(
+            "The group's messages up to {pruned} have been deleted; this device can't follow it from {after}."
+        )));
+    }
     let mut rows: Vec<(i64, Vec<u8>)> = sqlx::query_as(
         "SELECT seq, data FROM group_messages
          WHERE group_id = $1 AND seq > $2 ORDER BY seq LIMIT $3",
