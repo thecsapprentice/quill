@@ -359,6 +359,7 @@ A JSON-over-HTTPS API under `/api/v1`, authenticated with bearer tokens, used by
 | Keys     | `POST /devices/{id}/key-packages`, `GET /key-packages/status`                                         | Upload KeyPackages, check remaining pool                                                 |
 | Keys     | `POST /actors/{actor}/key-packages/claim`                                                             | Local claim (remote claims go server-to-server)                                          |
 | Linking  | `POST /link`, `GET /link/{id}`, `POST /link/{id}/reply`                                               | Short-lived device-linking mailbox                                                       |
+| Groups   | `POST /groups`, `GET /account/device-group`, `GET/POST /groups/{id}/messages?after=`                  | Group message logs (2d): first commit per epoch wins, `409` otherwise; personal device group |
 | Sessions | `GET /sessions`, `GET /sessions/{id}/messages?after=`                                                 | List sessions; fetch ciphertext in sequence order                                        |
 | Sessions | `POST /sessions/{id}/messages`                                                                        | Post MLS message; `409` if a commit lost the epoch race                                  |
 | Sessions | `POST /sessions/{id}/ack`, `POST /sessions/{id}/leave`                                                | Per-device delivery ack; leave                                                           |

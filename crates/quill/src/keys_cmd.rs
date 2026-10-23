@@ -65,6 +65,27 @@ pub enum DeviceCommand {
         #[arg(long, default_value = "unspecified")]
         reason: RevocationReason,
     },
+    /// On a new computer: link it to this login's devices. Shows a code to
+    /// enter on a device already in use, then waits for it.
+    Link {
+        /// Skip the question by giving the words the other device shows.
+        #[arg(long, value_name = "WORDS")]
+        expect_words: Option<String>,
+    },
+    /// On a device already in use: approve a new one with the code it shows
+    /// (the whole quill-link: code, or its link id and 6 words).
+    Approve {
+        #[arg(required = true, num_args = 1..)]
+        code: Vec<String>,
+    },
+    /// Remove one of this login's devices: it leaves the device group and
+    /// its persona devices are revoked. Do it from another device.
+    Remove {
+        device: Uuid,
+        /// lost, compromised, retired or unspecified.
+        #[arg(long, default_value = "retired")]
+        reason: RevocationReason,
+    },
 }
 
 /// A date for display, from seconds since the Unix epoch.
@@ -318,8 +339,126 @@ pub async fn keys(ctx: &Ctx, cmd: KeysCommand) -> Result<()> {
     }
 }
 
+/// `quill devices`: this login's devices.
+pub async fn devices(ctx: &Ctx) -> Result<()> {
+    let client = ctx.client()?;
+    let list = quill_core::devices::list(&ctx.store, &client).await?;
+    let personas = client.personas().await?;
+    let handle = |id: &Uuid| {
+        personas
+            .iter()
+            .find(|p| p.id == *id)
+            .map_or_else(|| id.to_string(), |p| format!("@{}", p.handle))
+    };
+    let body: Vec<serde_json::Value> = list
+        .iter()
+        .map(|d| {
+            json!({
+                "id": d.id,
+                "thisDevice": d.this_device,
+                "personas": d.personas.iter().map(|p| json!({
+                    "persona": handle(&p.persona), "device": p.device,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    ctx.print(&body, |_| {
+        if list.is_empty() {
+            println!("this device isn't linked to any others yet");
+        }
+        for d in &list {
+            let here = if d.this_device { "  (this device)" } else { "" };
+            println!("{}{here}", d.id);
+            for p in &d.personas {
+                println!("    {}  {}", handle(&p.persona), p.device);
+            }
+        }
+    })
+}
+
+fn ask(question: &str) -> Result<bool> {
+    use std::io::{BufRead, Write};
+    print!("{question} [y/N] ");
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    Ok(matches!(line.trim(), "y" | "Y" | "yes" | "Yes"))
+}
+
 pub async fn device(ctx: &Ctx, cmd: DeviceCommand) -> Result<()> {
+    use quill_core::devices;
     match cmd {
+        DeviceCommand::Link { expect_words } => {
+            let client = ctx.client()?;
+            let pending = devices::start_link(&ctx.store, &client).await?;
+            println!("On a device you already use, run:");
+            println!();
+            println!("    quill device approve {}", pending.code);
+            println!();
+            println!(
+                "or type the link id and words: {} {}",
+                pending.link_id,
+                pending.words.join(" ")
+            );
+            println!("Waiting up to 10 minutes...");
+            let words = devices::wait_for_link(
+                &ctx.store,
+                &client,
+                &pending.link_id,
+                std::time::Duration::from_secs(2),
+                std::time::Duration::from_secs(600),
+            )
+            .await?;
+            println!("Approved. This device shows: {}", words.join(" "));
+            let same = match &expect_words {
+                Some(w) => {
+                    let w: Vec<String> = w.split_whitespace().map(str::to_lowercase).collect();
+                    w == words
+                }
+                None => ask("Does the other device show the same words?")?,
+            };
+            if !same {
+                devices::abandon_link(&ctx.store)?;
+                bail!(
+                    "the words don't match, so nothing was taken. On the other device, run `quill devices` and remove any device you don't recognise."
+                );
+            }
+            let personas = devices::finish_link(&ctx.store, &client).await?;
+            let body = json!({ "personas": personas });
+            ctx.print(&body, |_| {
+                println!("Linked. Personas on this device:");
+                for p in &personas {
+                    println!("  @{p}");
+                }
+            })
+        }
+        DeviceCommand::Approve { code } => {
+            let code: devices::LinkCode = code.join(" ").parse()?;
+            let approved = devices::approve(&ctx.store, &ctx.client()?, &code).await?;
+            let body = json!({
+                "device": approved.device,
+                "confirmWords": approved.confirm,
+                "identityKeys": approved.granted,
+            });
+            ctx.print(&body, |_| {
+                println!("Approved device {}.", approved.device);
+                println!("It should now show: {}", approved.confirm.join(" "));
+                println!(
+                    "If it shows anything else, don't confirm there, and remove it here with `quill device remove {}`.",
+                    approved.device
+                );
+            })
+        }
+        DeviceCommand::Remove { device, reason } => {
+            let removed = devices::remove(&ctx.store, &ctx.client()?, device, reason).await?;
+            let body = json!({ "device": device, "revoked": removed.revoked });
+            ctx.print(&body, |_| {
+                println!(
+                    "removed {device}; revoked {} persona device(s)",
+                    removed.revoked.len()
+                );
+            })
+        }
         DeviceCommand::List { persona } => {
             let p = own_persona(ctx, &persona).await?;
             let published = ctx.client()?.persona_keys(p.id).await?;

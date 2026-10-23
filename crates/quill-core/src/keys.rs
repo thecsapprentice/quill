@@ -148,6 +148,48 @@ pub(crate) fn test_device(identity: &SigningKey, version: u32, actor_uri: &str) 
     }
 }
 
+/// A persona's identity key: `(persona, version, seed)`.
+pub(crate) type ExportedIdentity = (Uuid, u32, Zeroizing<[u8; 32]>);
+
+/// Every persona identity key this device holds.
+pub(crate) fn export_identities(store: &Store) -> Result<Vec<ExportedIdentity>, CoreError> {
+    store
+        .scan(Table::Identities, b"")?
+        .into_iter()
+        .map(|(k, v)| {
+            let persona = Uuid::from_slice(&k).map_err(|_| keys_err("damaged identity entry"))?;
+            let id = Identity::decode(&v)?;
+            Ok((persona, id.version, Zeroizing::new(id.key.to_bytes())))
+        })
+        .collect()
+}
+
+/// An identity key's stored form, from its version and seed.
+pub(crate) fn identity_value(version: u32, seed: &[u8; 32]) -> Zeroizing<Vec<u8>> {
+    Identity {
+        version,
+        key: SigningKey::from_bytes(seed),
+    }
+    .encode()
+}
+
+/// The version of the identity key stored in `value`.
+pub(crate) fn identity_version_of(value: &[u8]) -> Option<u32> {
+    Identity::decode(value).ok().map(|i| i.version)
+}
+
+/// This device's directory device id for each persona it has keys for.
+pub(crate) fn own_persona_devices(store: &Store) -> Result<Vec<(Uuid, Uuid)>, CoreError> {
+    let mut out = Vec::new();
+    for (k, v) in store.scan(Table::Devices, b"")? {
+        let persona = Uuid::from_slice(&k).map_err(|_| keys_err("damaged device entry"))?;
+        if let Some(id) = DeviceKey::decode(&v)?.id {
+            out.push((persona, id));
+        }
+    }
+    Ok(out)
+}
+
 pub fn load_identity(store: &Store, persona: Uuid) -> Result<Option<Identity>, CoreError> {
     store
         .get(Table::Identities, persona.as_bytes())?

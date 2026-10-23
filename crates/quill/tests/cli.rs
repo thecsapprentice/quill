@@ -179,3 +179,79 @@ async fn the_cli_publishes_and_checks_persona_keys() {
     assert!(out.contains(&format!("{device}  revoked (lost)")), "{out}");
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_cli_links_a_second_computer() {
+    use std::io::{BufRead, BufReader, Write};
+
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let laptop = tempfile::tempdir().unwrap();
+    let desktop = tempfile::tempdir().unwrap();
+    let url = server.url();
+    let on_laptop = |args: &[&str]| quill(laptop.path(), PASSPHRASE, args);
+    let on_desktop = |args: &[&str]| quill(desktop.path(), PASSPHRASE, args);
+    assert!(on_laptop(&["server", &url]).0);
+    assert!(on_laptop(&["register", "cli_alice"]).0);
+    assert!(on_laptop(&["persona", "new", "ink_fox"]).0);
+    assert!(on_laptop(&["keys", "init", "--as", "ink_fox"]).0);
+    assert!(on_desktop(&["server", &url]).0);
+    assert!(on_desktop(&["login", "cli_alice"]).0);
+
+    // The desktop waits for approval, showing its code.
+    let mut link = std::process::Command::new(env!("CARGO_BIN_EXE_quill"))
+        .args(["device", "link"])
+        .env("QUILL_STORE", desktop.path().join("store.quill"))
+        .env("QUILL_PROFILE", desktop.path().join("profile.json"))
+        .env("QUILL_STORE_PASSPHRASE", PASSPHRASE)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut out = BufReader::new(link.stdout.take().unwrap());
+    let code = loop {
+        let mut line = String::new();
+        assert!(out.read_line(&mut line).unwrap() > 0, "link exited early");
+        if let Some(code) = line.trim().strip_prefix("quill device approve ") {
+            break code.to_owned();
+        }
+    };
+
+    // The laptop approves and shows the words.
+    let (ok, shown, err) = on_laptop(&["device", "approve", &code]);
+    assert!(ok, "{err}");
+    let laptop_words = shown
+        .lines()
+        .find_map(|l| l.strip_prefix("It should now show: "))
+        .unwrap()
+        .to_owned();
+
+    // The desktop shows the same words; the user says yes.
+    let desktop_words = loop {
+        let mut line = String::new();
+        assert!(out.read_line(&mut line).unwrap() > 0, "link exited early");
+        if let Some(w) = line.trim().strip_prefix("Approved. This device shows: ") {
+            break w.to_owned();
+        }
+    };
+    assert_eq!(desktop_words, laptop_words);
+    link.stdin.take().unwrap().write_all(b"y\n").unwrap();
+    let mut rest = String::new();
+    std::io::Read::read_to_string(&mut out, &mut rest).unwrap();
+    assert!(link.wait().unwrap().success(), "{rest}");
+    assert!(rest.contains("@ink_fox"), "{rest}");
+
+    // Both computers list both devices.
+    for run in [
+        &on_laptop as &dyn Fn(&[&str]) -> (bool, String, String),
+        &on_desktop,
+    ] {
+        let (ok, out, err) = run(&["--json", "devices"]);
+        assert!(ok, "{err}");
+        let list: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(list.as_array().unwrap().len(), 2, "{out}");
+    }
+    server.stop().await.unwrap();
+}

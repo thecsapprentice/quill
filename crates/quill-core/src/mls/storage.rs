@@ -45,8 +45,8 @@ impl From<crate::StoreError> for MlsStorageError {
     }
 }
 
-/// Pending writes: `None` deletes.
-type Pending = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
+/// Pending writes, by table and key: `None` deletes.
+type Pending = BTreeMap<(Table, Vec<u8>), Option<Vec<u8>>>;
 
 pub struct MlsStorage<'a> {
     store: &'a Store,
@@ -67,6 +67,10 @@ impl<'a> MlsStorage<'a> {
             .map_err(|_| MlsStorageError::Store("lock poisoned".into()))
     }
 
+    pub(crate) fn store(&self) -> &'a Store {
+        self.store
+    }
+
     /// Starts holding writes until [`Self::commit`].
     pub fn begin(&self) -> Result<(), MlsStorageError> {
         let mut p = self.pending()?;
@@ -84,14 +88,14 @@ impl<'a> MlsStorage<'a> {
         };
         let ops: Vec<Op<'_>> = pending
             .iter()
-            .map(|(k, v)| match v {
+            .map(|((table, k), v)| match v {
                 Some(value) => Op::Put {
-                    table: Table::Mls,
+                    table: *table,
                     key: k,
                     value,
                 },
                 None => Op::Delete {
-                    table: Table::Mls,
+                    table: *table,
                     key: k,
                 },
             })
@@ -105,32 +109,49 @@ impl<'a> MlsStorage<'a> {
         Ok(())
     }
 
-    fn raw_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, MlsStorageError> {
+    /// Reads `table`, seeing writes held in an open batch.
+    pub(crate) fn get_in(
+        &self,
+        table: Table,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, MlsStorageError> {
         if let Some(p) = self.pending()?.as_ref()
-            && let Some(v) = p.get(key)
+            && let Some(v) = p.get(&(table, key.to_vec()))
         {
             return Ok(v.clone());
         }
-        Ok(self.store.get(Table::Mls, key)?.map(|v| v.to_vec()))
+        Ok(self.store.get(table, key)?.map(|v| v.to_vec()))
     }
 
-    fn raw_set(&self, key: Vec<u8>, value: Option<Vec<u8>>) -> Result<(), MlsStorageError> {
+    /// Writes to `table`, held with the MLS writes if a batch is open, so
+    /// client state changes land together with the MLS state they follow.
+    pub(crate) fn set_in(
+        &self,
+        table: Table,
+        key: Vec<u8>,
+        value: Option<Vec<u8>>,
+    ) -> Result<(), MlsStorageError> {
         if let Some(p) = self.pending()?.as_mut() {
-            p.insert(key, value);
+            p.insert((table, key), value);
             return Ok(());
         }
         let op = match &value {
             Some(v) => Op::Put {
-                table: Table::Mls,
+                table,
                 key: &key,
                 value: v,
             },
-            None => Op::Delete {
-                table: Table::Mls,
-                key: &key,
-            },
+            None => Op::Delete { table, key: &key },
         };
         Ok(self.store.apply(&[op])?)
+    }
+
+    fn raw_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, MlsStorageError> {
+        self.get_in(Table::Mls, key)
+    }
+
+    fn raw_set(&self, key: Vec<u8>, value: Option<Vec<u8>>) -> Result<(), MlsStorageError> {
+        self.set_in(Table::Mls, key, value)
     }
 
     fn write<const VERSION: u16>(

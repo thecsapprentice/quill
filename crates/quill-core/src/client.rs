@@ -461,6 +461,82 @@ impl Client {
         Self::json(builder).await
     }
 
+    // ---- Groups and linking (2d) -----------------------------------------
+
+    pub async fn create_group(
+        &self,
+        body: &quill_proto::groups::CreateGroup,
+    ) -> Result<quill_proto::groups::GroupState, CoreError> {
+        let builder = self.authed(Method::POST, "/groups")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    /// This login's personal device group, if it has one.
+    pub async fn device_group(&self) -> Result<Option<quill_proto::groups::GroupState>, CoreError> {
+        match Self::json(self.authed(Method::GET, "/account/device-group")?).await {
+            Ok(g) => Ok(Some(g)),
+            Err(e) if e.status() == Some(404) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Appends a message to a group's log. `409` means the group has moved
+    /// to a newer epoch.
+    pub async fn post_group_message(
+        &self,
+        group: &str,
+        body: &quill_proto::groups::PostMessage,
+    ) -> Result<quill_proto::groups::Posted, CoreError> {
+        let builder = self.authed_segments(Method::POST, "/groups", &[group, "messages"])?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn group_messages(
+        &self,
+        group: &str,
+        query: &quill_proto::groups::MessagesQuery,
+    ) -> Result<quill_proto::groups::Messages, CoreError> {
+        let builder = self.authed_segments(Method::GET, "/groups", &[group, "messages"])?;
+        Self::json(builder.query(query)).await
+    }
+
+    pub async fn start_link(
+        &self,
+        body: &quill_proto::groups::StartLink,
+    ) -> Result<quill_proto::groups::LinkStarted, CoreError> {
+        let builder = self.authed(Method::POST, "/link")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn read_link(
+        &self,
+        link: &str,
+    ) -> Result<quill_proto::groups::LinkMailbox, CoreError> {
+        Self::json(self.authed_segments(Method::GET, "/link", &[link])?).await
+    }
+
+    pub async fn reply_link(
+        &self,
+        link: &str,
+        body: &quill_proto::groups::LinkReply,
+    ) -> Result<(), CoreError> {
+        let builder = self.authed_segments(Method::POST, "/link", &[link, "reply"])?;
+        Self::empty(Self::with_json(builder, body)).await
+    }
+
+    /// The server's host, as shown in link codes.
+    pub fn host(&self) -> String {
+        self.url("/")
+            .ok()
+            .and_then(|u| {
+                u.host_str().map(|h| {
+                    u.port()
+                        .map_or_else(|| h.to_owned(), |p| format!("{h}:{p}"))
+                })
+            })
+            .unwrap_or_default()
+    }
+
     /// Any persona's published keys. Needs no login.
     pub async fn actor_keys(
         &self,

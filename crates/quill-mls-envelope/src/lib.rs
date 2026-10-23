@@ -37,6 +37,7 @@ impl WireFormat {
 }
 
 pub mod key_package;
+pub mod private_message;
 
 #[cfg(test)]
 mod tests {

@@ -4,6 +4,7 @@
 pub mod auth;
 pub mod config;
 pub mod error;
+pub mod groups;
 pub mod keys;
 mod markdown;
 pub mod notices;
