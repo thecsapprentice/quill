@@ -726,6 +726,21 @@ messages can carry attachments that a later client can show.
 - **CLI:** `quill session write ID --attach FILE` (repeatable); `read`
   lists each message's attachments; `quill session save ID N --to DIR`
   writes them out.
+- **An administrators' switch** (added 2026-10-23 at the user's request):
+  attachments in sessions can be turned off, as a live server setting
+  (starting value `QUILL_ATTACHMENTS`), in Server settings → Sessions or
+  `quill admin settings --attachments off`. Uploads are then refused and the
+  instance info says so, so clients refuse before encrypting anything.
+  Together with the size limits it tells writers what the server is for.
+  It can't stop a determined client from packing small files into
+  messages, but the server can tell uploads apart, so it holds for blobs.
+- **Storage views** (added 2026-10-23): a login sees what its sessions take
+  (`GET /account/storage`, `quill storage`): in total, per session
+  (messages, attachments, and the part it uploaded against its quota), and
+  its device-sync log. Administrators see every login's totals
+  (`GET /admin/storage`, `quill admin storage`, and the Sessions tab), and
+  one login's sessions without persona handles, so the view doesn't link
+  personas to logins. Sizes and counts of ciphertext only.
 
 Not in 2i: inline base64 images, image cleaning and rendering (GUI), and
 fetching blobs through one's own server from another (Phase 3).
@@ -783,6 +798,10 @@ ranges. Known so far:
   - Requests and sessions: request expiry (30 days), requests per hour
     (20), message retention grace period (7 days), low-pool notice
     threshold (10), live notice buffer (1024).
+  - Attachments: size limit (10 MiB), smallest bucket (4 KiB), quota per
+    login (500 MiB), blobs per message (10), unattached-blob lifetime (1
+    day), messages per minute (30). These are in the config's limits but
+    not yet read from the environment.
 - **Client (sessions):** message padding (256 bytes), how far ahead a
   clock may be and still move the reader's (1 day), longest pitch and
   message.
@@ -830,7 +849,9 @@ done.
   Welcomes for members' other and later devices, writing, and Leave.
 - **2i, attachments (decided 2026-10-23):** any file type, size caps only;
   no type checks, which renaming defeats. Image cleaning (metadata
-  stripping, re-encoding) and rendering wait for the GUI.
+  stripping, re-encoding) and rendering wait for the GUI. Administrators
+  can turn attachments off, and logins and administrators can see storage
+  use (sizes only).
 - **2d, scope (decided 2026-10-23):** the group message log and epoch
   sequencer move from 2f into 2d, since the personal device group needs
   them; 2f builds session groups on them. Only full devices are linked;
