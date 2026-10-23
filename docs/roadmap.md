@@ -46,11 +46,12 @@ with several pages of varied prompts, and every seeded account can sign in.
   only and refused (403) to everyone else. Later settings go here as well.
 - **Tag types** (namespaces): list, create, rename the display name, lock or
   unlock user tags, and mark as **required**.
-- **Required tag types**: every new prompt must carry at least one tag of
-  each required type. The rule isn't retroactive: existing prompts keep their
-  tags, and editing an older prompt doesn't force adding one. (Changing that
-  later is a one-line rule.) The prompt form marks required types, and the
-  error names the missing ones. The API and the CLI enforce the same rule.
+- **Required tag types**: every save, of a new prompt or an edit to an old
+  one, must carry at least one tag of each type that is required at that
+  moment. Existing prompts aren't changed when a type becomes required, but
+  the next edit must add one. Changing only a prompt's open, busy or closed
+  status doesn't count as an edit. The prompt form marks required types, and
+  the error names the missing ones. The API and the CLI enforce the same rule.
 - **Tags**: list with usage counts and search, create, rename, alias one tag
   to another, and delete. Deleting removes the tag from every prompt that
   uses it, after a confirmation page showing how many prompts that is.
@@ -58,7 +59,8 @@ with several pages of varied prompts, and every seeded account can sign in.
 
 Done when: an admin can do all of the above in the browser without
 JavaScript, non-admins get 403 on every settings URL, and the required-type
-rule has end-to-end tests (new prompt refused, old prompt unaffected).
+rule has end-to-end tests (new and edited prompts refused without the tag,
+existing prompts left as they were, status changes still allowed).
 
 ### 1e: Tag picker on the prompt form
 
