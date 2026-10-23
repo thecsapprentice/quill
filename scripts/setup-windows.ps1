@@ -4,9 +4,12 @@
 
 .DESCRIPTION
     Installs, if missing:
-      - Visual Studio 2022 Build Tools with the C++ workload (the MSVC
-        compiler, linker and Windows SDK). Rust on Windows links with MSVC,
-        and the TLS crypto library (aws-lc-rs) compiles C code.
+      - The MSVC C++ tools (compiler, linker and Windows SDK). Rust on
+        Windows links with MSVC, and the TLS crypto library (aws-lc-rs)
+        compiles C code. Any Visual Studio edition that has them already
+        (Community, Professional, Enterprise or Build Tools) is used as is;
+        only if there is no Visual Studio at all are the 2022 Build Tools
+        installed.
       - NASM, the assembler aws-lc-rs uses on 64-bit Windows.
       - Git.
       - rustup, then the Rust version this project pins in
@@ -62,6 +65,20 @@ if (-not (Test-Command 'choco')) {
 $chocoMajor = [int]((choco --version) -split '\.')[0]
 $listLocal = if ($chocoMajor -ge 2) { @() } else { @('--local-only') }
 
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+
+# Any Visual Studio edition with the x64 C++ compiler and linker.
+function Find-Msvc {
+    if (-not (Test-Path $vswhere)) { return $null }
+    return & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+}
+
+# Any Visual Studio edition at all, with or without the C++ tools.
+function Find-VisualStudio {
+    if (-not (Test-Path $vswhere)) { return $null }
+    return & $vswhere -latest -products * -property displayName
+}
+
 function Install-ChocoPackage($Package, [string]$Params = '') {
     $installed = choco list @listLocal --exact $Package --limit-output 2>$null
     if ($installed) {
@@ -79,10 +96,22 @@ function Install-ChocoPackage($Package, [string]$Params = '') {
     }
 }
 
-Write-Step 'Visual Studio 2022 Build Tools with the C++ workload (MSVC and Windows SDK)'
-Install-ChocoPackage 'visualstudio2022buildtools' '--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended'
-# If Build Tools were already installed without the C++ workload, add it.
-Install-ChocoPackage 'visualstudio2022-workload-vctools'
+Write-Step 'MSVC C++ tools (compiler, linker and Windows SDK)'
+$msvc = Find-Msvc
+$vs = Find-VisualStudio
+if ($msvc) {
+    Write-Host "Found the C++ tools in $msvc"
+} elseif ($vs) {
+    # Don't install a second Visual Studio next to the user's own.
+    throw @"
+$vs is installed but without the C++ tools Rust needs. Open the Visual Studio
+Installer, choose Modify on $vs, tick the "Desktop development with C++"
+workload (it includes the MSVC tools and the Windows SDK), install, then run
+this script again.
+"@
+} else {
+    Install-ChocoPackage 'visualstudio2022buildtools' '--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended'
+}
 
 Write-Step 'NASM (assembler for the TLS crypto library)'
 Install-ChocoPackage 'nasm'
@@ -139,11 +168,7 @@ foreach ($tool in @(
         $ok = $false
     }
 }
-$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-$msvc = $null
-if (Test-Path $vswhere) {
-    $msvc = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-}
+$msvc = Find-Msvc
 if ($msvc) {
     Write-Host "MSVC   $msvc"
 } else {
