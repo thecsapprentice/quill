@@ -2,7 +2,7 @@ use quill_proto::{
     api::Persona,
     board::{
         AccountSettings, AdminAction, AdminLogEntry, AdminTag, Maturity, Prompt, PromptAuthor,
-        PromptState, Report, ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy,
+        PromptState, Report, ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy, TagStatus,
     },
 };
 use time::macros::datetime;
@@ -17,6 +17,7 @@ fn chrome(signed_in: bool, admin: bool) -> Chrome {
             csrf: "csrf-token-123".into(),
             is_admin: admin,
             maturity_max: Maturity::Teen,
+            pending_tags: if admin { 3 } else { 0 },
         }),
         source_url: "https://github.com/thecsapprentice/quill".into(),
         version: "0.1.0".into(),
@@ -43,6 +44,8 @@ fn prompt(title: &str, maturity: Maturity) -> Prompt {
             slug: "horror".into(),
             display: "Horror".into(),
             origin: TagOrigin::Server,
+            status: TagStatus::Visible,
+            color: None,
         }],
         accepting_sessions: false,
         removed: false,
@@ -161,35 +164,100 @@ fn forms_render_with_values_and_errors() {
             title: "T\"itle".into(),
             body: "</textarea><script>".into(),
             maturity: Maturity::Mature,
-            tags: "genre:horror".into(),
+            chips: vec![
+                TagChip {
+                    value: "genre:horror".into(),
+                    tag: Tag {
+                        namespace: "genre".into(),
+                        slug: "horror".into(),
+                        display: "Horror".into(),
+                        origin: TagOrigin::Server,
+                        status: TagStatus::Visible,
+                        color: None,
+                    },
+                    kind: ChipKind::Existing,
+                },
+                TagChip {
+                    value: "theme:Sea <b>".into(),
+                    tag: Tag {
+                        namespace: "theme".into(),
+                        slug: "sea-b".into(),
+                        display: "Sea <b>".into(),
+                        origin: TagOrigin::User,
+                        status: TagStatus::Visible,
+                        color: None,
+                    },
+                    kind: ChipKind::NewNeedsApproval,
+                },
+            ],
+            add_text: "nope".into(),
+            tag_errors: vec!["Tag \"nope\" must be written as namespace:name.".into()],
             state: PromptState::Open,
             error: Some("Tag \"x\" is invalid".into()),
-            tag_options: Vec::new(),
-            tag_policy: TagPolicy::Both,
+            tag_options: vec![
+                Tag {
+                    namespace: "format".into(),
+                    slug: "prose".into(),
+                    display: "Prose".into(),
+                    origin: TagOrigin::Server,
+                    status: TagStatus::Visible,
+                    color: None,
+                },
+                Tag {
+                    namespace: "genre".into(),
+                    slug: "horror".into(),
+                    display: "Horror".into(),
+                    origin: TagOrigin::Server,
+                    status: TagStatus::Visible,
+                    color: None,
+                },
+            ],
+            tag_policy: TagPolicy::Open,
             namespaces: vec![
                 TagNamespace {
                     name: "genre".into(),
                     display: "Genre".into(),
                     locked: false,
                     required: true,
+                    color: None,
                 },
                 TagNamespace {
                     name: "format".into(),
                     display: "Format".into(),
                     locked: true,
                     required: true,
+                    color: None,
                 },
                 TagNamespace {
                     name: "length".into(),
                     display: "Length".into(),
                     locked: true,
                     required: false,
+                    color: None,
                 },
             ],
         },
     );
-    assert!(html.contains("Required: at least one Genre (genre:…) and Format (format:…) tag."));
+    // Chips: a ticked checkbox each, escaped, with their kind.
+    assert!(html.contains(r#"name="tag" value="genre:horror" checked=true"#));
+    assert!(html.contains(r#"value="theme:Sea &#60;b&#62;""#));
+    assert!(html.contains("(new, needs approval)"));
+    assert!(html.contains("chip tcn-genre tc-genre__horror chip-choice"));
+    // Genre is chosen; Format is required and missing, so it gets a slot.
+    assert!(html.contains("Format: required"));
+    assert!(!html.contains("Genre: required"));
+    // Typed text that couldn't be added is kept, with the reason.
+    assert!(html.contains(r#"name="add" value="nope""#));
+    assert!(html.contains("must be written as namespace:name"));
+    // Add comes before Post, so Enter adds; both reload to the picker.
+    let add = html.find(r#"value="add""#).unwrap();
+    assert!(add < html.find(r#"value="save""#).unwrap());
+    assert!(html.contains(r##"formaction="/new#tags""##));
+    // Browse offers what isn't chosen yet, required types first.
+    assert!(html.contains(r#"name="pick" value="format:prose""#));
+    assert!(!html.contains(r#"name="pick" value="genre:horror""#));
     assert!(html.contains("except in format and length, which use"));
+    assert!(html.contains(r#"href="/static/tag-colors.css""#));
     assert!(html.contains(r#"value="T&#34;itle""#));
     assert!(html.contains("&#60;/textarea&#62;&#60;script&#62;"));
     assert!(html.contains(r#"<option value="mature" selected"#));
@@ -204,11 +272,13 @@ fn forms_render_with_values_and_errors() {
             title: String::new(),
             body: String::new(),
             maturity: Maturity::General,
-            tags: String::new(),
+            chips: Vec::new(),
+            add_text: String::new(),
+            tag_errors: Vec::new(),
             state: PromptState::Open,
             error: None,
             tag_options: Vec::new(),
-            tag_policy: TagPolicy::Both,
+            tag_policy: TagPolicy::Open,
             namespaces: Vec::new(),
         },
     );
@@ -287,6 +357,7 @@ fn genre() -> TagNamespace {
         display: "Genre".into(),
         locked: false,
         required: true,
+        color: None,
     }
 }
 
@@ -297,9 +368,12 @@ fn admin_tag(slug: &str, uses: u64, alias_of: Option<&str>) -> AdminTag {
             slug: slug.into(),
             display: "<Horror>".into(),
             origin: TagOrigin::User,
+            status: TagStatus::Visible,
+            color: None,
         },
         uses,
         alias_of: alias_of.map(str::to_owned),
+        own_color: None,
     }
 }
 
@@ -312,6 +386,7 @@ fn server_settings_pages() {
     let types = admin_tag_types_page(
         &c,
         AdminTagTypesView {
+            new_tags: TagPolicy::Approval,
             namespaces: vec![genre()],
             new: NewTagType {
                 name: "setting".into(),
@@ -325,7 +400,11 @@ fn server_settings_pages() {
     assert!(types.contains(r#"value="setting""#));
     assert!(types.contains("role=\"alert\""));
     assert!(types.contains(r#"href="/admin/settings" aria-current="page""#));
-    assert_eq!(types.matches(r#"name="csrf""#).count(), 3);
+    // The header counts waiting tag requests for administrators.
+    assert!(types.contains(r#"<span class="count" title="Tag requests waiting">3</span>"#));
+    // The new-tags switch, set to approval; plus two type forms and the add form.
+    assert!(types.contains(r#"value="approval" checked=true"#));
+    assert_eq!(types.matches(r#"name="csrf""#).count(), 4);
 
     let tags = admin_tags_page(
         &c,
@@ -423,4 +502,87 @@ fn admin_log_shows_tag_and_report_entries() {
     assert!(html.contains("Report received"));
     assert!(html.contains("<code>00ff00ff00ff</code>"));
     assert!(html.contains("View prompt"));
+}
+
+#[test]
+fn tags_only_some_viewers_see() {
+    let mut p = prompt("Lamps", Maturity::General);
+    let tag = |slug: &str, status| Tag {
+        namespace: "theme".into(),
+        slug: slug.into(),
+        display: slug.into(),
+        origin: TagOrigin::User,
+        status,
+        color: None,
+    };
+    p.tags = vec![
+        tag("open", TagStatus::Visible),
+        tag("waiting", TagStatus::Pending),
+        tag("secret", TagStatus::Hidden),
+    ];
+    let html = prompt_page(
+        &chrome(true, false),
+        PromptView {
+            prompt: p,
+            is_author: true,
+            held_back: None,
+        },
+    );
+    assert!(html.contains(r#"href="/?include=theme%3Aopen""#));
+    // Not offered as filters: they wouldn't work for anyone else.
+    assert!(!html.contains("include=theme%3Awaiting"));
+    assert!(!html.contains("include=theme%3Asecret"));
+    assert!(html.contains("waiting <em>(awaiting approval)</em>"));
+    assert!(html.contains("secret <em>(hidden)</em>"));
+}
+
+#[test]
+fn tag_requests_and_status_controls() {
+    let c = Chrome {
+        current: Nav::ServerSettings,
+        ..chrome(true, true)
+    };
+    let mut pending = admin_tag("selkies", 2, None);
+    pending.tag.status = TagStatus::Pending;
+    let requests = admin_tag_requests_page(
+        &c,
+        AdminTagRequestsView {
+            requests: vec![pending.clone()],
+            namespaces: vec![genre()],
+            new_tags: TagPolicy::Open,
+        },
+    );
+    assert!(requests.contains(r#"action="/admin/settings/tags/genre/selkies/status""#));
+    assert!(requests.contains(r#"name="back" value="requests""#));
+    assert!(requests.contains(r#"href="/admin/settings/tags/genre/selkies#merge""#));
+    assert!(requests.contains(r#"href="/admin/settings/tags/genre/selkies/delete""#));
+    assert!(requests.contains("so no new requests arrive"));
+
+    let tag_view = |tag: AdminTag| AdminTagView {
+        tag,
+        namespace_display: "Genre".into(),
+        rename: String::new(),
+        alias_target: String::new(),
+        tag_options: Vec::new(),
+        error: None,
+    };
+    let page = admin_tag_page(&c, tag_view(pending.clone()));
+    assert!(page.contains("Approve tag"));
+    assert!(page.contains("Reject tag"));
+    assert!(!page.contains(">Delete tag<"));
+    let visible = admin_tag_page(&c, tag_view(admin_tag("horror", 1, None)));
+    assert!(visible.contains("Hide tag"));
+    let mut hidden = admin_tag("horror", 1, None);
+    hidden.tag.status = TagStatus::Hidden;
+    assert!(admin_tag_page(&c, tag_view(hidden)).contains("Show tag"));
+
+    let reject = admin_tag_delete_page(
+        &c,
+        AdminTagDeleteView {
+            tag: pending,
+            namespace: genre(),
+        },
+    );
+    assert!(reject.contains("Reject &#60;Horror&#62;?"));
+    assert!(reject.contains(">Reject tag<"));
 }
