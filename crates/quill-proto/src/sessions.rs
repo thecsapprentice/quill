@@ -123,6 +123,9 @@ pub struct AccountStorage {
     pub quota_bytes: u64,
     /// The personal device group's log.
     pub device_sync_bytes: u64,
+    /// The login's encrypted backup (2j), counted apart from the quota.
+    #[serde(default)]
+    pub backup_bytes: u64,
     pub sessions: Vec<SessionStorage>,
 }
 
@@ -151,4 +154,22 @@ pub struct ServerStorage {
     pub message_bytes: u64,
     pub file_bytes: u64,
     pub accounts: Vec<AccountStorageSummary>,
+}
+
+/// The login's committed backup (`GET /backup`, 2j).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupInfo {
+    pub generation: Uuid,
+    pub parts: u32,
+    pub bytes: u64,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: time::OffsetDateTime,
+}
+
+/// `POST /backup/{generation}/commit`: the new backup is complete.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitBackup {
+    pub parts: u32,
 }

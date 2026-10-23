@@ -492,6 +492,68 @@ impl Client {
         Self::empty(builder).await
     }
 
+    // ---- Backups (2j) -------------------------------------------------------
+
+    /// The login's committed backup, if it has one.
+    pub async fn backup_info(
+        &self,
+    ) -> Result<Option<quill_proto::sessions::BackupInfo>, CoreError> {
+        match Self::json(self.authed(Method::GET, "/backup")?).await {
+            Ok(b) => Ok(Some(b)),
+            Err(e) if e.status() == Some(404) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub async fn upload_backup_part(
+        &self,
+        generation: Uuid,
+        part: u32,
+        data: Vec<u8>,
+    ) -> Result<(), CoreError> {
+        let builder = self
+            .authed(Method::PUT, &format!("/backup/{generation}/{part}"))?
+            .header(header::CONTENT_TYPE, "application/octet-stream")
+            .body(data);
+        Self::empty(builder).await
+    }
+
+    pub async fn commit_backup(
+        &self,
+        generation: Uuid,
+        parts: u32,
+    ) -> Result<quill_proto::sessions::BackupInfo, CoreError> {
+        let builder = self.authed(Method::POST, &format!("/backup/{generation}/commit"))?;
+        Self::json(Self::with_json(
+            builder,
+            &quill_proto::sessions::CommitBackup { parts },
+        ))
+        .await
+    }
+
+    /// One part of the committed backup.
+    pub async fn backup_part(&self, part: u32) -> Result<Vec<u8>, CoreError> {
+        let mut response = Self::check(
+            self.authed(Method::GET, &format!("/backup/{part}"))?
+                .send()
+                .await?,
+        )
+        .await?;
+        let max = quill_proto::limits::BACKUP_PART_BYTES as usize;
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if body.len() + chunk.len() > max {
+                return Err(CoreError::ResponseTooLarge);
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(body)
+    }
+
+    pub async fn delete_backup(&self) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::DELETE, "/backup")?).await
+    }
+
     /// What the login's sessions take on the server.
     pub async fn storage(&self) -> Result<quill_proto::sessions::AccountStorage, CoreError> {
         Self::json(self.authed(Method::GET, "/account/storage")?).await
