@@ -36,10 +36,12 @@ pub enum Table {
     Account,
     /// What the login's other devices announced: their persona devices.
     Siblings,
+    /// Collaboration requests this device holds a group for, by request id.
+    Requests,
 }
 
 impl Table {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Meta,
         Self::Profile,
         Self::Identities,
@@ -48,6 +50,7 @@ impl Table {
         Self::Mls,
         Self::Account,
         Self::Siblings,
+        Self::Requests,
     ];
 
     pub fn name(self) -> &'static str {
@@ -60,6 +63,7 @@ impl Table {
             Self::Mls => "mls",
             Self::Account => "account",
             Self::Siblings => "siblings",
+            Self::Requests => "requests",
         }
     }
 }

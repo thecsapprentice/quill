@@ -10,6 +10,7 @@ pub mod devices;
 pub mod keys;
 pub mod mls;
 pub mod profile;
+pub mod requests;
 pub mod store;
 pub mod words;
 

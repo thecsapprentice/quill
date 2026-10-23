@@ -524,6 +524,61 @@ impl Client {
         Self::empty(Self::with_json(builder, body)).await
     }
 
+    // ---- Requests ---------------------------------------------------------
+
+    pub async fn send_request(
+        &self,
+        body: &quill_proto::requests::SendRequest,
+    ) -> Result<quill_proto::requests::RequestSent, CoreError> {
+        let builder = self.authed(Method::POST, "/requests")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    /// The login's own requests, newest first.
+    pub async fn own_requests(
+        &self,
+    ) -> Result<Vec<quill_proto::requests::OutgoingRequest>, CoreError> {
+        Self::json(self.authed(Method::GET, "/requests")?).await
+    }
+
+    pub async fn request_status(
+        &self,
+        id: Uuid,
+    ) -> Result<quill_proto::requests::RequestState, CoreError> {
+        Self::json(self.authed(Method::GET, &format!("/requests/{id}"))?).await
+    }
+
+    pub async fn withdraw_request(&self, id: Uuid) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::DELETE, &format!("/requests/{id}"))?).await
+    }
+
+    /// A prompt's queue; `held` releases held requests to pending first.
+    pub async fn request_queue(
+        &self,
+        prompt: Uuid,
+        held: bool,
+    ) -> Result<quill_proto::requests::Queue, CoreError> {
+        let query = quill_proto::requests::QueueQuery {
+            state: Some(if held { "held" } else { "pending" }.into()),
+        };
+        Self::json(
+            self.authed(Method::GET, &format!("/prompts/{prompt}/requests"))?
+                .query(&query),
+        )
+        .await
+    }
+
+    pub async fn accept_request(
+        &self,
+        id: Uuid,
+    ) -> Result<quill_proto::groups::GroupState, CoreError> {
+        Self::json(self.authed(Method::POST, &format!("/requests/{id}/accept"))?).await
+    }
+
+    pub async fn decline_request(&self, id: Uuid) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::POST, &format!("/requests/{id}/reject"))?).await
+    }
+
     /// The server's host, as shown in link codes.
     pub fn host(&self) -> String {
         self.url("/")

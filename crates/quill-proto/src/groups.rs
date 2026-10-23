@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 pub struct CreateGroup {
     /// The MLS group id, base64url.
     pub group_id: String,
-    /// `personal` (sessions come in 2f).
+    /// `personal`. Session groups are registered by accepting a request.
     pub kind: String,
 }
 

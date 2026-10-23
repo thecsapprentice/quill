@@ -95,11 +95,11 @@ fn date(secs: u64) -> String {
         .unwrap_or_else(|_| secs.to_string())
 }
 
-fn bare(handle: &str) -> &str {
+pub(crate) fn bare(handle: &str) -> &str {
     handle.trim_start_matches('@')
 }
 
-async fn own_persona(ctx: &Ctx, handle: &str) -> Result<Persona> {
+pub(crate) async fn own_persona(ctx: &Ctx, handle: &str) -> Result<Persona> {
     let handle = bare(handle);
     ctx.client()?
         .personas()
