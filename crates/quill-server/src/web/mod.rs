@@ -5,7 +5,9 @@
 //! calls the same service functions as the JSON API.
 
 mod handlers;
+mod picker;
 pub mod session;
+mod settings;
 
 use axum::{
     Router,
@@ -19,6 +21,7 @@ use quill_board_ui::{Chrome, MessageView, Nav, Viewer};
 
 use crate::{AppState, error::ApiError};
 use session::Session;
+use sha2::{Digest, Sha256};
 
 /// Board forms may carry a 20,000-character prompt, which URL-encoding can
 /// triple in size.
@@ -65,7 +68,43 @@ pub fn router() -> Router<AppState> {
         .route("/admin/reports", get(handlers::admin_reports))
         .route("/admin/reports/{id}/resolve", post(handlers::admin_resolve))
         .route("/admin/log", get(handlers::admin_log))
+        .route("/admin/settings", get(settings::index))
+        .route(
+            "/admin/settings/tag-types",
+            get(settings::tag_types).post(settings::tag_type_create),
+        )
+        .route(
+            "/admin/settings/tag-types/{name}",
+            post(settings::tag_type_update),
+        )
+        .route("/admin/settings/new-tags", post(settings::new_tags_save))
+        .route("/admin/settings/tag-requests", get(settings::tag_requests))
+        .route(
+            "/admin/settings/tags/{namespace}/{slug}/status",
+            post(settings::tag_status),
+        )
+        .route(
+            "/admin/settings/tags",
+            get(settings::tags).post(settings::tag_create),
+        )
+        .route(
+            "/admin/settings/tags/{namespace}/{slug}",
+            get(settings::tag).post(settings::tag_rename),
+        )
+        .route(
+            "/admin/settings/tags/{namespace}/{slug}/merge",
+            post(settings::tag_merge),
+        )
+        .route(
+            "/admin/settings/tags/{namespace}/{slug}/color",
+            post(settings::tag_color),
+        )
+        .route(
+            "/admin/settings/tags/{namespace}/{slug}/delete",
+            get(settings::tag_delete_form).post(settings::tag_delete),
+        )
         .route(quill_board_ui::STYLESHEET_PATH, get(stylesheet))
+        .route(quill_board_ui::chips::TAG_COLORS_PATH, get(tag_colors))
         // No icon; answering keeps browsers from logging a 404 on every page.
         .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
         .fallback(not_found)
@@ -82,6 +121,69 @@ async fn stylesheet() -> impl IntoResponse {
         ],
         quill_board_ui::STYLESHEET,
     )
+}
+
+/// Chip colours from Server settings, as a stylesheet from our own origin
+/// (the CSP allows no inline styles). Browsers revalidate it on each page
+/// and get "not modified" until a colour changes.
+async fn tag_colors(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let built = async {
+        let namespaces = crate::prompts::namespaces(&state).await?;
+        // Only visible tags: the sheet is public and mustn't reveal others.
+        let rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
+            "SELECT namespace, slug, chip_bg, chip_fg FROM tags
+             WHERE instance = '' AND canonical_id IS NULL AND status = 'visible'
+               AND chip_bg IS NOT NULL
+             ORDER BY namespace, slug",
+        )
+        .fetch_all(&state.pool)
+        .await?;
+        let tags: Vec<_> = rows
+            .into_iter()
+            .map(|(ns, slug, bg, fg)| {
+                let color = quill_proto::board::ChipColor {
+                    background: bg,
+                    text: fg,
+                };
+                (ns, slug, color)
+            })
+            .collect();
+        Ok::<_, ApiError>(quill_board_ui::chips::tag_color_css(&namespaces, &tags))
+    }
+    .await;
+    let css = match built {
+        Ok(css) => css,
+        Err(e) => {
+            tracing::error!(error = ?e, "building tag colours");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    let digest = Sha256::digest(css.as_bytes());
+    let etag = format!(
+        "\"{}\"",
+        digest
+            .iter()
+            .take(12)
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    );
+    let matches = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.split(',').any(|t| t.trim() == etag));
+    let common = [
+        (header::CACHE_CONTROL, "no-cache".to_owned()),
+        (header::ETAG, etag),
+    ];
+    if matches {
+        return (StatusCode::NOT_MODIFIED, common).into_response();
+    }
+    (
+        common,
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        css,
+    )
+        .into_response()
 }
 
 async fn not_found(State(state): State<AppState>) -> Response {
@@ -163,6 +265,7 @@ pub(crate) fn chrome(
             csrf: s.csrf.clone(),
             is_admin: s.is_admin,
             maturity_max: s.maturity_max,
+            pending_tags: s.pending_tags,
         }),
         source_url: state.config.source_url.clone(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -187,6 +290,18 @@ fn notice_text(key: &str) -> Option<&'static str> {
         "persona-deleted" => "Persona deleted.",
         "settings" => "Settings saved.",
         "resolved" => "Report resolved.",
+        "tag-type-created" => "Tag type added.",
+        "tag-type-saved" => "Tag type saved.",
+        "tag-created" => "Tag added.",
+        "tag-saved" => "Tag renamed.",
+        "tag-merged" => "Tag merged.",
+        "tag-deleted" => "Tag deleted.",
+        "tag-rejected" => "Tag rejected.",
+        "tag-approved" => "Tag approved.",
+        "tag-hidden" => "Tag hidden.",
+        "tag-shown" => "Tag shown.",
+        "new-tags-saved" => "Setting saved.",
+        "tag-color" => "Colour saved.",
         _ => return None,
     })
 }

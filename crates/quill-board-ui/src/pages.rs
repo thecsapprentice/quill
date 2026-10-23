@@ -2,15 +2,19 @@
 
 use dioxus::prelude::*;
 use quill_proto::{
-    board::{Maturity, PromptState, ReportReason, Resolution, TagPolicy},
+    board::{
+        AdminAction, AdminLogEntry, Maturity, PromptState, ReportReason, Resolution, Tag,
+        TagNamespace, TagPolicy, TagStatus,
+    },
     limits::{
         PROMPT_BODY_MAX_CHARS, PROMPT_TITLE_MAX_CHARS, REPORT_DETAILS_MAX_CHARS, USERNAME_MAX_CHARS,
     },
 };
 
 use crate::{
-    AdminLogView, AdminReportsView, AuthMode, AuthView, BoardView, Chrome, MessageView,
+    AdminLogView, AdminReportsView, AuthMode, AuthView, BoardView, ChipKind, Chrome, MessageView,
     PersonasView, PromptFormView, PromptView, ReportView, SettingsView,
+    chips::chip_classes,
     layout::{card_list, csrf, error_notice, prompt_meta, tag_datalist, tag_list},
     maturity_label, prompt_url, reason_label, render, short_date, state_label,
 };
@@ -263,11 +267,140 @@ pub fn auth_page(chrome: &Chrome, view: AuthView) -> String {
 
 // ---- Posting and editing -------------------------------------------------
 
-fn tag_policy_hint(policy: TagPolicy) -> &'static str {
+/// "a, b and c"
+fn join_and(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+fn tag_policy_hint(policy: TagPolicy, namespaces: &[TagNamespace]) -> String {
+    let curated: Vec<String> = namespaces
+        .iter()
+        .filter(|n| n.locked)
+        .map(|n| n.name.clone())
+        .collect();
+    let except = if curated.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ", except in {}, which use the server's list",
+            join_and(&curated)
+        )
+    };
     match policy {
-        TagPolicy::Curated => "Only tags listed on this server can be used.",
-        TagPolicy::User | TagPolicy::Both => {
-            "New tags are created as you use them, except in content-warning, format and length, which use the server's list."
+        TagPolicy::Curated => "Only tags listed on this server can be used.".to_owned(),
+        TagPolicy::Open => format!("New tags are created as you use them{except}."),
+        TagPolicy::Approval => format!(
+            "You can use new tags{except}. Others see a new tag once an administrator approves it."
+        ),
+    }
+}
+
+/// The tag picker: chosen tags as chips, slots for required types, a field
+/// to add tags, and "Browse tags". No JavaScript: a chip is a checkbox
+/// (unticked chips aren't sent), and Add or a browsed tag reloads the form.
+fn tag_picker(v: &PromptFormView, action: &str) -> Element {
+    // Add and browse jump back to the picker after reloading.
+    let back_to_tags = format!("{action}#tags");
+    let chosen_types: Vec<&str> = v.chips.iter().map(|c| c.tag.namespace.as_str()).collect();
+    let missing: Vec<&TagNamespace> = v
+        .namespaces
+        .iter()
+        .filter(|n| n.required && !chosen_types.contains(&n.name.as_str()))
+        .collect();
+    let chosen: Vec<String> = v.chips.iter().map(|c| c.tag.key()).collect();
+    let mut groups: Vec<(&TagNamespace, Vec<&Tag>)> = v
+        .namespaces
+        .iter()
+        .map(|n| {
+            let tags: Vec<&Tag> = v
+                .tag_options
+                .iter()
+                .filter(|t| t.namespace == n.name && !chosen.contains(&t.key()))
+                .collect();
+            (n, tags)
+        })
+        .filter(|(_, tags)| !tags.is_empty())
+        .collect();
+    // Required types first, matching the empty slots.
+    groups.sort_by_key(|(n, _)| !n.required);
+    rsx! {
+        fieldset { id: "tags", class: "tag-picker",
+            legend { class: "label", "Tags" }
+            span { class: "hint", "{tag_policy_hint(v.tag_policy, &v.namespaces)}" }
+            div { class: "chips",
+                for c in v.chips.iter() {
+                    label { key: "{c.value}", class: "{chip_classes(&c.tag)} chip-choice",
+                        input { r#type: "checkbox", name: "tag", value: "{c.value}", checked: true }
+                        span { class: "tag-ns", "{c.tag.namespace}: " }
+                        "{c.tag.display}"
+                        match c.kind {
+                            ChipKind::New => rsx! { em { " (new)" } },
+                            ChipKind::NewNeedsApproval => rsx! { em { " (new, needs approval)" } },
+                            ChipKind::Existing if c.tag.status == TagStatus::Pending => rsx! { em { " (awaiting approval)" } },
+                            ChipKind::Existing => rsx! {},
+                        }
+                        span { class: "chip-x", "aria-hidden": "true" }
+                    }
+                }
+                for n in missing.iter() {
+                    span { key: "slot-{n.name}", class: "chip chip-slot",
+                        "{n.display}: required"
+                    }
+                }
+                if v.chips.is_empty() && missing.is_empty() {
+                    span { class: "hint", "No tags yet." }
+                }
+            }
+            if !v.chips.is_empty() {
+                span { class: "hint", "Untick a tag to remove it." }
+            }
+            if !v.tag_errors.is_empty() {
+                ul { class: "notice error tag-errors", role: "alert",
+                    for e in v.tag_errors.iter() {
+                        li { key: "{e}", "{e}" }
+                    }
+                }
+            }
+            div { class: "add-tags",
+                label { r#for: "add-tags", "Add tags"
+                    span { class: "hint", "Type as type:name, like genre:horror or theme:found family. Separate several with commas." }
+                }
+                div { class: "add-row",
+                    input { r#type: "text", id: "add-tags", name: "add", value: "{v.add_text}", list: TAG_OPTIONS,
+                        autocomplete: "off" }
+                    // The first submit button in the form, so Enter in any
+                    // field adds tags rather than posting.
+                    button { class: "btn btn-quiet", r#type: "submit", name: "op", value: "add",
+                        formaction: "{back_to_tags}", formnovalidate: true, "Add" }
+                }
+            }
+            if !groups.is_empty() {
+                details { class: "browse",
+                    summary { "Browse tags" }
+                    for (n, tags) in groups.iter() {
+                        div { key: "{n.name}", class: "browse-group",
+                            h3 {
+                                "{n.display}"
+                                if n.required { span { class: "hint", " (required)" } }
+                            }
+                            div { class: "chips",
+                                for tag in tags.iter() {
+                                    button { key: "{tag.key()}", class: "{chip_classes(tag)} chip-add",
+                                        r#type: "submit", name: "pick", value: "{tag.key()}",
+                                        formaction: "{back_to_tags}", formnovalidate: true,
+                                        "aria-label": "Add {n.display}: {tag.display}",
+                                        "+ {tag.display}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -337,16 +470,11 @@ pub fn prompt_form_page(chrome: &Chrome, view: PromptFormView) -> String {
                         select { id: "state", name: "state", {state_options(Some(v.state))} }
                     }
                 }
-                div { class: "field",
-                    label { r#for: "tags", "Tags"
-                        span { class: "hint",
-                            "Comma-separated, as namespace:name, like genre:horror, theme:found family. {tag_policy_hint(v.tag_policy)}"
-                        }
-                    }
-                    input { r#type: "text", id: "tags", name: "tags", value: "{v.tags}", list: TAG_OPTIONS }
-                }
+                {tag_picker(v, &action)}
                 div { class: "actions",
-                    button { class: "btn", r#type: "submit", if v.editing.is_some() { "Save changes" } else { "Post prompt" } }
+                    button { class: "btn", r#type: "submit", name: "op", value: "save",
+                        if v.editing.is_some() { "Save changes" } else { "Post prompt" }
+                    }
                     a { href: "{cancel}", "Cancel" }
                 }
             }
@@ -569,40 +697,73 @@ pub fn admin_reports_page(chrome: &Chrome, view: AdminReportsView) -> String {
     })
 }
 
+fn action_label(action: AdminAction) -> &'static str {
+    match action {
+        AdminAction::ReportReceived => "Report received",
+        AdminAction::Discard => "Report discarded",
+        AdminAction::DeletePrompt => "Prompt removed",
+        AdminAction::CreateTagType => "Tag type added",
+        AdminAction::UpdateTagType => "Tag type changed",
+        AdminAction::CreateTag => "Tag added",
+        AdminAction::RenameTag => "Tag renamed",
+        AdminAction::AliasTag => "Tag merged",
+        AdminAction::DeleteTag => "Tag deleted",
+        AdminAction::ApproveTag => "Tag approved",
+        AdminAction::RejectTag => "Tag rejected",
+        AdminAction::HideTag => "Tag hidden",
+        AdminAction::ShowTag => "Tag shown",
+        AdminAction::ChangeSetting => "Setting changed",
+        AdminAction::RecolorTag => "Tag colour changed",
+    }
+}
+
+fn log_subject(e: &AdminLogEntry) -> Element {
+    if let Some(subject) = &e.subject {
+        return rsx! { code { "{subject}" } };
+    }
+    match e.prompt_id {
+        Some(id) => rsx! { a { href: "{prompt_url(id)}?show=1", "View prompt" } },
+        None => rsx! { "Prompt deleted" },
+    }
+}
+
+fn log_detail(e: &AdminLogEntry) -> Element {
+    if let Some(detail) = &e.detail {
+        return rsx! { "{detail}" };
+    }
+    let reason = e.reason.map(reason_label).unwrap_or_default();
+    let hash = e.prompt_hash.as_deref().unwrap_or_default();
+    let short = hash.get(..12).unwrap_or(hash);
+    rsx! {
+        "{reason}"
+        if !short.is_empty() {
+            br {}
+            span { class: "hint", "Fingerprint " code { "{short}" } }
+        }
+    }
+}
+
 pub fn admin_log_page(chrome: &Chrome, view: AdminLogView) -> String {
     render("Admin log", chrome, move || {
         let v = &view;
         rsx! {
             h1 { "Admin log" }
             p { class: "lede",
-                "Every report received and every action taken, newest first. The log can't be edited, and it keeps a fingerprint of each reported prompt rather than its text. "
+                "Every report received and every administrator action, newest first. The log can't be edited, and it keeps a fingerprint of each reported prompt rather than its text. "
                 a { href: "/admin/reports", "Back to reports" }
             }
             div { class: "table-scroll",
                 table { class: "log",
                     thead {
-                        tr { th { "When" } th { "Event" } th { "Reason" } th { "Prompt" } th { "Fingerprint" } }
+                        tr { th { "When" } th { "Event" } th { "Subject" } th { "Details" } }
                     }
                     tbody {
                         for e in v.entries.iter() {
                             tr { key: "{e.id}",
                                 td { "{short_date(e.at)}" }
-                                td {
-                                    match e.action.as_str() {
-                                        "report_received" => "Report received",
-                                        "discard" => "Report discarded",
-                                        "delete_prompt" => "Prompt removed",
-                                        other => other,
-                                    }
-                                }
-                                td { "{reason_label(e.reason)}" }
-                                td {
-                                    match e.prompt_id {
-                                        Some(id) => rsx! { a { href: "{prompt_url(id)}?show=1", "View" } },
-                                        None => rsx! { "Deleted" },
-                                    }
-                                }
-                                td { code { "{e.prompt_hash.get(..12).unwrap_or(&e.prompt_hash)}" } }
+                                td { "{action_label(e.action)}" }
+                                td { {log_subject(e)} }
+                                td { {log_detail(e)} }
                             }
                         }
                     }

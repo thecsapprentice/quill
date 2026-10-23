@@ -6,9 +6,10 @@ use quill_proto::{
         TokenResponse, UpdatePersona,
     },
     board::{
-        AccountSettings, AdminLogEntry, CreateNamespace, CreatePrompt, CreateReport, CreateTag,
-        Prompt, PromptPage, PromptQuery, Report, ReportQuery, Resolution, ResolveReport, Tag,
-        TagNamespace, TagQuery, UpdateAccountSettings, UpdatePrompt, UpdateTag,
+        AccountSettings, AdminLogEntry, AdminTag, AdminTagQuery, CreateNamespace, CreatePrompt,
+        CreateReport, CreateTag, DeletedTag, Prompt, PromptPage, PromptQuery, Report, ReportQuery,
+        Resolution, ResolveReport, ServerSettings, Tag, TagNamespace, TagQuery,
+        UpdateAccountSettings, UpdateNamespace, UpdatePrompt, UpdateServerSettings, UpdateTag,
     },
 };
 use reqwest::{Method, RequestBuilder, Response, StatusCode, header};
@@ -340,23 +341,67 @@ impl Client {
         Self::json(Self::with_json(builder, body)).await
     }
 
+    /// An authenticated request to `base` plus path segments, each escaped.
+    fn authed_segments(
+        &self,
+        method: Method,
+        base: &str,
+        segments: &[&str],
+    ) -> Result<reqwest::RequestBuilder, CoreError> {
+        let mut url = self.url(base)?;
+        url.path_segments_mut()
+            .map_err(|()| CoreError::Url(url::ParseError::RelativeUrlWithCannotBeABaseBase))?
+            .extend(segments);
+        let builder = self.http.request(method, url);
+        match &self.token {
+            Some(token) => Ok(builder.bearer_auth(token.as_str())),
+            None => Err(CoreError::NotLoggedIn),
+        }
+    }
+
+    pub async fn admin_update_namespace(
+        &self,
+        name: &str,
+        body: &UpdateNamespace,
+    ) -> Result<TagNamespace, CoreError> {
+        let builder = self.authed_segments(Method::PATCH, "/admin/tag-namespaces", &[name])?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn admin_settings(&self) -> Result<ServerSettings, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/settings")?).await
+    }
+
+    pub async fn admin_update_settings(
+        &self,
+        body: &UpdateServerSettings,
+    ) -> Result<ServerSettings, CoreError> {
+        let builder = self.authed(Method::PATCH, "/admin/settings")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    /// Local tags with usage counts, aliases included.
+    pub async fn admin_tags(&self, query: &AdminTagQuery) -> Result<Vec<AdminTag>, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/tags")?.query(query)).await
+    }
+
     pub async fn admin_update_tag(
         &self,
         namespace: &str,
         slug: &str,
         body: &UpdateTag,
     ) -> Result<Tag, CoreError> {
-        let mut url = self.url("/admin/tags")?;
-        url.path_segments_mut()
-            .map_err(|()| CoreError::Url(url::ParseError::RelativeUrlWithCannotBeABaseBase))?
-            .push(namespace)
-            .push(slug);
-        let builder = self.http.request(Method::PATCH, url);
-        let builder = match &self.token {
-            Some(token) => builder.bearer_auth(token.as_str()),
-            None => return Err(CoreError::NotLoggedIn),
-        };
+        let builder = self.authed_segments(Method::PATCH, "/admin/tags", &[namespace, slug])?;
         Self::json(Self::with_json(builder, body)).await
+    }
+
+    /// Deletes a tag and its aliases, removing it from every prompt.
+    pub async fn admin_delete_tag(
+        &self,
+        namespace: &str,
+        slug: &str,
+    ) -> Result<DeletedTag, CoreError> {
+        Self::json(self.authed_segments(Method::DELETE, "/admin/tags", &[namespace, slug])?).await
     }
 }
 

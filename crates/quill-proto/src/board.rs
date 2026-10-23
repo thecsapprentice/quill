@@ -70,20 +70,43 @@ string_enum! {
 }
 
 string_enum! {
-    /// Which tags users may attach to prompts.
+    /// Whether writers may create new tags by using them. A tag type marked
+    /// curated-only refuses new tags whatever this says.
     TagPolicy {
-        /// Only tags an administrator created.
+        /// New tags are created as writers use them.
+        Open => "open",
+        /// New tags are created awaiting an administrator's approval.
+        Approval => "approval",
+        /// Only existing tags can be used.
         Curated => "curated",
-        /// Users may create tags in any unlocked namespace.
-        User => "user",
-        /// Curated tags plus user tags in unlocked namespaces.
-        Both => "both",
     }
 }
 
 impl TagPolicy {
-    pub fn allows_user_tags(self) -> bool {
+    /// Whether writers may create tags at all (perhaps pending approval).
+    pub fn allows_new_tags(self) -> bool {
         !matches!(self, Self::Curated)
+    }
+}
+
+string_enum! {
+    /// Who can see a tag.
+    TagStatus {
+        /// Everyone.
+        Visible => "visible",
+        /// Administrators only. It stays on its prompts.
+        Hidden => "hidden",
+        /// A writer's new tag awaiting approval: administrators and the
+        /// authors of prompts carrying it.
+        Pending => "pending",
+    }
+}
+
+// `string_enum!` writes the derives, so the default is implemented by hand.
+#[allow(clippy::derivable_impls)]
+impl Default for TagStatus {
+    fn default() -> Self {
+        Self::Visible
     }
 }
 
@@ -113,14 +136,67 @@ string_enum! {
     }
 }
 
+string_enum! {
+    /// What an admin log entry records.
+    AdminAction {
+        ReportReceived => "report_received",
+        Discard => "discard",
+        DeletePrompt => "delete_prompt",
+        CreateTagType => "create_tag_type",
+        UpdateTagType => "update_tag_type",
+        CreateTag => "create_tag",
+        RenameTag => "rename_tag",
+        AliasTag => "alias_tag",
+        DeleteTag => "delete_tag",
+        ApproveTag => "approve_tag",
+        RejectTag => "reject_tag",
+        HideTag => "hide_tag",
+        ShowTag => "show_tag",
+        ChangeSetting => "change_setting",
+        RecolorTag => "recolor_tag",
+    }
+}
+
 // ---- Tags ----------------------------------------------------------------
+
+/// A chip's colours, as `#rrggbb`. A `None` text colour is automatic: black
+/// or white, whichever contrasts more with the background.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChipColor {
+    pub background: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+impl ChipColor {
+    /// The text colour to use: the chosen one, or the automatic one.
+    pub fn text_or_auto(&self) -> String {
+        self.text
+            .clone()
+            .unwrap_or_else(|| crate::color::auto_text(&self.background).to_owned())
+    }
+
+    /// WCAG contrast ratio between the text and background (1 to 21), or
+    /// `None` if either isn't a valid colour.
+    pub fn contrast(&self) -> Option<f64> {
+        crate::color::contrast(&self.background, &self.text_or_auto())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TagNamespace {
     pub name: String,
     pub display: String,
+    /// Only server-curated tags may be used.
     pub locked: bool,
+    /// Every prompt saved must carry at least one tag of this type.
+    #[serde(default)]
+    pub required: bool,
+    /// Chip colours for this type's tags, unless a tag has its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<ChipColor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,6 +206,13 @@ pub struct Tag {
     pub slug: String,
     pub display: String,
     pub origin: TagOrigin,
+    /// Anything but `visible` is only ever sent to someone allowed to see it.
+    #[serde(default)]
+    pub status: TagStatus,
+    /// The chip colours to show: the tag's own, else its type's, with the
+    /// text colour resolved. `None`: no colour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<ChipColor>,
 }
 
 impl Tag {
@@ -168,6 +251,69 @@ pub struct CreateNamespace {
     pub display: String,
     #[serde(default)]
     pub locked: bool,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<ChipColor>,
+}
+
+/// `PATCH /admin/tag-namespaces/{name}`. Absent fields are unchanged.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateNamespace {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    /// New chip colours.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<ChipColor>,
+    /// Remove the chip colours. Ignored when `color` is given.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_color: bool,
+}
+
+/// `GET /admin/tags` query. Unlike `GET /tags`, aliases are included.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminTagQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    /// Matches anywhere in the slug or display name, case-insensitively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<TagStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// A tag as administrators see it: with its usage and alias target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminTag {
+    #[serde(flatten)]
+    pub tag: Tag,
+    /// Prompts carrying this tag, including ones removed by an administrator.
+    /// Always 0 for an alias, since prompts store the tag it points to.
+    pub uses: u64,
+    /// `namespace:slug` of the tag this one is an alias of.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias_of: Option<String>,
+    /// The tag's own chip colours as set; `None` means it uses its type's
+    /// (the result is in `tag.color`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_color: Option<ChipColor>,
+}
+
+/// Response to `DELETE /admin/tags/{namespace}/{slug}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedTag {
+    /// Prompts the tag was removed from.
+    pub prompts_updated: u64,
 }
 
 /// `PATCH /admin/tags/{namespace}/{slug}`.
@@ -180,6 +326,32 @@ pub struct UpdateTag {
     /// using it are moved to the target.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alias_of: Option<String>,
+    /// `visible` approves a pending tag or shows a hidden one; `hidden` hides
+    /// it. `pending` can't be set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<TagStatus>,
+    /// The tag's own chip colours, replacing its type's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<ChipColor>,
+    /// Go back to the type's colours. Ignored when `color` is given.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_color: bool,
+}
+
+/// `GET /admin/settings`: settings administrators change while the server runs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerSettings {
+    /// Whether writers may create new tags.
+    pub new_tags: TagPolicy,
+}
+
+/// `PATCH /admin/settings`. Absent fields are unchanged.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateServerSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_tags: Option<TagPolicy>,
 }
 
 // ---- Prompts -------------------------------------------------------------
@@ -366,15 +538,23 @@ pub struct AdminLogEntry {
     pub id: i64,
     #[serde(with = "time::serde::rfc3339")]
     pub at: OffsetDateTime,
-    /// `report_received`, `discard` or `delete_prompt`.
-    pub action: String,
+    pub action: AdminAction,
     #[serde(default)]
     pub report_id: Option<Uuid>,
     #[serde(default)]
     pub prompt_id: Option<Uuid>,
-    /// Hex SHA-256 of the prompt as reported.
-    pub prompt_hash: String,
-    pub reason: ReportReason,
+    /// Hex SHA-256 of the prompt as reported (report entries only).
+    #[serde(default)]
+    pub prompt_hash: Option<String>,
+    /// Report entries only.
+    #[serde(default)]
+    pub reason: Option<ReportReason>,
+    /// What a tag entry changed, such as `genre:horror` or `genre`.
+    #[serde(default)]
+    pub subject: Option<String>,
+    /// Free-form detail, such as the new name or how many prompts changed.
+    #[serde(default)]
+    pub detail: Option<String>,
     /// Account id of the acting administrator, if any.
     #[serde(default)]
     pub admin: Option<Uuid>,

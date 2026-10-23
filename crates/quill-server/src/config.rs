@@ -18,7 +18,8 @@ pub struct Config {
     pub registration_open: bool,
     pub max_personas_per_account: i64,
     pub token_ttl_days: i64,
-    /// Which tags users may attach to prompts.
+    /// Starting value of the "new tags" server setting. The live value is
+    /// in the database; see [`crate::server_settings`].
     pub tag_policy: TagPolicy,
     /// Where users can download this server's source code. The AGPL requires
     /// offering it to everyone who uses the server over a network.
@@ -39,7 +40,7 @@ impl Config {
             registration_open: parse_or("QUILL_REGISTRATION_OPEN", true)?,
             max_personas_per_account: parse_or("QUILL_MAX_PERSONAS", 20)?,
             token_ttl_days: parse_or("QUILL_TOKEN_TTL_DAYS", 30)?,
-            tag_policy: parse_or("QUILL_TAG_POLICY", TagPolicy::Both)?,
+            tag_policy: tag_policy_from_env()?,
             source_url: var_or("QUILL_SOURCE_URL", DEFAULT_SOURCE_URL),
             limits: Limits::default(),
         })
@@ -54,10 +55,22 @@ impl Config {
             registration_open: true,
             max_personas_per_account: 20,
             token_ttl_days: 30,
-            tag_policy: TagPolicy::Both,
+            tag_policy: TagPolicy::Open,
             source_url: DEFAULT_SOURCE_URL.into(),
             limits: Limits::default(),
         }
+    }
+}
+
+/// `QUILL_TAG_POLICY` sets the starting value of the "new tags" setting;
+/// administrators change it in Server settings afterwards. The old values
+/// `user` and `both` mean `open`.
+fn tag_policy_from_env() -> Result<TagPolicy> {
+    match std::env::var("QUILL_TAG_POLICY").as_deref() {
+        Err(_) | Ok("user" | "both") => Ok(TagPolicy::Open),
+        Ok(v) => v
+            .parse()
+            .context("QUILL_TAG_POLICY must be open, approval or curated"),
     }
 }
 

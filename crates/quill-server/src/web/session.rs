@@ -25,6 +25,8 @@ pub struct Session {
     pub csrf: String,
     pub is_admin: bool,
     pub maturity_max: Maturity,
+    /// Tag requests waiting, for administrators' navigation (0 otherwise).
+    pub pending_tags: u64,
 }
 
 impl Session {
@@ -104,23 +106,27 @@ impl FromRequestParts<AppState> for MaybeSession {
             return Ok(Self(None));
         };
         let hash = token_hash(&token);
-        let row: Option<(Uuid, String, bool, String)> = sqlx::query_as(
-            "SELECT s.account_id, s.csrf_token, a.is_admin, a.maturity_max::text
+        let row: Option<(Uuid, String, bool, String, i64)> = sqlx::query_as(
+            "SELECT s.account_id, s.csrf_token, a.is_admin, a.maturity_max::text,
+                    CASE WHEN a.is_admin
+                         THEN (SELECT count(*) FROM tags WHERE status = 'pending')
+                         ELSE 0 END
              FROM web_sessions s JOIN accounts a ON a.id = s.account_id
              WHERE s.token_hash = $1 AND s.expires_at > now()",
         )
         .bind(&hash)
         .fetch_optional(&state.pool)
         .await?;
-        Ok(Self(row.map(|(account_id, csrf, is_admin, maturity)| {
-            Session {
+        Ok(Self(row.map(
+            |(account_id, csrf, is_admin, maturity, pending)| Session {
                 account_id,
                 token_hash: hash,
                 csrf,
                 is_admin,
                 maturity_max: maturity.parse().unwrap_or(Maturity::DEFAULT_MAX),
-            }
-        })))
+                pending_tags: u64::try_from(pending).unwrap_or(0),
+            },
+        )))
     }
 }
 
@@ -152,6 +158,7 @@ mod tests {
             csrf: "abc".into(),
             is_admin: false,
             maturity_max: Maturity::Teen,
+            pending_tags: 0,
         };
         assert!(s.csrf_matches(Some("abc")));
         assert!(!s.csrf_matches(Some("abd")));

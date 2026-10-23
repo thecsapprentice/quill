@@ -14,7 +14,7 @@ pub struct InstanceInfo {
     pub protocol_versions: Vec<String>,
     pub registration_open: bool,
     pub email_recovery: bool,
-    /// Which tags users may attach to prompts.
+    /// Whether writers may create new tags (perhaps pending approval).
     pub tag_policy: crate::board::TagPolicy,
     /// Maturity cap for anonymous visitors and new accounts.
     pub default_maturity_max: crate::board::Maturity,
@@ -156,7 +156,7 @@ mod tests {
             protocol_versions: vec!["0.1".into()],
             registration_open: true,
             email_recovery: false,
-            tag_policy: crate::board::TagPolicy::Both,
+            tag_policy: crate::board::TagPolicy::Open,
             default_maturity_max: crate::board::Maturity::Teen,
             limits: Limits::default(),
         };

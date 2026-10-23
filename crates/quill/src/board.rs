@@ -7,9 +7,9 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 use quill_core::Client;
 use quill_proto::board::{
-    CreateNamespace, CreatePrompt, CreateReport, CreateTag, Maturity, Prompt, PromptQuery,
-    PromptState, ReportReason, Resolution, TagQuery, UpdateAccountSettings, UpdatePrompt,
-    UpdateTag,
+    AdminTagQuery, CreateNamespace, CreatePrompt, CreateReport, CreateTag, Maturity, Prompt,
+    PromptQuery, PromptState, ReportReason, Resolution, TagPolicy, TagQuery, TagStatus,
+    UpdateAccountSettings, UpdateNamespace, UpdatePrompt, UpdateServerSettings, UpdateTag,
 };
 use uuid::Uuid;
 
@@ -158,14 +158,68 @@ pub enum AdminCommand {
         #[arg(long)]
         limit: Option<u32>,
     },
-    /// Create a tag namespace.
+    /// Create a tag type (namespace).
     Namespace {
         name: String,
         display: String,
-        /// Only administrators can add tags to it.
+        /// Curated tags only: writers can't create new ones.
         #[arg(long)]
         locked: bool,
+        /// Every prompt saved must have a tag of this type.
+        #[arg(long)]
+        required: bool,
+        #[command(flatten)]
+        color: ColorArgs,
     },
+    /// Change a tag type's name, or whether it is curated-only or required.
+    NamespaceSet {
+        name: String,
+        #[arg(long)]
+        display: Option<String>,
+        #[arg(long)]
+        locked: Option<bool>,
+        #[arg(long)]
+        required: Option<bool>,
+        #[command(flatten)]
+        color: ColorArgs,
+        /// Remove the chip colours.
+        #[arg(long, conflicts_with = "color")]
+        clear_color: bool,
+    },
+    /// Set a tag's own chip colours (namespace:slug), or go back to its type's.
+    TagColor {
+        tag: String,
+        #[command(flatten)]
+        color: ColorArgs,
+        /// Use the tag type's colours again.
+        #[arg(long, conflicts_with = "color")]
+        clear: bool,
+    },
+    /// Show server settings, or change them.
+    Settings {
+        /// Whether writers may create new tags: open, approval or curated.
+        #[arg(long)]
+        new_tags: Option<TagPolicy>,
+    },
+    /// List tags with how many prompts use them, aliases included.
+    Tags {
+        #[arg(long)]
+        namespace: Option<String>,
+        /// Text the slug or display name contains.
+        #[arg(long)]
+        search: Option<String>,
+        /// visible, hidden or pending (tag requests).
+        #[arg(long)]
+        status: Option<TagStatus>,
+    },
+    /// Approve a tag request (namespace:slug).
+    ApproveTag { tag: String },
+    /// Hide a tag: it stays on prompts, but only administrators see it.
+    HideTag { tag: String },
+    /// Show a hidden tag to everyone again.
+    ShowTag { tag: String },
+    /// Delete a tag (namespace:slug) and remove it from every prompt.
+    DeleteTag { tag: String },
     /// Create a curated tag, or promote a user tag to curated.
     Tag { namespace: String, name: String },
     /// Rename a tag (namespace:slug).
@@ -454,15 +508,21 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
             let entries = client.admin_log(before, limit).await?;
             ctx.print(&entries, |list| {
                 for e in list {
-                    println!(
-                        "{:>6}  {}  {:<16} {:<15} prompt {}  sha256 {}",
-                        e.id,
-                        e.at,
-                        e.action,
-                        e.reason,
-                        e.prompt_id.map(|p| p.to_string()).unwrap_or_default(),
-                        &e.prompt_hash[..12.min(e.prompt_hash.len())]
-                    );
+                    let what = match (&e.subject, &e.prompt_hash) {
+                        (Some(subject), _) => {
+                            format!("{subject}  {}", e.detail.as_deref().unwrap_or_default())
+                        }
+                        (None, hash) => {
+                            let hash = hash.as_deref().unwrap_or_default();
+                            format!(
+                                "{} prompt {}  sha256 {}",
+                                e.reason.map(ReportReason::as_str).unwrap_or_default(),
+                                e.prompt_id.map(|p| p.to_string()).unwrap_or_default(),
+                                hash.get(..12).unwrap_or(hash)
+                            )
+                        }
+                    };
+                    println!("{:>6}  {}  {:<16} {what}", e.id, e.at, e.action);
                 }
             })
         }
@@ -470,15 +530,129 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
             name,
             display,
             locked,
+            required,
+            color,
         } => {
             let ns = client
                 .admin_create_namespace(&CreateNamespace {
                     name,
                     display,
                     locked,
+                    required,
+                    color: color.chip(),
                 })
                 .await?;
-            ctx.print(&ns, |n| println!("created namespace {}", n.name))
+            ctx.print(&ns, |n| println!("created tag type {}", n.name))
+        }
+        AdminCommand::TagColor { tag, color, clear } => {
+            let (ns, slug) = split_key(&tag)?;
+            let t = client
+                .admin_update_tag(
+                    ns,
+                    slug,
+                    &UpdateTag {
+                        color: color.chip(),
+                        clear_color: clear,
+                        ..UpdateTag::default()
+                    },
+                )
+                .await?;
+            ctx.print(&t, |t| match &t.color {
+                Some(c) => println!(
+                    "{} chip: {} on {}",
+                    t.key(),
+                    c.text.as_deref().unwrap_or("?"),
+                    c.background
+                ),
+                None => println!("{} has no colour", t.key()),
+            })
+        }
+        AdminCommand::NamespaceSet {
+            name,
+            display,
+            locked,
+            required,
+            color,
+            clear_color,
+        } => {
+            let ns = client
+                .admin_update_namespace(
+                    &name,
+                    &UpdateNamespace {
+                        display,
+                        locked,
+                        required,
+                        color: color.chip(),
+                        clear_color,
+                    },
+                )
+                .await?;
+            ctx.print(&ns, |n| {
+                println!(
+                    "{} ({}): curated only {}, required {}",
+                    n.name, n.display, n.locked, n.required
+                );
+            })
+        }
+        AdminCommand::Settings { new_tags } => {
+            let settings = if new_tags.is_some() {
+                client
+                    .admin_update_settings(&UpdateServerSettings { new_tags })
+                    .await?
+            } else {
+                client.admin_settings().await?
+            };
+            ctx.print(&settings, |s| {
+                println!("new tags from writers: {}", s.new_tags)
+            })
+        }
+        AdminCommand::ApproveTag { tag } => {
+            set_status(ctx, &tag, TagStatus::Visible, "approved").await
+        }
+        AdminCommand::ShowTag { tag } => set_status(ctx, &tag, TagStatus::Visible, "shown").await,
+        AdminCommand::HideTag { tag } => set_status(ctx, &tag, TagStatus::Hidden, "hidden").await,
+        AdminCommand::Tags {
+            namespace,
+            search,
+            status,
+        } => {
+            let tags = client
+                .admin_tags(&AdminTagQuery {
+                    namespace,
+                    search,
+                    status,
+                    limit: None,
+                })
+                .await?;
+            ctx.print(&tags, |list| {
+                if list.is_empty() {
+                    println!("no tags");
+                }
+                for t in list {
+                    let kind = match (&t.alias_of, t.tag.status) {
+                        (Some(target), _) => format!("alias of {target}"),
+                        (None, TagStatus::Visible) => t.tag.origin.to_string(),
+                        (None, status) => format!("{}, {status}", t.tag.origin),
+                    };
+                    println!(
+                        "{:<36} {:<24} {:<22} {} prompt(s)",
+                        t.tag.key(),
+                        t.tag.display,
+                        kind,
+                        t.uses
+                    );
+                }
+            })
+        }
+        AdminCommand::DeleteTag { tag } => {
+            let (ns, slug) = split_key(&tag)?;
+            let deleted = client.admin_delete_tag(ns, slug).await?;
+            ctx.print(&deleted, |d| {
+                println!(
+                    "deleted {tag}; removed from {} prompt(s)",
+                    d.prompts_updated
+                );
+            })
         }
         AdminCommand::Tag { namespace, name } => {
             let tag = client
@@ -497,7 +671,7 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     slug,
                     &UpdateTag {
                         display: Some(name),
-                        alias_of: None,
+                        ..UpdateTag::default()
                     },
                 )
                 .await?;
@@ -510,12 +684,52 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     ns,
                     slug,
                     &UpdateTag {
-                        display: None,
                         alias_of: Some(target.clone()),
+                        ..UpdateTag::default()
                     },
                 )
                 .await?;
             ctx.print(&t, |t| println!("{} is now an alias of {target}", t.key()))
         }
+    }
+}
+
+async fn set_status(ctx: &Ctx, tag: &str, status: TagStatus, done: &str) -> Result<()> {
+    let (ns, slug) = split_key(tag)?;
+    let t = ctx
+        .client()?
+        .admin_update_tag(
+            ns,
+            slug,
+            &UpdateTag {
+                status: Some(status),
+                ..UpdateTag::default()
+            },
+        )
+        .await?;
+    ctx.print(&t, |t| println!("{} {done}", t.key()))
+}
+
+/// Chip colour options, as `#rrggbb`. Without `--text-color`, the text is
+/// black or white, whichever reads better.
+#[derive(Args, Debug)]
+#[group(id = "color", multiple = true)]
+pub struct ColorArgs {
+    /// Chip background, like #dbeafe.
+    #[arg(long = "color", value_name = "BACKGROUND")]
+    background: Option<String>,
+    /// Chip text colour, like #1e3a8a.
+    #[arg(long = "text-color", value_name = "TEXT", requires = "background")]
+    text: Option<String>,
+}
+
+impl ColorArgs {
+    fn chip(&self) -> Option<quill_proto::board::ChipColor> {
+        self.background
+            .clone()
+            .map(|background| quill_proto::board::ChipColor {
+                background,
+                text: self.text.clone(),
+            })
     }
 }
