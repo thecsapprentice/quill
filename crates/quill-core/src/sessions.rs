@@ -112,6 +112,13 @@ struct Note {
     /// When this device last asked its other devices for them.
     #[serde(default)]
     history_asked_ms: u64,
+    /// It fell behind (the log it needed was deleted, or it was taken out
+    /// while away) and is waiting to be let back in (2k). Since when.
+    #[serde(default)]
+    rejoining_since_ms: Option<u64>,
+    /// It asked the other writer to let it back in.
+    #[serde(default)]
+    rejoin_asked: bool,
 }
 
 impl Note {
@@ -610,7 +617,18 @@ async fn tend(
     gid: &[u8],
     dirs: &Dirs,
     me: &Me,
+    behind: &[Uuid],
 ) -> Result<(usize, usize), CoreError> {
+    // Devices that fell behind hold old keys they can no longer use: they
+    // come out, and go back in afresh below (2k).
+    let my_id = me.device.id.unwrap_or_default();
+    let behind_keys: HashSet<&[u8]> = dirs
+        .me
+        .valid
+        .iter()
+        .filter(|(_, id)| **id != my_id && behind.contains(id))
+        .map(|(k, _)| k.as_slice())
+        .collect();
     let members = |store: &Store| -> Result<Vec<(LeafNodeIndex, Vec<u8>)>, CoreError> {
         let p = Provider::new(store);
         let g = load_group(&p, gid)?.ok_or_else(|| err("the session's keys are missing"))?;
@@ -622,7 +640,11 @@ async fn tend(
     let mine = members(store)?;
     let stale: Vec<Vec<u8>> = mine
         .iter()
-        .filter(|(_, k)| dirs.me.stale.contains(k) || !dirs.me.known.contains(k))
+        .filter(|(_, k)| {
+            dirs.me.stale.contains(k)
+                || !dirs.me.known.contains(k)
+                || behind_keys.contains(k.as_slice())
+        })
         .map(|(_, k)| k.clone())
         .collect();
     let mut removed = 0;
@@ -750,6 +772,8 @@ pub enum Standing {
     Waiting,
     /// This persona has no keys on this device.
     NoKeys,
+    /// It fell behind and is waiting to be let back in (2k).
+    Rejoining,
     /// Stopped reading, with why.
     Broken(String),
 }
@@ -837,6 +861,12 @@ async fn sync_one(
         me: Dir::fetch(store, client, &mine, true).await?,
         partner: Dir::fetch(store, client, partner, false).await?,
     };
+    if current
+        .as_ref()
+        .is_some_and(|n| n.rejoining_since_ms.is_some())
+    {
+        return come_back(store, client, s, &gid, &me, &dirs, report).await;
+    }
     if current.is_none() && !start(store, client, s, &gid, &mine, &me, &dirs, report).await? {
         if s.ended {
             history_only(store, s, &gid, &mine)?;
@@ -847,9 +877,23 @@ async fn sync_one(
     if s.ended {
         return end_here(store, client, s, &gid, None, Some((&dirs, &me))).await;
     }
-    let (read, removed) = catch_up(store, client, &gid, &dirs).await?;
+    let (read, removed) = match catch_up(store, client, &gid, &dirs).await {
+        Ok(r) => r,
+        // What it needed to follow the group was deleted (2k).
+        Err(e) if e.status() == Some(410) => {
+            fell_behind(store, &gid)?;
+            return come_back(store, client, s, &gid, &me, &dirs, report).await;
+        }
+        Err(e) => return Err(e),
+    };
     report.read += read;
     if removed {
+        // Taken out while still a valid device: by another of the
+        // persona's devices, because it was away too long (2k).
+        if dirs.me.valid.contains_key(me.device.public().as_slice()) {
+            fell_behind(store, &gid)?;
+            return come_back(store, client, s, &gid, &me, &dirs, report).await;
+        }
         return Ok(Standing::Broken(
             "this device was removed from the session".into(),
         ));
@@ -868,7 +912,7 @@ async fn sync_one(
             set_note(p, &gid, &n)
         })?;
     }
-    let (added, gone) = tend(store, client, &gid, &dirs, &me).await?;
+    let (added, gone) = tend(store, client, &gid, &dirs, &me, &s.stale_devices).await?;
     report.added += added;
     report.removed += gone;
     report.rejoined += accept_rejoins(store, client, s, &gid, &dirs, &me).await?;
@@ -902,6 +946,8 @@ async fn start(
         acked: 0,
         missing: None,
         history_asked_ms: 0,
+        rejoining_since_ms: None,
+        rejoin_asked: false,
     };
     // From the request: the group is here already, and the pitch (seq 1)
     // was read or sent by this device.
@@ -971,6 +1017,91 @@ async fn start(
     Ok(false)
 }
 
+/// The smallest range covering both.
+fn hull(a: Option<(u64, u64)>, b: (u64, u64)) -> (u64, u64) {
+    match a {
+        Some(a) => (a.0.min(b.0), a.1.max(b.1)),
+        None => b,
+    }
+}
+
+/// This device can't follow the session any more: it drops the group's
+/// keys (keeping the history) and waits to be let back in.
+fn fell_behind(store: &Store, gid: &[u8]) -> Result<(), CoreError> {
+    Provider::new(store).atomically(|p| {
+        let mut n = note(p, gid)?.ok_or_else(|| err("session state missing"))?;
+        drop_group(p, gid)?;
+        n.ended = false;
+        n.broken = None;
+        n.own.clear();
+        n.rejoining_since_ms = Some(keys::now_ms());
+        n.rejoin_asked = false;
+        set_note(p, gid, &n)
+    })
+}
+
+/// How long a device waits for another of the persona's devices to let it
+/// back in before asking the other writer too.
+const SIBLING_WAIT_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// A device that fell behind getting back in (2k): through a Welcome
+/// another device left it (one of the persona's, which adds missing
+/// devices, or the other writer's, answering a rejoin request); otherwise
+/// it asks the other writer, at once if it's the persona's only device.
+async fn come_back(
+    store: &Store,
+    client: &Client,
+    s: &Session,
+    gid: &[u8],
+    me: &Me,
+    dirs: &Dirs,
+    report: &mut SyncReport,
+) -> Result<Standing, CoreError> {
+    let my_id = me.device.id.unwrap_or_default();
+    if let Some(w) = s.device_welcomes.iter().find(|w| w.device == my_id) {
+        let provider = Provider::new(store);
+        let joined = provider.atomically(|p| {
+            let j = join(p, &w.welcome, gid, dirs)?;
+            if let Joined::Yes { last_resort } = j {
+                let mut n = note(p, gid)?.ok_or_else(|| err("session state missing"))?;
+                // What was logged while it was away is history it lacks.
+                if w.from_seq > n.seq + 1 {
+                    n.missing = Some(hull(n.missing, (n.seq + 1, w.from_seq)));
+                    n.history_asked_ms = 0;
+                }
+                n.seq = w.from_seq;
+                n.own.clear();
+                n.update_due = last_resort;
+                n.rejoining_since_ms = None;
+                n.rejoin_asked = false;
+                set_note(p, gid, &n)?;
+            }
+            Ok(j)
+        })?;
+        if let Joined::Yes { .. } = joined {
+            client.take_welcome(&s.id, my_id).await?;
+            // A request it made is answered.
+            for r in s.rejoins.iter().filter(|r| r.actor_uri == me.uri) {
+                let _ = client.rejoin_done(&s.id, r.id).await;
+            }
+            report.joined += 1;
+            return Ok(Standing::Joined);
+        }
+    }
+    let n = note(&Provider::new(store), gid)?.ok_or_else(|| err("session state missing"))?;
+    let since = n.rejoining_since_ms.unwrap_or_default();
+    let alone = dirs.me.valid.len() <= 1;
+    if !n.rejoin_asked && (alone || keys::now_ms().saturating_sub(since) > SIBLING_WAIT_MS) {
+        send_rejoin(store, client, s, false).await?;
+        Provider::new(store).atomically(|p| {
+            let mut n = note(p, gid)?.ok_or_else(|| err("session state missing"))?;
+            n.rejoin_asked = true;
+            set_note(p, gid, &n)
+        })?;
+    }
+    Ok(Standing::Rejoining)
+}
+
 /// A session that ended before this device was in it: it can't read the
 /// log, so it keeps a place for the history its other devices send (2k).
 fn history_only(
@@ -993,6 +1124,8 @@ fn history_only(
         acked: 0,
         missing: Some((held + 1, u64::MAX)),
         history_asked_ms: 0,
+        rejoining_since_ms: None,
+        rejoin_asked: false,
     };
     save_note(store, gid, &n)
 }
@@ -1011,14 +1144,26 @@ async fn end_here(
     if !joined {
         return Ok(Standing::Joined);
     }
+    let mut cut_off = false;
     if let Some((dirs, me)) = reader {
-        catch_up(store, client, gid, dirs).await?;
-        if fetch_files(store, client, gid).await? {
-            acknowledge(store, client, s, gid, me).await?;
+        match catch_up(store, client, gid, dirs).await {
+            Ok(_) => {
+                if fetch_files(store, client, gid).await? {
+                    acknowledge(store, client, s, gid, me).await?;
+                }
+            }
+            // The end was deleted before this device read it: its other
+            // devices may have it (2k).
+            Err(e) if e.status() == Some(410) => cut_off = true,
+            Err(e) => return Err(e),
         }
     }
     Provider::new(store).atomically(|p| {
         let mut n = note(p, gid)?.ok_or_else(|| err("session state missing"))?;
+        if cut_off || n.rejoining_since_ms.is_some() {
+            n.missing = Some(hull(n.missing, (n.seq + 1, u64::MAX)));
+            n.rejoining_since_ms = None;
+        }
         n.ended = true;
         drop_group(p, gid)?;
         set_note(p, gid, &n)
@@ -1086,6 +1231,9 @@ fn standing_error(standing: Standing) -> Result<(), CoreError> {
             "this device isn't in the session yet: another of your devices for this persona adds it when it next runs",
         )),
         Standing::NoKeys => Err(err("this persona has no keys on this device")),
+        Standing::Rejoining => Err(err(
+            "this device was away too long to follow the session: it's waiting to be let back in by another of your devices or the other writer",
+        )),
         Standing::Broken(why) => Err(err(why)),
     }
 }
@@ -1938,8 +2086,14 @@ async fn accept_rejoins(
             continue;
         };
         let added_key = package.leaf_node().signature_key().as_slice().to_vec();
+        let replaces_itself = request
+            .remove_keys
+            .iter()
+            .any(|k| k.as_slice() == added_key.as_slice());
         let committed = commit(store, client, gid, dirs, |p, group| {
-            if group.members().any(|m| m.signature_key == added_key) {
+            // Already back in, unless it asks to replace its own old place
+            // (a device that fell behind, 2k).
+            if !replaces_itself && group.members().any(|m| m.signature_key == added_key) {
                 return Ok(None);
             }
             let leaves: Vec<LeafNodeIndex> = group
@@ -1991,6 +2145,18 @@ async fn accept_rejoins(
 /// On a restored device: asks to be let back into a session, removing the
 /// persona's other (lost) devices from it.
 pub async fn request_rejoin(store: &Store, client: &Client, s: &Session) -> Result<(), CoreError> {
+    send_rejoin(store, client, s, true).await
+}
+
+/// Asks the other writer to let this device back into a session. A restored
+/// device removes the persona's other (lost) devices; one that fell behind
+/// removes only its own old place (2k).
+async fn send_rejoin(
+    store: &Store,
+    client: &Client,
+    s: &Session,
+    remove_others: bool,
+) -> Result<(), CoreError> {
     let gid = unb64(&s.id).ok_or_else(|| err("bad session id"))?;
     let mine = s
         .members
@@ -2009,13 +2175,17 @@ pub async fn request_rejoin(store: &Store, client: &Client, s: &Session) -> Resu
         keys::now_ms(),
     )?;
     let me = device.public();
-    let remove_keys: Vec<[u8; 32]> = published
-        .devices
-        .iter()
-        .filter_map(|d| <[u8; 32]>::try_from(d.device_key.as_slice()).ok())
-        .filter(|k| *k != me)
-        .take(quill_certs::MAX_REJOIN_REMOVALS)
-        .collect();
+    let remove_keys: Vec<[u8; 32]> = if remove_others {
+        published
+            .devices
+            .iter()
+            .filter_map(|d| <[u8; 32]>::try_from(d.device_key.as_slice()).ok())
+            .filter(|k| *k != me)
+            .take(quill_certs::MAX_REJOIN_REMOVALS)
+            .collect()
+    } else {
+        vec![me]
+    };
     let package = crate::mls::make_key_packages(
         store,
         &mine.actor_uri,

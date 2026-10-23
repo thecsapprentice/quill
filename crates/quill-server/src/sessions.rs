@@ -104,13 +104,15 @@ async fn list(
     .fetch_all(&mut *conn)
     .await?;
     // The login's persona devices that last read before the deleted part
-    // of the log.
+    // of the log (one that never acknowledged anything has read nothing).
     let stale: Vec<(Vec<u8>, Uuid)> = sqlx::query_as(
-        "SELECT k.group_id, k.device_id
-         FROM session_acks k JOIN mls_groups g ON g.group_id = k.group_id
-         JOIN devices d ON d.id = k.device_id JOIN actors a ON a.id = d.actor_id
-         WHERE k.group_id = ANY($1) AND a.account_id = $2 AND d.revocation IS NULL
-           AND k.seq < g.pruned_through",
+        "SELECT m.group_id, d.id
+         FROM session_members m JOIN mls_groups g ON g.group_id = m.group_id
+         JOIN actors a ON a.id = m.actor_id JOIN devices d ON d.actor_id = a.id
+         LEFT JOIN session_acks k ON k.group_id = m.group_id AND k.device_id = d.id
+         WHERE m.group_id = ANY($1) AND a.account_id = $2 AND d.revocation IS NULL
+           AND d.key_version = a.identity_key_version
+           AND coalesce(k.seq, 0) < g.pruned_through",
     )
     .bind(&groups)
     .bind(authed.account_id)

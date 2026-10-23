@@ -59,6 +59,9 @@ const K_OWN: &[u8] = b"own";
 const K_PENDING: &[u8] = b"pending-link";
 const K_REMOVED: &[u8] = b"removed";
 const K_ANNOUNCED: &[u8] = b"announced";
+/// This device fell behind the device group: what it needed to follow it
+/// was deleted, so it must be linked again (2k).
+const K_STALE: &[u8] = b"stale";
 /// History requests from the login's other devices, waiting for an answer.
 pub(crate) const K_ASKS: &[u8] = b"history-asks";
 /// History bundles for this device, waiting to be fetched and merged.
@@ -66,6 +69,13 @@ pub(crate) const K_INBOX: &[u8] = b"history-inbox";
 
 fn err(msg: impl Into<String>) -> CoreError {
     CoreError::Keys(msg.into())
+}
+
+/// The error for a device that fell behind the device group.
+fn fell_behind() -> CoreError {
+    err(
+        "this device was away longer than the server keeps your devices' messages: link it again with `quill device link` (its keys and sessions stay)",
+    )
 }
 
 fn conflict(e: &CoreError) -> bool {
@@ -268,7 +278,10 @@ fn this_device_id(p: &Provider<'_>) -> Result<Option<Uuid>, CoreError> {
 /// This device's id among the login's devices, once it's in the device
 /// group.
 pub(crate) fn account_device_id(store: &Store) -> Result<Option<Uuid>, CoreError> {
-    if group_id(store)?.is_none() {
+    if group_id(store)?.is_none()
+        || store.get(Table::Account, K_REMOVED)?.is_some()
+        || store.get(Table::Account, K_STALE)?.is_some()
+    {
         return Ok(None);
     }
     this_device_id(&Provider::new(store))
@@ -360,6 +373,9 @@ pub struct CatchUp {
     pub granted: usize,
     /// This device was removed from the login's devices; its keys are gone.
     pub removed: bool,
+    /// This device was away longer than the server keeps the device group's
+    /// messages: it must be linked again, keeping its keys (2k).
+    pub stale: bool,
 }
 
 /// Reads and applies everything new in the personal device group: other
@@ -375,6 +391,10 @@ pub async fn catch_up(store: &Store, client: &Client) -> Result<CatchUp, CoreErr
         report.removed = true;
         return Ok(report);
     }
+    if store.get(Table::Account, K_STALE)?.is_some() {
+        report.stale = true;
+        return Ok(report);
+    }
     if store.get(Table::Account, K_PENDING)?.is_some() {
         // A link waiting for the user to compare words: take nothing yet.
         return Ok(report);
@@ -382,7 +402,7 @@ pub async fn catch_up(store: &Store, client: &Client) -> Result<CatchUp, CoreErr
     let gid_text = b64(&gid);
     loop {
         let after = u64_of(store.get(Table::Account, K_SEQ)?.map(|v| v.to_vec()));
-        let page = client
+        let page = match client
             .group_messages(
                 &gid_text,
                 &MessagesQuery {
@@ -390,7 +410,20 @@ pub async fn catch_up(store: &Store, client: &Client) -> Result<CatchUp, CoreErr
                     limit: Some(100),
                 },
             )
-            .await?;
+            .await
+        {
+            Ok(page) => page,
+            Err(e) if e.status() == Some(410) => {
+                store.apply(&[Op::Put {
+                    table: Table::Account,
+                    key: K_STALE,
+                    value: &[1],
+                }])?;
+                report.stale = true;
+                return Ok(report);
+            }
+            Err(e) => return Err(e),
+        };
         for m in &page.messages {
             let bytes = unb64(&m.message).ok_or_else(|| err("server sent bad base64"))?;
             let provider = Provider::new(store);
@@ -742,7 +775,9 @@ pub async fn announce(store: &Store, client: &Client) -> Result<(), CoreError> {
     let Some(gid) = group_id(store)? else {
         return Ok(());
     };
-    if store.get(Table::Account, K_REMOVED)?.is_some() {
+    if store.get(Table::Account, K_REMOVED)?.is_some()
+        || store.get(Table::Account, K_STALE)?.is_some()
+    {
         return Ok(());
     }
     let personas: Vec<PersonaDevice> = keys::own_persona_devices(store)?
@@ -790,9 +825,12 @@ pub struct PendingLink {
 /// On the new device: posts a KeyPackage for the personal group and
 /// returns the code to show.
 pub async fn start_link(store: &Store, client: &Client) -> Result<PendingLink, CoreError> {
-    if store.get(Table::Account, K_REMOVED)?.is_some() {
-        // Removed earlier: start over as a new device, dropping the old
-        // group's MLS state too.
+    if store.get(Table::Account, K_REMOVED)?.is_some()
+        || store.get(Table::Account, K_STALE)?.is_some()
+    {
+        // Removed earlier, or fell behind: start over as a new device,
+        // dropping the old group's MLS state too. A device that fell behind
+        // keeps its persona keys and sessions.
         if let Some(old) = group_id(store)? {
             let provider = Provider::new(store);
             provider.atomically(|p| {
@@ -812,6 +850,9 @@ pub async fn start_link(store: &Store, client: &Client) -> Result<PendingLink, C
             K_PENDING,
             K_REMOVED,
             K_ANNOUNCED,
+            K_STALE,
+            K_ASKS,
+            K_INBOX,
         ]
         .iter()
         .map(|k| k.to_vec())
@@ -1031,6 +1072,9 @@ pub async fn approve(
     if caught.removed {
         return Err(err("this device was removed from this login's devices"));
     }
+    if caught.stale {
+        return Err(fell_behind());
+    }
     let mailbox = client.read_link(&code.link_id).await.map_err(|e| {
         if e.status() == Some(404) {
             err("no such link: it may have expired")
@@ -1150,6 +1194,9 @@ pub async fn list(store: &Store, client: &Client) -> Result<Vec<ListedDevice>, C
     if caught.removed {
         return Err(err("this device was removed from this login's devices"));
     }
+    if caught.stale {
+        return Err(fell_behind());
+    }
     let Some(gid) = group_id(store)? else {
         return Ok(Vec::new());
     };
@@ -1206,7 +1253,18 @@ pub async fn remove(
     }
     let personas = client.personas().await?;
     let mut revoked = Vec::new();
-    for pd in &target.personas {
+    // A device linked again after falling behind (2k) announces the persona
+    // devices its old entry did: those stay.
+    let in_use: Vec<Uuid> = devices
+        .iter()
+        .filter(|d| d.id != device)
+        .flat_map(|d| d.personas.iter().map(|p| p.device))
+        .collect();
+    for pd in target
+        .personas
+        .iter()
+        .filter(|p| !in_use.contains(&p.device))
+    {
         let Some(persona) = personas.iter().find(|p| p.id == pd.persona) else {
             continue;
         };

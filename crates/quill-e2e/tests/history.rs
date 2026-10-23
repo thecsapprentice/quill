@@ -280,3 +280,208 @@ async fn a_device_linked_after_a_session_ended_gets_its_history() {
     assert_eq!(r.history_missing, None);
     assert_eq!(shapes(&phone, &phone_c, &id).await, full);
 }
+
+/// Makes every message in groups of `kind` older than the retention
+/// period, then sweeps.
+async fn age_and_sweep(db: &sqlx::PgPool, kind: &str) {
+    sqlx::query(
+        "UPDATE group_messages m SET logged_at = now() - interval '31 days'
+         FROM mls_groups g WHERE g.group_id = m.group_id AND g.kind = $1",
+    )
+    .bind(kind)
+    .execute(db)
+    .await
+    .unwrap();
+    let swept = quill_server::retention::sweep(db, 30).await.unwrap();
+    assert!(swept.aged > 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_device_away_too_long_comes_back_through_another_device() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let db = server.db().await.unwrap();
+    let (id, (alice, alice_c, _), (bob, bob_c, _)) = pair(&server).await;
+    let (phone, phone_c) = linked(&server, "bob", (&bob, &bob_c)).await;
+    sessions::sync(&bob, &bob_c).await.unwrap();
+    sessions::sync(&phone, &phone_c).await.unwrap();
+    sessions::write(&alice, &alice_c, &id, "Before the phone went away.", None)
+        .await
+        .unwrap();
+    sessions::sync(&phone, &phone_c).await.unwrap();
+
+    // The phone sits in a drawer while the story goes on, and the server
+    // deletes everything by age.
+    write_a_story(&id, (&alice, &alice_c), (&bob, &bob_c)).await;
+    for (s, c) in [(&alice, &alice_c), (&bob, &bob_c)] {
+        sessions::sync(s, c).await.unwrap();
+    }
+    age_and_sweep(&db, "session").await;
+
+    // Bob's laptop takes the idle phone out and puts it back in afresh.
+    let s = sessions::find(&bob_c, &id).await.unwrap();
+    let persona = s.members.iter().find_map(|m| m.persona).unwrap();
+    let phone_device = keys::load_device(&phone, persona)
+        .unwrap()
+        .unwrap()
+        .id
+        .unwrap();
+    assert_eq!(s.stale_devices, vec![phone_device]);
+    let r = sessions::sync(&bob, &bob_c).await.unwrap();
+    assert_eq!((r.removed, r.added), (1, 1), "{r:?}");
+    assert!(
+        sessions::find(&bob_c, &id)
+            .await
+            .unwrap()
+            .stale_devices
+            .is_empty()
+    );
+
+    // Back from the drawer: it can't follow the old log, joins afresh, and
+    // gets what it missed from the laptop.
+    let up = devices::maintain(&phone, &phone_c).await.unwrap();
+    assert!(
+        up.sessions.problems.is_empty(),
+        "{:?}",
+        up.sessions.problems
+    );
+    assert_eq!(up.history.asked, 1);
+    let r = sessions::read(&phone, &phone_c, &id).await.unwrap();
+    assert!(r.history_missing.is_some());
+    devices::maintain(&bob, &bob_c).await.unwrap();
+    devices::maintain(&phone, &phone_c).await.unwrap();
+    let r = sessions::read(&phone, &phone_c, &id).await.unwrap();
+    assert_eq!(r.history_missing, None);
+    assert_eq!(
+        shapes(&phone, &phone_c, &id).await,
+        shapes(&bob, &bob_c, &id).await
+    );
+    sessions::write(&phone, &phone_c, &id, "Back from the drawer.", None)
+        .await
+        .unwrap();
+    let r = sessions::read(&alice, &alice_c, &id).await.unwrap();
+    assert_eq!(r.messages.last().unwrap().content, "Back from the drawer.");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_lone_device_away_too_long_comes_back_through_the_other_writer() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let db = server.db().await.unwrap();
+    let (id, (alice, alice_c, _), (bob, bob_c, _)) = pair(&server).await;
+    sessions::write(&bob, &bob_c, &id, "Bob, before.", None)
+        .await
+        .unwrap();
+    sessions::sync(&alice, &alice_c).await.unwrap();
+    // Bob is away; Alice writes on; the server deletes it all by age.
+    sessions::write(&alice, &alice_c, &id, "Alice, while Bob was away.", None)
+        .await
+        .unwrap();
+    sessions::sync(&alice, &alice_c).await.unwrap();
+    age_and_sweep(&db, "session").await;
+
+    // Bob's only device can't follow: it asks Alice's client to let it
+    // back in, replacing its own old place.
+    let r = sessions::list(&bob, &bob_c).await.unwrap();
+    assert_eq!(r[0].standing, sessions::Standing::Rejoining);
+    let e = sessions::write(&bob, &bob_c, &id, "Too soon.", None)
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("let back in"), "{e}");
+    let r = sessions::sync(&alice, &alice_c).await.unwrap();
+    assert_eq!(r.rejoined, 1, "{r:?}");
+    assert!(
+        sessions::find(&alice_c, &id)
+            .await
+            .unwrap()
+            .rejoins
+            .is_empty()
+    );
+
+    let r = sessions::list(&bob, &bob_c).await.unwrap();
+    assert_eq!(r[0].standing, sessions::Standing::Joined);
+    // What was deleted while he was away is gone for him (he has no other
+    // device to ask); what he had stays, and he writes on.
+    let r = sessions::read(&bob, &bob_c, &id).await.unwrap();
+    assert!(r.messages.iter().any(|m| m.content == "Bob, before."));
+    assert!(!r.messages.iter().any(|m| m.content.contains("while Bob")));
+    assert!(r.history_missing.is_some());
+    sessions::write(&bob, &bob_c, &id, "Bob, back.", None)
+        .await
+        .unwrap();
+    let r = sessions::read(&alice, &alice_c, &id).await.unwrap();
+    assert_eq!(r.messages.last().unwrap().content, "Bob, back.");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_device_away_from_the_device_group_too_long_is_linked_again() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let db = server.db().await.unwrap();
+    let (id, (alice, alice_c, _), (bob, bob_c, _)) = pair(&server).await;
+    let (phone, phone_c) = linked(&server, "bob", (&bob, &bob_c)).await;
+    sessions::sync(&bob, &bob_c).await.unwrap();
+    sessions::sync(&phone, &phone_c).await.unwrap();
+    // The laptop announces itself again after the phone last read.
+    devices::list(&bob, &bob_c).await.unwrap();
+    sessions::write(&bob, &bob_c, &id, "From the laptop.", None)
+        .await
+        .unwrap();
+    age_and_sweep(&db, "personal").await;
+
+    let up = devices::maintain(&phone, &phone_c).await.unwrap();
+    assert!(up.caught_up.stale);
+    let e = devices::list(&phone, &phone_c).await.unwrap_err();
+    assert!(e.to_string().contains("link it again"), "{e}");
+    // Its sessions carry on meanwhile.
+    sessions::write(&phone, &phone_c, &id, "Still here.", None)
+        .await
+        .unwrap();
+
+    // Linked again from the laptop, it keeps its keys and sessions.
+    let pending = devices::start_link(&phone, &phone_c).await.unwrap();
+    devices::approve(&bob, &bob_c, &pending.code.parse().unwrap())
+        .await
+        .unwrap();
+    devices::wait_for_link(
+        &phone,
+        &phone_c,
+        &pending.link_id,
+        Duration::from_millis(50),
+        Duration::from_secs(5),
+    )
+    .await
+    .unwrap();
+    devices::finish_link(&phone, &phone_c).await.unwrap();
+    assert!(
+        !devices::maintain(&phone, &phone_c)
+            .await
+            .unwrap()
+            .caught_up
+            .stale
+    );
+    let listed = devices::list(&bob, &bob_c).await.unwrap();
+    assert_eq!(listed.len(), 3, "the laptop, the old entry and the phone");
+
+    // Removing the old entry doesn't revoke the persona devices the phone
+    // still uses.
+    let fresh = devices::list(&phone, &phone_c).await.unwrap();
+    let phone_id = fresh.iter().find(|d| d.this_device).unwrap().id;
+    let old = listed
+        .iter()
+        .find(|d| !d.this_device && d.id != phone_id)
+        .unwrap()
+        .id;
+    let removed = devices::remove(&bob, &bob_c, old, quill_certs::RevocationReason::Lost)
+        .await
+        .unwrap();
+    assert!(removed.revoked.is_empty());
+    sessions::write(&phone, &phone_c, &id, "Linked again.", None)
+        .await
+        .unwrap();
+    let r = sessions::read(&alice, &alice_c, &id).await.unwrap();
+    assert_eq!(r.messages.last().unwrap().content, "Linked again.");
+}
