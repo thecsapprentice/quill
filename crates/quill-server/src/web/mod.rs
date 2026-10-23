@@ -52,6 +52,7 @@ pub fn router() -> Router<AppState> {
             get(handlers::personas).post(handlers::persona_create),
         )
         .route("/personas/{id}/delete", post(handlers::persona_delete))
+        .route("/notices", get(handlers::notices))
         .route(
             "/settings",
             get(handlers::settings).post(handlers::settings_save),
@@ -274,6 +275,7 @@ pub(crate) fn chrome(
             is_admin: s.is_admin,
             maturity_max: s.maturity_max,
             pending_tags: s.pending_tags,
+            unread_notices: s.unread_notices,
         }),
         source_url: state.config.source_url.clone(),
         version: env!("CARGO_PKG_VERSION").to_owned(),

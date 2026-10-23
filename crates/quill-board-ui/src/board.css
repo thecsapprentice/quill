@@ -124,9 +124,13 @@ a {
   text-decoration: underline;
 }
 
-.site-nav form {
-  display: inline;
-  margin: 0;
+.site-header .sign-out {
+  margin: 0 0 0 auto;
+  font-size: 0.925rem;
+}
+
+.site-header.member .site-nav {
+  flex-basis: 100%;
 }
 
 .link-button {
@@ -465,6 +469,16 @@ input[type="color"] {
   border: 1px solid var(--line);
   border-radius: 3px;
   background: var(--card);
+}
+
+.new-notice {
+  color: var(--rule);
+  font-weight: 600;
+}
+
+.notice-prompts {
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 1.25rem;
 }
 
 .contrast-warning {

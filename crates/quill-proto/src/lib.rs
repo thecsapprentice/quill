@@ -10,6 +10,7 @@ pub mod board;
 pub mod color;
 pub mod handles;
 pub mod limits;
+pub mod notices;
 pub mod validate;
 
 /// Protocol versions this build speaks, advertised in `GET /api/v1/instance`.

@@ -1249,3 +1249,42 @@ async fn reserved_handles_through_server_settings() {
     assert!(log.body.contains("Handle no longer reserved"));
     server.stop().await.unwrap();
 }
+
+#[tokio::test]
+async fn notices_through_the_board() {
+    let server = server!();
+    let mut writer = Browser::new(&server);
+    let csrf = writer.register("alice", "ink_fox").await;
+    let path = writer.post_prompt(&csrf, "Lamps", "general").await;
+    assert!(writer.get("/").await.body.contains(r#"href="/notices""#));
+    assert!(!writer.get("/").await.body.contains("Unread notices"));
+
+    let mut admin = Browser::new(&server);
+    let admin_csrf = admin_browser(&server, &mut admin, "boss").await;
+    let deleted = admin
+        .post(
+            "/admin/settings/tags/genre/horror/delete",
+            &[("csrf", &admin_csrf), ("confirm", "yes")],
+        )
+        .await;
+    assert_eq!(deleted.status, StatusCode::SEE_OTHER);
+
+    let home = writer.get("/").await;
+    assert!(home.body.contains(r#"title="Unread notices">1</span>"#));
+    let page = writer.get("/notices").await;
+    assert!(
+        page.body
+            .contains("An administrator deleted the tag genre: Horror.")
+    );
+    assert!(page.body.contains(&format!(r#"href="{path}">Lamps</a>"#)));
+    assert!(page.body.contains(">New<"));
+    // Viewing marks them read.
+    assert!(!page.body.contains("Unread notices"));
+    let again = writer.get("/notices").await;
+    assert!(!again.body.contains(">New<"));
+    assert_eq!(
+        Browser::new(&server).get("/notices").await.location(),
+        "/login"
+    );
+    server.stop().await.unwrap();
+}

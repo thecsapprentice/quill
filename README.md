@@ -8,8 +8,8 @@ messages but can never read them: sessions use
 and servers federate over ActivityPub.
 
 > **Status: Phase 1 (prompt board) complete.** Accounts, personas, prompts,
-> tags, search, reports and the admin inbox work through the web board, the API
-> and the CLI. Encrypted sessions and federation come in later phases. Not
+> tags, search, reports, the admin inbox, tag moderation and account notices
+> work through the web board, the API and the CLI. Encrypted sessions and federation come in later phases. Not
 > ready for real use.
 
 ## Workspace
@@ -88,6 +88,7 @@ QUILL_DATABASE_URL=... cargo run -p quill-server -- make-admin yourname
 # Reserved handles (admin, support, the server's name, your own list) only come from the server:
 QUILL_DATABASE_URL=... cargo run -p quill-server -- grant-handle yourname support "Support desk"
 cargo run -p quill -- admin reports
+cargo run -p quill -- account notices        # what administrators did to your prompts and tags
 cargo run -p quill -- admin namespace-set genre --required true   # every prompt needs a genre
 cargo run -p quill -- admin tags --namespace theme                  # tags with usage counts
 cargo run -p quill -- admin settings --new-tags approval            # writers' new tags need approval

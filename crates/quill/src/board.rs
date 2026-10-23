@@ -25,6 +25,12 @@ pub enum AccountCommand {
         #[arg(long)]
         maturity: Option<Maturity>,
     },
+    /// Show what administrators have done to your prompts and tags, and mark
+    /// it read.
+    Notices {
+        #[arg(long)]
+        before: Option<i64>,
+    },
 }
 
 #[derive(Args)]
@@ -299,7 +305,35 @@ fn split_key(key: &str) -> Result<(&str, &str)> {
 
 pub async fn account(ctx: &Ctx, cmd: AccountCommand) -> Result<()> {
     let client = ctx.client()?;
+    if let AccountCommand::Notices { before } = cmd {
+        let notices = client.notices(before).await?;
+        client.mark_notices_read().await?;
+        return ctx.print(&notices, |list| {
+            if list.is_empty() {
+                println!("no notices");
+            }
+            for n in list {
+                let mark = if n.read { " " } else { "*" };
+                let f = &n.fields;
+                let mut what = vec![n.kind.to_string()];
+                what.extend(f.tag.clone());
+                what.extend(f.into.as_ref().map(|i| format!("into {i}")));
+                what.extend(
+                    f.from
+                        .as_ref()
+                        .zip(f.to.as_ref())
+                        .map(|(a, b)| format!("{a} -> {b}")),
+                );
+                what.extend(f.reason.map(|r| format!("reason: {r}")));
+                println!("{mark}{:>6}  {}  {}", n.id, n.at, what.join("  "));
+                for p in &n.prompts {
+                    println!("          {}  {:?} as @{}", p.id, p.title, p.handle);
+                }
+            }
+        });
+    }
     let settings = match cmd {
+        AccountCommand::Notices { .. } => unreachable!("handled above"),
         AccountCommand::Show => client.account().await?,
         AccountCommand::Set { maturity } => {
             client
@@ -312,6 +346,7 @@ pub async fn account(ctx: &Ctx, cmd: AccountCommand) -> Result<()> {
     ctx.print(&settings, |s| {
         println!("maturity cap: {}", s.maturity_max);
         println!("administrator: {}", s.is_admin);
+        println!("unread notices: {}", s.unread_notices);
     })
 }
 

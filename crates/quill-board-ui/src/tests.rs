@@ -18,6 +18,7 @@ fn chrome(signed_in: bool, admin: bool) -> Chrome {
             is_admin: admin,
             maturity_max: Maturity::Teen,
             pending_tags: if admin { 3 } else { 0 },
+            unread_notices: 2,
         }),
         source_url: "https://github.com/thecsapprentice/quill".into(),
         version: "0.1.0".into(),
@@ -307,6 +308,7 @@ fn other_pages_render() {
             settings: AccountSettings {
                 maturity_max: Maturity::Mature,
                 is_admin: true,
+                unread_notices: 0,
             },
         },
     );
@@ -585,4 +587,57 @@ fn tag_requests_and_status_controls() {
     );
     assert!(reject.contains("Reject &#60;Horror&#62;?"));
     assert!(reject.contains(">Reject tag<"));
+}
+
+#[test]
+fn notices_page_explains_actions() {
+    use quill_proto::notices::{AccountNotice, NoticeFields, NoticeKind, NoticePrompt};
+    let prompt = NoticePrompt {
+        id: Uuid::nil(),
+        title: "The <ledger>".into(),
+        handle: "ink_fox".into(),
+    };
+    let notice = |id, kind, fields, read| AccountNotice {
+        id,
+        at: datetime!(2026-10-22 12:00 UTC),
+        kind,
+        fields,
+        prompts: vec![prompt.clone()],
+        read,
+    };
+    let html = notices_page(
+        &chrome(true, false),
+        NoticesView {
+            notices: vec![
+                notice(
+                    3,
+                    NoticeKind::PromptRemoved,
+                    NoticeFields {
+                        reason: Some(ReportReason::Spam),
+                        ..NoticeFields::default()
+                    },
+                    false,
+                ),
+                notice(
+                    2,
+                    NoticeKind::TagMerged,
+                    NoticeFields {
+                        tag: Some("theme:selchies".into()),
+                        tag_name: Some("Selchies".into()),
+                        into: Some("theme:selkies".into()),
+                        ..NoticeFields::default()
+                    },
+                    true,
+                ),
+            ],
+            older: None,
+        },
+    );
+    assert!(html.contains("removed your prompt from the board after a report (Spam)."));
+    assert!(html.contains("merged the tag theme: Selchies into theme:selkies."));
+    assert!(html.contains("The &#60;ledger&#62;"));
+    assert!(html.contains(" as @ink_fox"));
+    assert_eq!(html.matches(">New<").count(), 1);
+    // The header counts unread notices.
+    assert!(html.contains(r#"title="Unread notices">2</span>"#));
 }

@@ -473,6 +473,9 @@ pub struct PromptPage {
 pub struct AccountSettings {
     pub maturity_max: Maturity,
     pub is_admin: bool,
+    /// Account notices not yet read.
+    #[serde(default)]
+    pub unread_notices: u64,
 }
 
 /// `PATCH /account`.

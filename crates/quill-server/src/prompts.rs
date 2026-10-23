@@ -95,6 +95,7 @@ pub async fn account_settings(
     Ok(AccountSettings {
         maturity_max: parse_enum(&maturity)?,
         is_admin,
+        unread_notices: crate::notices::unread_count(state, account).await?,
     })
 }
 

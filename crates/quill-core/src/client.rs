@@ -240,6 +240,23 @@ impl Client {
 
     // ---- Account settings -----------------------------------------------
 
+    /// The account's notices: administrators' actions against its prompts
+    /// and tags, newest first.
+    pub async fn notices(
+        &self,
+        before: Option<i64>,
+    ) -> Result<Vec<quill_proto::notices::AccountNotice>, CoreError> {
+        let mut query: Vec<(&str, String)> = Vec::new();
+        if let Some(b) = before {
+            query.push(("before", b.to_string()));
+        }
+        Self::json(self.authed(Method::GET, "/account/notices")?.query(&query)).await
+    }
+
+    pub async fn mark_notices_read(&self) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::POST, "/account/notices/read")?).await
+    }
+
     pub async fn account(&self) -> Result<AccountSettings, CoreError> {
         Self::json(self.authed(Method::GET, "/account")?).await
     }

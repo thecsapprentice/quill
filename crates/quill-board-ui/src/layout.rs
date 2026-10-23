@@ -19,9 +19,17 @@ fn nav_link(chrome: &Chrome, nav: Nav, href: &'static str, label: &'static str) 
 
 pub(crate) fn header(chrome: &Chrome) -> Element {
     rsx! {
-        header { class: "site-header",
+        header { class: if chrome.viewer.is_some() { "site-header member" } else { "site-header" },
             div { class: "wrap",
                 a { class: "site-name", href: "/", "{chrome.site_name}" }
+                // Signed in: "Sign out" sits beside the site name and the
+                // links take a full row of their own, so they don't wrap.
+                if let Some(viewer) = &chrome.viewer {
+                    form { class: "sign-out", method: "post", action: "/logout",
+                        input { r#type: "hidden", name: CSRF_FIELD, value: "{viewer.csrf}" }
+                        button { class: "link-button", r#type: "submit", "Sign out" }
+                    }
+                }
                 nav { class: "site-nav", "aria-label": "Main",
                     {nav_link(chrome, Nav::Board, "/", "Board")}
                     if let Some(viewer) = &chrome.viewer {
@@ -29,20 +37,24 @@ pub(crate) fn header(chrome: &Chrome) -> Element {
                         {nav_link(chrome, Nav::Mine, "/mine", "My prompts")}
                         {nav_link(chrome, Nav::Personas, "/personas", "Personas")}
                         {nav_link(chrome, Nav::Settings, "/settings", "Settings")}
+                        a { href: "/notices",
+                            "aria-current": (chrome.current == Nav::Notices).then_some("page"),
+                            "Notices"
+                            if viewer.unread_notices > 0 {
+                                " "
+                                span { class: "count", title: "Unread notices", "{viewer.unread_notices}" }
+                            }
+                        }
                         if viewer.is_admin {
                             {nav_link(chrome, Nav::Admin, "/admin/reports", "Reports")}
                             a { href: "/admin/settings",
                                 "aria-current": (chrome.current == Nav::ServerSettings).then_some("page"),
-                                "Server settings"
+                                "Admin"
                                 if viewer.pending_tags > 0 {
                                     " "
                                     span { class: "count", title: "Tag requests waiting", "{viewer.pending_tags}" }
                                 }
                             }
-                        }
-                        form { method: "post", action: "/logout",
-                            input { r#type: "hidden", name: CSRF_FIELD, value: "{viewer.csrf}" }
-                            button { class: "link-button", r#type: "submit", "Sign out" }
                         }
                     } else {
                         {nav_link(chrome, Nav::SignIn, "/login", "Sign in")}

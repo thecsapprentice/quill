@@ -12,6 +12,7 @@
 mod admin;
 pub mod chips;
 mod layout;
+mod notices;
 mod pages;
 
 use std::rc::Rc;
@@ -28,6 +29,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 pub use admin::*;
+pub use notices::notices_page;
 pub use pages::*;
 
 /// The board's stylesheet, served at [`STYLESHEET_PATH`].
@@ -45,6 +47,7 @@ pub enum Nav {
     Mine,
     Personas,
     Settings,
+    Notices,
     /// The report inbox and admin log.
     Admin,
     /// Server settings (administrators only).
@@ -62,6 +65,8 @@ pub struct Viewer {
     pub maturity_max: Maturity,
     /// Tag requests waiting for approval (administrators only, else 0).
     pub pending_tags: u64,
+    /// The account's unread notices.
+    pub unread_notices: u64,
 }
 
 /// What every page needs: site identity, the visitor and navigation.
@@ -305,6 +310,13 @@ pub struct AdminTagView {
 pub struct AdminTagDeleteView {
     pub tag: AdminTag,
     pub namespace: TagNamespace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoticesView {
+    pub notices: Vec<quill_proto::notices::AccountNotice>,
+    /// Link to older notices.
+    pub older: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -22,9 +22,11 @@ use crate::{
     AppState,
     auth::{Admin, MaybeAuthed},
     error::ApiError,
+    notices,
     prompts::load_prompt,
     routes::ApiJson,
 };
+use quill_proto::notices::{NoticeFields, NoticeKind};
 
 /// Reports one signed-in account may file per hour.
 const ACCOUNT_REPORTS_PER_HOUR: usize = 20;
@@ -244,9 +246,9 @@ pub async fn resolve(
     .bind(admin)
     .execute(&mut *tx)
     .await?;
-    sqlx::query(
+    let log_id: i64 = sqlx::query_scalar(
         "INSERT INTO admin_log (action, report_id, prompt_id, prompt_hash, reason, admin_id)
-         VALUES ($1, $2, $3, $4, $5::report_reason, $6)",
+         VALUES ($1, $2, $3, $4, $5::report_reason, $6) RETURNING id",
     )
     .bind(logged)
     .bind(id)
@@ -254,8 +256,27 @@ pub async fn resolve(
     .bind(&hash)
     .bind(&reason)
     .bind(admin)
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
     .await?;
+    // The author is told their prompt was removed and the report's category,
+    // never who reported it. A discarded report tells nobody anything.
+    if action == Resolution::Delete
+        && let Some(prompt) = prompt_id
+    {
+        let affected = notices::affected_by_prompt(&mut tx, prompt).await?;
+        let fields = NoticeFields {
+            reason: Some(parse_reason(&reason)?),
+            ..NoticeFields::default()
+        };
+        notices::record(
+            &mut tx,
+            log_id,
+            NoticeKind::PromptRemoved,
+            &fields,
+            &affected,
+        )
+        .await?;
+    }
     tx.commit().await?;
 
     // Safe: built only from compile-time constants; values are bound.
@@ -278,17 +299,17 @@ pub(crate) async fn log_action(
     action: AdminAction,
     subject: &str,
     detail: Option<&str>,
-) -> Result<(), ApiError> {
-    sqlx::query(
-        "INSERT INTO admin_log (action, subject, detail, admin_id) VALUES ($1, $2, $3, $4)",
+) -> Result<i64, ApiError> {
+    Ok(sqlx::query_scalar(
+        "INSERT INTO admin_log (action, subject, detail, admin_id)
+         VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind(action.as_str())
     .bind(subject)
     .bind(detail)
     .bind(admin)
-    .execute(&mut *conn)
-    .await?;
-    Ok(())
+    .fetch_one(&mut *conn)
+    .await?)
 }
 
 /// Records a change made by the server itself, such as syncing the

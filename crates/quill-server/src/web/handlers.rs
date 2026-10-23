@@ -1022,3 +1022,44 @@ pub async fn admin_log(
         Err(e) => error_page(&c, e),
     }
 }
+
+// ---- Account notices -------------------------------------------------------
+
+#[derive(Debug, Default, Deserialize)]
+pub struct NoticesParams {
+    before: Option<i64>,
+}
+
+/// Shows the account's notices, then marks them read: the page shows which
+/// were new on this visit.
+pub async fn notices(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Query(p): Query<NoticesParams>,
+) -> Response {
+    let Some(s) = session else {
+        return redirect("/login");
+    };
+    const PAGE: u32 = 50;
+    let loaded = crate::notices::list(&state, s.account_id, p.before, Some(PAGE)).await;
+    let notices = match loaded {
+        Ok(n) => n,
+        Err(e) => return error_page(&chrome(&state, Some(&s), Nav::Notices, None), e),
+    };
+    if let Err(e) = crate::notices::mark_read(&state, s.account_id).await {
+        return error_page(&chrome(&state, Some(&s), Nav::Notices, None), e);
+    }
+    // The header counts what's unread after this visit: nothing.
+    let mut seen = s.clone();
+    seen.unread_notices = 0;
+    let older = (notices.len() == PAGE as usize)
+        .then(|| notices.last().map(|n| format!("/notices?before={}", n.id)))
+        .flatten();
+    html(
+        StatusCode::OK,
+        quill_board_ui::notices_page(
+            &chrome(&state, Some(&seen), Nav::Notices, None),
+            quill_board_ui::NoticesView { notices, older },
+        ),
+    )
+}

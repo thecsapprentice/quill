@@ -22,6 +22,7 @@ uuid.workspace = true
 [dev-dependencies]
 reqwest = { workspace = true, features = ["rustls"] }
 url.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true
