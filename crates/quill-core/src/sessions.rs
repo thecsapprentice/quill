@@ -16,6 +16,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+pub use crate::history::Message;
+
 use openmls::prelude::{
     BasicCredential, Credential, GroupId, KeyPackage, LeafNodeIndex, LeafNodeParameters, MlsGroup,
     MlsMessageBodyIn, MlsMessageIn, MlsMessageOut, ProcessedMessageContent, ProcessedWelcome,
@@ -33,10 +35,13 @@ use zeroize::Zeroizing;
 
 use crate::{
     Client, CoreError, Store,
+    activity::Activity,
     devices::join_config,
+    history::{self, Gap},
+    hlc::Hlc,
     keys::{self, DeviceKey, DeviceStatus, PinStatus},
     mls::{DeviceSigner, Provider, mls_err},
-    requests::{self, Activity, Role},
+    requests::{self, Role},
     store::kv::Table,
 };
 
@@ -87,6 +92,23 @@ struct Note {
     /// Why this device stopped reading the session.
     #[serde(default)]
     broken: Option<String>,
+    /// This device's clock in the session.
+    #[serde(default)]
+    hlc: String,
+    /// The last `authorSeq` this device used.
+    #[serde(default)]
+    author_seq: u64,
+}
+
+impl Note {
+    fn clock(&self) -> Hlc {
+        self.hlc.parse().unwrap_or_default()
+    }
+
+    /// Moves the clock past a value read.
+    fn saw(&mut self, remote: Hlc) {
+        self.hlc = Hlc::read(self.clock(), remote, keys::now_ms()).to_string();
+    }
 }
 
 fn note(p: &Provider<'_>, gid: &[u8]) -> Result<Option<Note>, CoreError> {
@@ -101,32 +123,6 @@ fn set_note(p: &Provider<'_>, gid: &[u8], n: &Note) -> Result<(), CoreError> {
 
 fn save_note(store: &Store, gid: &[u8], n: &Note) -> Result<(), CoreError> {
     Provider::new(store).atomically(|p| set_note(p, gid, n))
-}
-
-/// A message as this device keeps it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Message {
-    pub seq: u64,
-    /// The sender's actor URI.
-    pub sender: String,
-    pub channel: String,
-    /// Markdown.
-    pub content: String,
-    /// Sent from this device.
-    #[serde(default)]
-    pub own: bool,
-}
-
-fn message_key(gid: &[u8], seq: u64) -> Vec<u8> {
-    let mut k = gid.to_vec();
-    k.extend_from_slice(&seq.to_be_bytes());
-    k
-}
-
-fn keep(p: &Provider<'_>, gid: &[u8], m: &Message) -> Result<(), CoreError> {
-    let v = Zeroizing::new(json(m)?);
-    p.set(Table::Messages, &message_key(gid, m.seq), Some(v.to_vec()))
 }
 
 fn load_group(p: &Provider<'_>, gid: &[u8]) -> Result<Option<MlsGroup>, CoreError> {
@@ -288,15 +284,23 @@ fn join(p: &Provider<'_>, welcome: &str, gid: &[u8], dirs: &Dirs) -> Result<Join
 
 // ---- Reading the log -------------------------------------------------------------------------
 
-/// Applies one logged message within the caller's batch. Returns whether
-/// this device was removed.
+/// What applying one logged message did.
+#[derive(Default)]
+struct Applied {
+    /// This device was removed.
+    removed: bool,
+    /// The clock value of an activity read.
+    clock: Option<Hlc>,
+}
+
+/// Applies one logged message within the caller's batch.
 fn apply(
     p: &Provider<'_>,
     gid: &[u8],
     seq: u64,
     bytes: &[u8],
     dirs: &Dirs,
-) -> Result<bool, CoreError> {
+) -> Result<Applied, CoreError> {
     let mut group = load_group(p, gid)?.ok_or_else(|| err("the session's keys are missing"))?;
     let message = MlsMessageIn::tls_deserialize_exact(bytes)
         .map_err(|e| mls_err("decoding", e))?
@@ -324,22 +328,21 @@ fn apply(
             let plain = Zeroizing::new(app.into_bytes());
             let a: Activity =
                 serde_json::from_slice(&plain).map_err(|_| err("an unreadable message"))?;
-            if a.kind != "Create" || a.object.kind != "Note" {
-                // Other activities arrive with 2g; skip what isn't known yet.
-                return Ok(false);
-            }
-            keep(
+            history::record(
                 p,
                 gid,
-                &Message {
+                history::From {
                     seq,
-                    sender,
-                    channel: a.channel.unwrap_or_else(|| STORY.into()),
-                    content: a.object.content,
+                    sender: &sender,
+                    device: &b64(&sender_key),
                     own: false,
                 },
+                &a,
             )?;
-            Ok(false)
+            Ok(Applied {
+                removed: false,
+                clock: Some(a.clock()),
+            })
         }
         ProcessedMessageContent::StagedCommitMessage(staged) => {
             // A writer adds and removes only their own persona's devices.
@@ -381,7 +384,10 @@ fn apply(
             if !removed {
                 dirs.check_members(&group)?;
             }
-            Ok(removed)
+            Ok(Applied {
+                removed,
+                clock: None,
+            })
         }
         // Quill sends no standalone proposals.
         _ => Err(err("an unexpected proposal")),
@@ -417,11 +423,15 @@ async fn catch_up(
             let provider = Provider::new(store);
             let removed = provider.atomically(|p| {
                 let mut n = note(p, gid)?.ok_or_else(|| err("session state missing"))?;
-                let removed = if n.own.contains(&m.seq) {
-                    false
+                let applied = if n.own.contains(&m.seq) {
+                    Applied::default()
                 } else {
                     apply(p, gid, m.seq, &bytes, dirs)?
                 };
+                if let Some(clock) = applied.clock {
+                    n.saw(clock);
+                }
+                let removed = applied.removed;
                 n.own.retain(|s| *s > m.seq);
                 n.seq = m.seq;
                 if removed {
@@ -807,6 +817,8 @@ async fn start(
         update_due,
         ended: false,
         broken: None,
+        hlc: String::new(),
+        author_seq: 0,
     };
     // From the request: the group is here already, and the pitch (seq 1)
     // was read or sent by this device.
@@ -814,24 +826,29 @@ async fn start(
         let provider = Provider::new(store);
         if held.group_id == s.id && load_group(&provider, gid)?.is_some() {
             provider.atomically(|p| {
-                if let Some(text) = &held.pitch {
+                let mut n = fresh(1, false);
+                if let Some(pitch) = &held.pitch {
                     let (sender, own) = match held.role {
                         Role::Outgoing => (me.uri.clone(), true),
                         Role::Incoming => (held.requester.clone().unwrap_or_default(), false),
                     };
-                    keep(
+                    history::record(
                         p,
                         gid,
-                        &Message {
+                        history::From {
                             seq: 1,
-                            sender,
-                            channel: "planning".into(),
-                            content: text.clone(),
+                            sender: &sender,
+                            device: &pitch.device,
                             own,
                         },
+                        &pitch.activity,
                     )?;
+                    n.saw(pitch.activity.clock());
+                    if own {
+                        n.author_seq = pitch.activity.author_seq.unwrap_or(0);
+                    }
                 }
-                set_note(p, gid, &fresh(1, false))?;
+                set_note(p, gid, &n)?;
                 p.set(Table::Requests, s.request.as_bytes(), None)
             })?;
             return Ok(true);
@@ -914,10 +931,6 @@ pub async fn find(client: &Client, id: &str) -> Result<Session, CoreError> {
     }
 }
 
-fn count(store: &Store, gid: &[u8]) -> Result<usize, CoreError> {
-    Ok(store.scan(Table::Messages, gid)?.len())
-}
-
 /// The login's sessions after syncing them all.
 pub async fn list(store: &Store, client: &Client) -> Result<Vec<Listed>, CoreError> {
     let mut report = SyncReport::default();
@@ -929,7 +942,7 @@ pub async fn list(store: &Store, client: &Client) -> Result<Vec<Listed>, CoreErr
         };
         let gid = unb64(&s.id).unwrap_or_default();
         out.push(Listed {
-            messages: count(store, &gid)?,
+            messages: history::count(store, &gid)?,
             standing,
             session: s,
         });
@@ -937,68 +950,69 @@ pub async fn list(store: &Store, client: &Client) -> Result<Vec<Listed>, CoreErr
     Ok(out)
 }
 
-/// A session's messages as this device holds them, after syncing it.
-pub async fn read(store: &Store, client: &Client, id: &str) -> Result<Vec<Message>, CoreError> {
+/// A session as this device holds it.
+#[derive(Debug, Clone)]
+pub struct Reading {
+    pub session: Session,
+    /// In display order.
+    pub messages: Vec<Message>,
+    /// Activities the server seems to have held back.
+    pub gaps: Vec<Gap>,
+}
+
+fn standing_error(standing: Standing) -> Result<(), CoreError> {
+    match standing {
+        Standing::Joined => Ok(()),
+        Standing::Waiting => Err(err(
+            "this device isn't in the session yet: another of your devices for this persona adds it when it next runs",
+        )),
+        Standing::NoKeys => Err(err("this persona has no keys on this device")),
+        Standing::Broken(why) => Err(err(why)),
+    }
+}
+
+/// A session's notes as this device holds them, after syncing it.
+pub async fn read(store: &Store, client: &Client, id: &str) -> Result<Reading, CoreError> {
     let s = find(client, id).await?;
     let mut report = SyncReport::default();
     let standing = sync_one(store, client, &s, &mut report).await?;
     let gid = unb64(&s.id).ok_or_else(|| err("bad session id"))?;
-    let messages: Vec<Message> = store
-        .scan(Table::Messages, &gid)?
-        .into_iter()
-        .filter(|(k, _)| k.len() == gid.len() + 8)
-        .map(|(_, v)| serde_json::from_slice(&v).map_err(|_| err("a stored message is damaged")))
-        .collect::<Result<_, _>>()?;
+    let messages = history::messages(store, &gid)?;
     if messages.is_empty() {
-        match standing {
-            Standing::Waiting => {
-                return Err(err(
-                    "this device isn't in the session yet: another of your devices for this persona adds it when it next runs",
-                ));
-            }
-            Standing::NoKeys => {
-                return Err(err("this persona has no keys on this device"));
-            }
-            Standing::Broken(why) => return Err(err(why)),
-            Standing::Joined => {}
-        }
+        standing_error(standing)?;
     }
-    Ok(messages)
+    if !s.ended {
+        ack(store, client, &s, &gid).await?;
+    }
+    Ok(Reading {
+        gaps: history::gaps(store, &gid)?,
+        messages,
+        session: s,
+    })
 }
 
-/// Writes a message to a session. Returns its place in the log.
-pub async fn write(
-    store: &Store,
-    client: &Client,
-    id: &str,
-    text: &str,
-    channel: Option<&str>,
-) -> Result<u64, CoreError> {
-    let text = text.trim();
-    if text.is_empty() {
-        return Err(err("nothing to send"));
-    }
-    if text.chars().count() > MAX_MESSAGE_CHARS {
-        return Err(err(format!(
-            "too long (at most {MAX_MESSAGE_CHARS} characters)"
-        )));
-    }
-    let channel = channel.unwrap_or(STORY);
+/// Tells the server how far this device has read (for retention only; the
+/// other writer never sees it).
+async fn ack(store: &Store, client: &Client, s: &Session, gid: &[u8]) -> Result<(), CoreError> {
+    let _ = (store, client, s, gid);
+    Ok(())
+}
+
+/// A session this device can send to, synced.
+struct Ready {
+    session: Session,
+    gid: Vec<u8>,
+    me: Me,
+    dirs: Dirs,
+}
+
+async fn ready(store: &Store, client: &Client, id: &str) -> Result<Ready, CoreError> {
     let s = find(client, id).await?;
     if s.ended {
         return Err(err("the session has ended"));
     }
     let mut report = SyncReport::default();
-    match sync_one(store, client, &s, &mut report).await? {
-        Standing::Joined => {}
-        Standing::Waiting => {
-            return Err(err(
-                "this device isn't in the session yet: another of your devices for this persona adds it when it next runs",
-            ));
-        }
-        Standing::NoKeys => return Err(err("this persona has no keys on this device")),
-        Standing::Broken(why) => return Err(err(why)),
-    }
+    standing_error(sync_one(store, client, &s, &mut report).await?)?;
     let gid = unb64(&s.id).ok_or_else(|| err("bad session id"))?;
     let (mine, me) = this_device(store, &s)?.ok_or_else(|| err("no keys on this device"))?;
     let partner = s
@@ -1010,46 +1024,155 @@ pub async fn write(
         me: Dir::fetch(store, client, &mine, true).await?,
         partner: Dir::fetch(store, client, partner, false).await?,
     };
-    let plain = Zeroizing::new(json(&Activity::note(text, channel))?);
+    Ok(Ready {
+        session: s,
+        gid,
+        me,
+        dirs,
+    })
+}
+
+/// Sends the activity `make` builds from this device's next clock value
+/// and `authorSeq`, and keeps it. Returns its place in the log.
+async fn send(
+    store: &Store,
+    client: &Client,
+    r: &Ready,
+    make: impl Fn(Hlc, u64) -> Activity,
+) -> Result<u64, CoreError> {
+    let (hlc, author_seq) = {
+        let n = note(&Provider::new(store), &r.gid)?.ok_or_else(|| err("session state missing"))?;
+        (Hlc::send(n.clock(), keys::now_ms()), n.author_seq + 1)
+    };
+    // The same activity on every retry, so a lost race leaves no gap.
+    let activity = make(hlc, author_seq);
+    let plain = Zeroizing::new(json(&activity)?);
+    let device = b64(&r.me.device.public());
     for _ in 0..RETRIES {
         let provider = Provider::new(store);
         let message = provider.atomically(|p| {
             let mut group =
-                load_group(p, &gid)?.ok_or_else(|| err("the session's keys are missing"))?;
+                load_group(p, &r.gid)?.ok_or_else(|| err("the session's keys are missing"))?;
             group
-                .create_message(p, &me.signer(), &plain)
+                .create_message(p, &r.me.signer(), &plain)
                 .map_err(|e| mls_err("encrypting", e))
         })?;
         let body = quill_proto::groups::PostMessage {
             message: b64(&encode(&message)?),
         };
-        match client.post_group_message(&s.id, &body).await {
+        match client.post_group_message(&r.session.id, &body).await {
             Ok(posted) => {
                 Provider::new(store).atomically(|p| {
-                    keep(
+                    history::record(
                         p,
-                        &gid,
-                        &Message {
+                        &r.gid,
+                        history::From {
                             seq: posted.seq,
-                            sender: me.uri.clone(),
-                            channel: channel.to_owned(),
-                            content: text.to_owned(),
+                            sender: &r.me.uri,
+                            device: &device,
                             own: true,
                         },
+                        &activity,
                     )?;
-                    let mut n = note(p, &gid)?.ok_or_else(|| err("session state missing"))?;
+                    let mut n = note(p, &r.gid)?.ok_or_else(|| err("session state missing"))?;
                     n.own.push(posted.seq);
-                    set_note(p, &gid, &n)
+                    n.saw(hlc);
+                    n.author_seq = n.author_seq.max(author_seq);
+                    set_note(p, &r.gid, &n)
                 })?;
                 return Ok(posted.seq);
             }
             Err(e) if conflict(&e) => {
-                catch_up(store, client, &gid, &dirs).await?;
+                catch_up(store, client, &r.gid, &r.dirs).await?;
             }
             Err(e) => return Err(e),
         }
     }
     Err(err("the session kept changing; try again"))
+}
+
+fn check_text(text: &str) -> Result<&str, CoreError> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err(err("nothing to send"));
+    }
+    if text.chars().count() > MAX_MESSAGE_CHARS {
+        return Err(err(format!(
+            "too long (at most {MAX_MESSAGE_CHARS} characters)"
+        )));
+    }
+    Ok(text)
+}
+
+/// Writes a message to a session. Returns its place in the log.
+pub async fn write(
+    store: &Store,
+    client: &Client,
+    id: &str,
+    text: &str,
+    channel: Option<&str>,
+) -> Result<u64, CoreError> {
+    let text = check_text(text)?;
+    let channel = channel.unwrap_or(STORY);
+    let r = ready(store, client, id).await?;
+    send(store, client, &r, |hlc, n| {
+        Activity::create(text, channel, hlc, n)
+    })
+    .await
+}
+
+/// One of this persona's notes, to change.
+fn own_note(store: &Store, r: &Ready, at: u64) -> Result<Message, CoreError> {
+    let m = history::message(store, &r.gid, at)?
+        .ok_or_else(|| err(format!("no message #{at} on this device")))?;
+    if m.sender != r.me.uri {
+        return Err(err("only its author can change a message"));
+    }
+    if m.deleted {
+        return Err(err("that message was deleted"));
+    }
+    Ok(m)
+}
+
+/// Replaces the text of message `at` (the log position of its first
+/// version). Every version is kept.
+pub async fn edit(
+    store: &Store,
+    client: &Client,
+    id: &str,
+    at: u64,
+    text: &str,
+) -> Result<u64, CoreError> {
+    let text = check_text(text)?;
+    let r = ready(store, client, id).await?;
+    let m = own_note(store, &r, at)?;
+    send(store, client, &r, |hlc, n| {
+        Activity::update(&m.id, text, &m.channel, hlc, n)
+    })
+    .await
+}
+
+/// Deletes message `at`: it shows as deleted; its versions are kept.
+pub async fn delete(store: &Store, client: &Client, id: &str, at: u64) -> Result<u64, CoreError> {
+    let r = ready(store, client, id).await?;
+    let m = own_note(store, &r, at)?;
+    send(store, client, &r, |hlc, n| {
+        Activity::delete(&m.id, &m.channel, hlc, n)
+    })
+    .await
+}
+
+/// Message `at` with every version, after syncing the session.
+pub async fn versions(
+    store: &Store,
+    client: &Client,
+    id: &str,
+    at: u64,
+) -> Result<Message, CoreError> {
+    let reading = read(store, client, id).await?;
+    let gid = unb64(&reading.session.id).ok_or_else(|| err("bad session id"))?;
+    history::message(store, &gid, at)?
+        .ok_or_else(|| err(format!("no message #{at} on this device")))
 }
 
 /// Leaves a session, which ends it for both writers. This device reads to

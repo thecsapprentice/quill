@@ -31,9 +31,11 @@ use tls_codec::{Deserialize as _, Serialize as _};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+pub use crate::activity::Activity;
 use crate::{
     Client, CoreError, Store,
     devices::{self, PAST_EPOCHS},
+    hlc::Hlc,
     keys::{self, DeviceStatus, PinStatus},
     mls::{self, CIPHERSUITE, DEVICE_CERT_EXTENSION, DeviceSigner, Provider, mls_err},
     store::kv::{Op, Table},
@@ -41,11 +43,6 @@ use crate::{
 
 /// The longest pitch, in characters.
 pub const MAX_PITCH_CHARS: usize = 4000;
-/// The AS2 context of application messages (protocol draft, section 5).
-const CONTEXT: [&str; 2] = [
-    "https://www.w3.org/ns/activitystreams",
-    "https://quill.example/ns/wr/1.0",
-];
 
 fn err(msg: impl Into<String>) -> CoreError {
     CoreError::Keys(msg.into())
@@ -53,64 +50,25 @@ fn err(msg: impl Into<String>) -> CoreError {
 
 // ---- The pitch -------------------------------------------------------------------
 
-/// An application message: one AS2 activity (protocol draft, section 5).
-/// 2g adds the clock and per-author sequence fields.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Activity {
-    #[serde(rename = "@context")]
-    pub context: Vec<String>,
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub channel: Option<String>,
-    pub object: Note,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Note {
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub media_type: Option<String>,
-    pub content: String,
-}
-
-impl Activity {
-    /// The pitch: a `Create` of a Markdown `Note` in the planning channel.
-    pub fn pitch(text: &str) -> Self {
-        Self::note(text, "planning")
-    }
-
-    /// A message: a `Create` of a Markdown `Note` in `channel`.
-    pub fn note(text: &str, channel: &str) -> Self {
-        Self {
-            context: CONTEXT.iter().map(|s| (*s).to_owned()).collect(),
-            kind: "Create".into(),
-            id: format!("urn:uuid:{}", Uuid::new_v4()),
-            channel: Some(channel.into()),
-            object: Note {
-                kind: "Note".into(),
-                id: format!("urn:uuid:{}", Uuid::new_v4()),
-                media_type: Some("text/markdown".into()),
-                content: text.to_owned(),
-            },
-        }
-    }
-}
-
 /// The pitch's text, if `plain` is a pitch.
-pub(crate) fn pitch_text(plain: &[u8]) -> Result<String, CoreError> {
+pub(crate) fn pitch_of(plain: &[u8]) -> Result<Activity, CoreError> {
     let a: Activity = serde_json::from_slice(plain).map_err(|_| err("the pitch is unreadable"))?;
-    if a.kind != "Create" || a.object.kind != "Note" {
+    let Some(note) = a.note().filter(|_| a.kind == "Create") else {
         return Err(err("the first message isn't a pitch"));
-    }
-    if a.object.content.chars().count() > MAX_PITCH_CHARS {
+    };
+    if note.content.chars().count() > MAX_PITCH_CHARS {
         return Err(err("the pitch is too long"));
     }
-    Ok(a.object.content)
+    Ok(a)
+}
+
+/// The pitch as a device keeps it until the request becomes a session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Pitch {
+    pub(crate) activity: Activity,
+    /// The sending device's signature key, base64url.
+    pub(crate) device: String,
 }
 
 // ---- What this device remembers ----------------------------------------------------
@@ -135,7 +93,7 @@ pub(crate) struct Held {
     /// The pitch: as sent (outgoing), or as read (incoming), since MLS
     /// decrypts each message once and never one's own.
     #[serde(default)]
-    pub(crate) pitch: Option<String>,
+    pub(crate) pitch: Option<Pitch>,
     #[serde(default)]
     pub(crate) accepted: bool,
 }
@@ -285,8 +243,14 @@ pub async fn send(
 
     let mut gid = [0u8; 32];
     getrandom::fill(&mut gid).map_err(|e| err(format!("no randomness: {e}")))?;
-    let plain =
-        Zeroizing::new(serde_json::to_vec(&Activity::pitch(pitch)).map_err(|_| err("encoding"))?);
+    // The pitch is this device's first activity in the session.
+    let activity = Activity::create(
+        pitch,
+        "planning",
+        Hlc::send(Hlc::default(), keys::now_ms()),
+        1,
+    );
+    let plain = Zeroizing::new(serde_json::to_vec(&activity).map_err(|_| err("encoding"))?);
     let config = session_config(&device)?;
     let provider = Provider::new(store);
     let (welcome, message) = provider.atomically(|p| {
@@ -336,7 +300,10 @@ pub async fn send(
             group_id,
             persona: persona.id,
             requester: None,
-            pitch: Some(pitch.to_owned()),
+            pitch: Some(Pitch {
+                activity,
+                device: b64(&device.public()),
+            }),
             accepted: false,
         },
     )?;
@@ -435,7 +402,11 @@ pub async fn inbox(
     let mut out = Vec::new();
     for r in queue.requests {
         let pitch = if let Some(h) = held(store, r.id)? {
-            h.pitch.ok_or_else(|| "this device sent it".to_owned())
+            let incoming = h.role == Role::Incoming;
+            h.pitch
+                .filter(|_| incoming)
+                .and_then(|p| p.activity.note().map(|n| n.content.clone()))
+                .ok_or_else(|| "this device sent it".to_owned())
         } else {
             if author_keys.is_none() {
                 author_keys = Some(own_keys(store, client, me, &author_uri).await?);
@@ -588,13 +559,17 @@ async fn read(
             return Err(err("the pitch isn't an application message"));
         };
         let plain = Zeroizing::new(app.into_bytes());
-        let text = pitch_text(&plain)?;
+        let activity = pitch_of(&plain)?;
+        let text = activity.note().map(|n| n.content.clone()).unwrap_or_default();
         let note = Held {
             role: Role::Incoming,
             group_id: r.group_id.clone(),
             persona: me.id,
             requester: Some(requester_uri.clone()),
-            pitch: Some(text.clone()),
+            pitch: Some(Pitch {
+                activity,
+                device: b64(&sender_key),
+            }),
             accepted: false,
         };
         p.set(Table::Requests, r.id.as_bytes(), Some(encode_held(&note)?))?;
