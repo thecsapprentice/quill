@@ -1,4 +1,4 @@
-//! Server settings pages, for administrators: tag types and tags.
+//! Server settings pages, for administrators: tag types, tags, handles and sessions.
 
 use dioxus::prelude::*;
 use quill_proto::{
@@ -8,8 +8,8 @@ use quill_proto::{
 };
 
 use crate::{
-    AdminHandlesView, AdminTagDeleteView, AdminTagRequestsView, AdminTagTypesView, AdminTagView,
-    AdminTagsView, Chrome, admin_tag_url, chips,
+    AdminHandlesView, AdminSessionsView, AdminTagDeleteView, AdminTagRequestsView,
+    AdminTagTypesView, AdminTagView, AdminTagsView, Chrome, admin_tag_url, chips,
     layout::{csrf, error_notice, tag_datalist},
     render, tag_url,
 };
@@ -22,6 +22,7 @@ enum Tab {
     Tags,
     Requests,
     Handles,
+    Sessions,
 }
 
 fn tabs(chrome: &Chrome, current: Tab) -> Element {
@@ -39,6 +40,7 @@ fn tabs(chrome: &Chrome, current: Tab) -> Element {
                 }
             }
             a { href: "/admin/settings/handles", "aria-current": mark(Tab::Handles), "Handles" }
+            a { href: "/admin/settings/sessions", "aria-current": mark(Tab::Sessions), "Sessions" }
         }
     }
 }
@@ -752,6 +754,92 @@ pub fn admin_handles_page(chrome: &Chrome, view: AdminHandlesView) -> String {
                     p { class: "hint", "{v.list.total} reserved in all." }
                 } else {
                     p { class: "hint", "{v.list.total} match." }
+                }
+            }
+        }
+    })
+}
+
+// ---- Sessions ------------------------------------------------------------
+
+/// A byte count for people.
+pub fn byte_size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["bytes", "KiB", "MiB", "GiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} bytes")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+pub fn admin_sessions_page(chrome: &Chrome, view: AdminSessionsView) -> String {
+    let chrome_for_body = chrome.clone();
+    render("Sessions", chrome, move || {
+        let v = &view;
+        let s = &v.storage;
+        rsx! {
+            h1 { "Server settings" }
+            {tabs(&chrome_for_body, Tab::Sessions)}
+            p { class: "lede",
+                "Sessions are encrypted end to end: this server stores them but can't read them. These settings and figures cover only what it can see: whether files are uploaded, and how much space things take."
+            }
+            {error_notice(v.error.as_ref())}
+            form { class: "form-card", method: "post", action: "/admin/settings/attachments",
+                {csrf(&chrome_for_body)}
+                fieldset { class: "choices",
+                    legend { class: "form-title", "Attachments in sessions" }
+                    label { class: "inline-check",
+                        input { r#type: "radio", name: "attachments", value: "on", checked: v.attachments }
+                        span {
+                            "Allowed"
+                            span { class: "hint", "Writers can attach files of any kind, up to {byte_size(v.max_attachment_bytes)} each." }
+                        }
+                    }
+                    label { class: "inline-check",
+                        input { r#type: "radio", name: "attachments", value: "off", checked: !v.attachments }
+                        span {
+                            "Not allowed"
+                            span { class: "hint", "Sessions are for writing only. Files already stored stay until their messages are read." }
+                        }
+                    }
+                }
+                div { class: "actions",
+                    button { class: "btn", r#type: "submit", "Save" }
+                }
+            }
+            section { class: "form-card",
+                h2 { class: "form-title", "Storage" }
+                p {
+                    "{byte_size(s.total_bytes)} stored: {byte_size(s.message_bytes)} in messages, {byte_size(s.file_bytes)} in attachments."
+                }
+                p { class: "hint",
+                    "Each login can store up to {byte_size(v.quota_bytes)} of attachments. Sessions shared by two logins count for both."
+                }
+                if s.accounts.is_empty() {
+                    p { "Nothing stored yet." }
+                } else {
+                    table { class: "log",
+                        thead {
+                            tr { th { "Login" } th { "Sessions" } th { "Messages" } th { "Attachments" } th { "Device sync" } }
+                        }
+                        tbody {
+                            for a in s.accounts.iter() {
+                                tr { key: "{a.account}",
+                                    td { "{a.login}" }
+                                    td { "{a.sessions}" }
+                                    td { "{byte_size(a.message_bytes)}" }
+                                    td { "{byte_size(a.file_bytes)}" }
+                                    td { "{byte_size(a.device_sync_bytes)}" }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -1330,3 +1330,51 @@ async fn admin_log_page_shows_who_and_whom() {
     assert!(!writer.get("/notices").await.body.contains("boss"));
     server.stop().await.unwrap();
 }
+
+#[tokio::test]
+async fn the_sessions_tab_switches_attachments_and_shows_storage() {
+    let server = server!();
+    let mut admin = Browser::new(&server);
+    let csrf = admin.register("moderator", "night_desk").await;
+    let pool = server.db().await.unwrap();
+    sqlx::query("UPDATE accounts SET is_admin = true WHERE login_name = 'moderator'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+
+    let page = admin.get("/admin/settings/sessions").await;
+    assert!(
+        page.body.contains("Attachments in sessions"),
+        "{}",
+        page.body
+    );
+    assert!(
+        page.body.contains(r#"value="on" checked=true"#),
+        "{}",
+        page.body
+    );
+    assert!(page.body.contains("Nothing stored yet."));
+    let saved = admin
+        .post(
+            "/admin/settings/attachments",
+            &[("csrf", &csrf), ("attachments", "off")],
+        )
+        .await;
+    assert_eq!(
+        saved.location(),
+        "/admin/settings/sessions?notice=attachments-saved"
+    );
+    let page = admin.get("/admin/settings/sessions").await;
+    assert!(
+        page.body.contains(r#"value="off" checked=true"#),
+        "{}",
+        page.body
+    );
+    // Writers can't open it.
+    let mut writer = Browser::new(&server);
+    writer.register("alice", "ink_fox").await;
+    let refused = writer.get("/admin/settings/sessions").await;
+    assert!(!refused.body.contains("Attachments in sessions"));
+    server.stop().await.unwrap();
+}

@@ -841,3 +841,75 @@ pub async fn handle_remove(
         Err(e) => error_page(&c, e),
     }
 }
+
+// ---- Sessions ------------------------------------------------------------
+
+pub async fn sessions_page(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Query(q): Query<NoticeQuery>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let c = chrome(&state, Some(&s), Nav::ServerSettings, opt(&q.notice));
+    let limits = state.config.limits;
+    let loaded = async {
+        let attachments = server_settings::settings(&state).await?.attachments;
+        let mut conn = state.pool.acquire().await?;
+        let storage = crate::storage::server_storage(&mut conn, limits.account_quota_bytes).await?;
+        Ok::<_, ApiError>((attachments, storage))
+    }
+    .await;
+    match loaded {
+        Ok((attachments, storage)) => html(
+            StatusCode::OK,
+            quill_board_ui::admin_sessions_page(
+                &c,
+                quill_board_ui::AdminSessionsView {
+                    attachments,
+                    max_attachment_bytes: limits.max_attachment_bytes,
+                    quota_bytes: limits.account_quota_bytes,
+                    storage,
+                    error: None,
+                },
+            ),
+        ),
+        Err(e) => error_page(&c, e),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct AttachmentsForm {
+    csrf: Option<String>,
+    attachments: Option<String>,
+}
+
+pub async fn attachments_save(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Form(form): Form<AttachmentsForm>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let c = chrome(&state, Some(&s), Nav::ServerSettings, None);
+    if !s.csrf_matches(form.csrf.as_deref()) {
+        return csrf_failed(&c);
+    }
+    let on = match opt(&form.attachments) {
+        Some("on") => true,
+        Some("off") => false,
+        _ => return error_page(&c, ApiError::BadRequest("Choose a setting.".into())),
+    };
+    let body = UpdateServerSettings {
+        attachments: Some(on),
+        ..UpdateServerSettings::default()
+    };
+    match server_settings::update(&state, s.account_id, &body).await {
+        Ok(_) => redirect("/admin/settings/sessions?notice=attachments-saved"),
+        Err(e) => error_page(&c, e),
+    }
+}

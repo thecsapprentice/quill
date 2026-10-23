@@ -80,6 +80,11 @@ pub fn router() -> Router<AppState> {
             post(settings::tag_type_update),
         )
         .route("/admin/settings/new-tags", post(settings::new_tags_save))
+        .route("/admin/settings/sessions", get(settings::sessions_page))
+        .route(
+            "/admin/settings/attachments",
+            post(settings::attachments_save),
+        )
         .route("/admin/settings/tag-requests", get(settings::tag_requests))
         .route(
             "/admin/settings/handles",
@@ -312,6 +317,7 @@ fn notice_text(key: &str) -> Option<&'static str> {
         "tag-hidden" => "Tag hidden.",
         "tag-shown" => "Tag shown.",
         "new-tags-saved" => "Setting saved.",
+        "attachments-saved" => "Setting saved.",
         "tag-color" => "Colour saved.",
         "handles-reserved" => "Handles reserved.",
         "handle-removed" => "Handle no longer reserved.",
