@@ -5,8 +5,11 @@
 //! everything the client keeps. From Phase 2 it also owns all keys and MLS
 //! state; that is why the server must never depend on it.
 
+pub mod activity;
 pub mod client;
 pub mod devices;
+pub mod history;
+pub mod hlc;
 pub mod keys;
 pub mod mls;
 pub mod profile;

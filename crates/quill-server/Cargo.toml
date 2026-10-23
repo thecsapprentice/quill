@@ -37,7 +37,8 @@ url.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 time.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+futures-util.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true

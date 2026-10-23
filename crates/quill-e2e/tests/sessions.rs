@@ -117,6 +117,7 @@ async fn texts(store: &Store, client: &Client, id: &str) -> Vec<String> {
     sessions::read(store, client, id)
         .await
         .unwrap()
+        .messages
         .into_iter()
         .map(|m: Message| m.content)
         .collect()
@@ -193,7 +194,10 @@ async fn every_device_of_both_writers_joins_and_reads() {
     }
     // The tablet reads from when it joined.
     assert_eq!(texts(&tablet, &tablet_c, &id).await, &all[1..]);
-    let on_laptop = sessions::read(&laptop, &alice_c, &id).await.unwrap();
+    let on_laptop = sessions::read(&laptop, &alice_c, &id)
+        .await
+        .unwrap()
+        .messages;
     assert_eq!(on_laptop[3].channel, "planning");
     assert_eq!(on_laptop[1].sender, wren.actor_uri);
     assert_eq!(on_laptop[2].sender, fox.actor_uri);
@@ -268,7 +272,10 @@ async fn racing_adds_settle_and_revoked_devices_are_removed() {
         standing(&tablet, &tablet_c, &id).await,
         Standing::Broken(why) if why.contains("removed")
     ));
-    let held = sessions::read(&tablet, &tablet_c, &id).await.unwrap();
+    let held = sessions::read(&tablet, &tablet_c, &id)
+        .await
+        .unwrap()
+        .messages;
     assert!(!held.iter().any(|m| m.content == "After the tablet left."));
     server.stop().await.unwrap();
 }

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
-use quill_core::sessions::{self, Standing};
+use quill_core::sessions::{self, Message, Reading, Standing};
 use serde_json::json;
 
 use crate::Ctx;
@@ -18,6 +18,9 @@ pub enum SessionCommand {
         /// Only this channel.
         #[arg(long)]
         channel: Option<String>,
+        /// Stay open, printing new and changed messages as they arrive.
+        #[arg(long)]
+        follow: bool,
     },
     /// Write to a session.
     Write {
@@ -32,6 +35,19 @@ pub enum SessionCommand {
         #[arg(long)]
         channel: Option<String>,
     },
+    /// Change one of your messages. Every version is kept.
+    Edit {
+        id: String,
+        /// The message's number, as `read` shows it.
+        message: u64,
+        #[arg(long)]
+        text: String,
+    },
+    /// Delete one of your messages. It shows as deleted; its versions are
+    /// kept.
+    Delete { id: String, message: u64 },
+    /// Every version of a message.
+    History { id: String, message: u64 },
     /// Leave a session. With two writers, that ends it for both; what's
     /// been written stays readable.
     Leave { id: String },
@@ -43,6 +59,31 @@ fn standing_text(s: &Standing) -> String {
         Standing::Waiting => "waiting for another of your devices to add this one".into(),
         Standing::NoKeys => "no keys for this persona on this device".into(),
         Standing::Broken(why) => format!("stopped: {why}"),
+    }
+}
+
+fn print_messages(reading: &Reading, messages: &[&Message]) {
+    for m in messages {
+        let who = if m.own {
+            "you".to_owned()
+        } else {
+            sessions::sender_name(&reading.session, &m.sender)
+        };
+        let mark = if m.deleted {
+            " (deleted)"
+        } else if m.edited() {
+            " (edited)"
+        } else {
+            ""
+        };
+        println!("#{} [{}] {who}{mark}:", m.seq, m.channel);
+        if m.deleted {
+            println!("    deleted by author");
+            continue;
+        }
+        for line in m.content.lines() {
+            println!("    {line}");
+        }
     }
 }
 
@@ -86,23 +127,60 @@ pub async fn list(ctx: &Ctx) -> Result<()> {
 pub async fn session(ctx: &Ctx, cmd: SessionCommand) -> Result<()> {
     let client = ctx.client()?;
     match cmd {
-        SessionCommand::Read { id, channel } => {
-            let found = sessions::find(&client, &id).await?;
-            let messages = sessions::read(&ctx.store, &client, &found.id).await?;
-            let messages: Vec<_> = messages
-                .into_iter()
-                .filter(|m| channel.as_ref().is_none_or(|c| *c == m.channel))
-                .collect();
-            ctx.print(&messages, |messages| {
-                for m in messages {
-                    let who = if m.own {
-                        "you".to_owned()
-                    } else {
-                        sessions::sender_name(&found, &m.sender)
-                    };
-                    println!("#{} [{}] {who}:", m.seq, m.channel);
-                    for line in m.content.lines() {
-                        println!("    {line}");
+        SessionCommand::Read {
+            id,
+            channel,
+            follow,
+        } => {
+            let wanted = |m: &&Message| channel.as_ref().is_none_or(|c| *c == m.channel);
+            if follow {
+                let json = ctx.json;
+                return Ok(
+                    sessions::follow(&ctx.store, &client, &id, |reading, fresh| {
+                        let fresh: Vec<&Message> = fresh.iter().filter(wanted).collect();
+                        if json {
+                            for m in fresh {
+                                println!("{}", serde_json::to_string(m).unwrap_or_default());
+                            }
+                        } else {
+                            print_messages(reading, &fresh);
+                        }
+                        true
+                    })
+                    .await?,
+                );
+            }
+            let reading = sessions::read(&ctx.store, &client, &id).await?;
+            let messages: Vec<&Message> = reading.messages.iter().filter(wanted).collect();
+            ctx.print(&messages, |messages| print_messages(&reading, messages))?;
+            for g in &reading.gaps {
+                eprintln!(
+                    "warning: {} message(s) from one device never arrived; the server may be holding them back",
+                    g.missing.len()
+                );
+            }
+            Ok(())
+        }
+        SessionCommand::Edit { id, message, text } => {
+            let seq = sessions::edit(&ctx.store, &client, &id, message, &text).await?;
+            ctx.print(&json!({ "seq": seq }), |_| println!("edited #{message}"))
+        }
+        SessionCommand::Delete { id, message } => {
+            let seq = sessions::delete(&ctx.store, &client, &id, message).await?;
+            ctx.print(&json!({ "seq": seq }), |_| println!("deleted #{message}"))
+        }
+        SessionCommand::History { id, message } => {
+            let m = sessions::versions(&ctx.store, &client, &id, message).await?;
+            ctx.print(&m, |m| {
+                for (i, v) in m.versions.iter().enumerate() {
+                    println!("version {} (#{}, {}):", i + 1, v.seq, v.hlc);
+                    match &v.content {
+                        Some(text) => {
+                            for line in text.lines() {
+                                println!("    {line}");
+                            }
+                        }
+                        None => println!("    deleted"),
                     }
                 }
             })

@@ -241,8 +241,8 @@ before device linking, which needs it.
 | 2c | OpenMLS on the client; KeyPackage upload and claim; certificate checks on claimed packages | done (#11) |
 | 2d | Device linking and the personal device group, on the group message log and epoch sequencer | done (#12) |
 | 2e | Collaboration requests: request, approve, silent decline, 30-day expiry, one pending per prompt | done (#13) |
-| 2f | Sessions after acceptance: the session list, Welcomes for members' other and later devices, writing to the log, Leave | next |
-| 2g | Messages: ordering (HLC), history that is never lost, live delivery over SSE | planned |
+| 2f | Sessions after acceptance: the session list, Welcomes for members' other and later devices, writing to the log, Leave | done (#14) |
+| 2g | Messages: ordering (HLC), history that is never lost, live delivery over SSE | next |
 | 2h | Channels within a session | planned |
 | 2i | Attachments and size limits or quotas | planned |
 | 2j | Backup and recovery; safety numbers | planned |
@@ -595,9 +595,62 @@ isn't a valid device, is refused; two devices racing to add the same
 missing device end up consistent; a revoked device is removed and can't
 read what follows; and leaving ends the session for both.
 
+### 2g: Messages
+
+2f's messages are plain notes read in log order. 2g gives them the
+protocol draft's shape (section 5): writers' clocks decide the order on
+screen, edits and deletions keep every version, new messages arrive live,
+and the server learns when it may let go of ciphertext.
+
+- **Ordering.** Every message carries a hybrid logical clock value (`hlc`:
+  wall-clock milliseconds, a hyphen, a 4-digit counter) and an `authorSeq`.
+  Each channel shows its messages by `hlc`, then sender, then `authorSeq`.
+  The clock moves forward past every value a device reads, so a reply
+  always sorts after what it answers, even with a skewed clock or a draft
+  written offline. A value more than a day ahead of the reader's own clock
+  doesn't move its clock, so one bad clock can't drag everyone's forward.
+- **`authorSeq` counts per sending device**, not per writer: a writer's
+  devices send independently and can't share a counter without talking
+  first. A gap in a device's counter (between the first and last values
+  seen) means the server held messages back; `quill session read` says so.
+- **Edits and deletions keep every version.** An `Update` replaces a note's
+  text and a `Delete` hides it, both as new encrypted activities appended to
+  the log; the original stays. Only the original author's (the same
+  persona's) `Update` or `Delete` counts. Reading shows each message's
+  latest text, marked edited, or "deleted by author"; `quill session
+  history` shows every version. The server can't tell an edit from a new
+  message.
+- **Padding.** Application messages are padded to a multiple of 256 bytes
+  before encryption, so ciphertext sizes say less about what was written.
+- **Live delivery** (`GET /events`, server-sent events): an authenticated
+  stream of small notices for the login: a session or device-group message
+  was logged (group and position), a request is waiting on a prompt, a
+  session began or ended, and a device's KeyPackage pool ran low. Notices
+  carry no content; clients fetch and decrypt as before.
+  `quill session read ID --follow` stays open and prints new messages as
+  they arrive.
+- **Acknowledgements and retention.** Each device tells the server how far
+  it has read a session's log (`POST /sessions/{id}/ack`). These go only to
+  the server, never to the other writer. The server deletes a message once
+  every current device of both personas (valid in the directory) has
+  acknowledged it and a grace period of 7 days has passed. A device that
+  hasn't acknowledged anything holds everything, so nothing is deleted
+  before a device that will need it has read it. Deleting by age alone, for
+  devices that never come back, waits for 2j's history re-sync.
+
+Not in 2g: cover traffic (optional `IntransitiveActivity` messages), and
+`inReplyTo` and channel management, which are 2h.
+
+Done when: messages from devices with skewed clocks sort causally; a
+withheld message shows as a gap; edits and deletions show their latest
+state, keep every version, and are ignored when they come from the other
+writer; a second client sees a message within a second of its being sent;
+and acknowledged messages are deleted from the server only after every
+device has them.
+
 ### Later sub-phases
 
-2g to 2k follow the [plan](plan.md#writing-session-cryptography) and the
+2h to 2k follow the [plan](plan.md#writing-session-cryptography) and the
 [protocol draft](protocol-draft.md), with keys per persona throughout: one
 KeyPackage pool per persona and device, and one personal device group per
 account carrying every persona's identity key. Each gets a detailed section
@@ -639,6 +692,12 @@ ranges. Known so far:
     reports per hour.
   - Admin log: page sizes, accounts shown per row (5).
   - Certificates: clock-skew allowance (10 minutes).
+  - Requests and sessions: request expiry (30 days), requests per hour
+    (20), message retention grace period (7 days), low-pool notice
+    threshold (10), live notice buffer (1024).
+- **Client (sessions):** message padding (256 bytes), how far ahead a
+  clock may be and still move the reader's (1 day), longest pitch and
+  message.
 
 ## Phases 5 and 6
 

@@ -220,11 +220,15 @@ fn record_own(store: &Store, seq: u64) -> Result<(), CoreError> {
 /// reach the log after a commit for it from a member who hadn't seen it yet
 /// (both are valid for that epoch), so members read a little behind.
 pub(crate) const PAST_EPOCHS: usize = 5;
+/// Application messages are padded to a multiple of this many bytes, so
+/// ciphertext sizes say less about what was written.
+pub(crate) const PADDING: usize = 256;
 
 pub(crate) fn create_config() -> MlsGroupCreateConfig {
     MlsGroupCreateConfig::builder()
         .ciphersuite(CIPHERSUITE)
         .max_past_epochs(PAST_EPOCHS)
+        .padding_size(PADDING)
         .capabilities(mls::capabilities())
         .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
         .use_ratchet_tree_extension(true)
@@ -234,6 +238,7 @@ pub(crate) fn create_config() -> MlsGroupCreateConfig {
 pub(crate) fn join_config() -> MlsGroupJoinConfig {
     MlsGroupJoinConfig::builder()
         .max_past_epochs(PAST_EPOCHS)
+        .padding_size(PADDING)
         .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
         .use_ratchet_tree_extension(true)
         .build()

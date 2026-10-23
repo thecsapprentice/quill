@@ -92,15 +92,14 @@ async fn state_of(
     group: &[u8],
     epoch: i64,
 ) -> Result<GroupState, ApiError> {
-    let last: Option<i64> =
-        sqlx::query_scalar("SELECT max(seq) FROM group_messages WHERE group_id = $1")
-            .bind(group)
-            .fetch_one(conn)
-            .await?;
+    let last: i64 = sqlx::query_scalar("SELECT last_seq FROM mls_groups WHERE group_id = $1")
+        .bind(group)
+        .fetch_one(conn)
+        .await?;
     Ok(GroupState {
         group_id: b64(group),
         epoch: as_u64(epoch),
-        last_seq: as_u64(last.unwrap_or(0)),
+        last_seq: as_u64(last),
     })
 }
 
@@ -194,8 +193,10 @@ async fn post_message(
             "The group is at epoch {epoch}; catch up and try again."
         )));
     }
+    // Counted on the group, so numbers never repeat once old messages are
+    // deleted.
     let seq: i64 = sqlx::query_scalar(
-        "SELECT coalesce(max(seq), 0) + 1 FROM group_messages WHERE group_id = $1",
+        "UPDATE mls_groups SET last_seq = last_seq + 1 WHERE group_id = $1 RETURNING last_seq",
     )
     .bind(&group)
     .fetch_one(&mut *tx)
@@ -221,7 +222,15 @@ async fn post_message(
     } else {
         epoch
     };
+    let readers = crate::events::group_accounts(&mut tx, &group).await?;
     tx.commit().await?;
+    state.events.send(
+        readers,
+        quill_proto::events::Event::Message {
+            group: b64(&group),
+            seq: as_u64(seq),
+        },
+    );
     Ok(Json(Posted {
         seq: as_u64(seq),
         epoch: as_u64(epoch),
