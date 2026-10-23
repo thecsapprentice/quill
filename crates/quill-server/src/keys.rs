@@ -13,7 +13,8 @@ use axum::{
 };
 use quill_certs::{CertError, DeviceCertificate, DeviceRevocation, Expected};
 use quill_proto::keys::{
-    DeviceInfo, PersonaKeys, RegisterDevice, RevokeDevice, SetIdentityKey, actor_uri, b64, unb64,
+    ClaimedKeyPackage, DeviceInfo, KeyPackageClaim, KeyPackageStatus, PersonaKeys, RegisterDevice,
+    RevokeDevice, SetIdentityKey, UploadKeyPackages, actor_uri, b64, unb64,
 };
 use uuid::Uuid;
 
@@ -36,6 +37,14 @@ pub fn router() -> Router<AppState> {
             post(revoke_device),
         )
         .route("/actors/{handle}/keys", get(public_keys))
+        .route(
+            "/personas/{id}/devices/{device}/key-packages",
+            get(key_package_status).post(upload_key_packages),
+        )
+        .route(
+            "/actors/{handle}/key-packages/claim",
+            post(claim_key_packages),
+        )
 }
 
 /// A persona and its current identity key.
@@ -236,6 +245,11 @@ async fn register_device(
             .bind(cert.limited)
             .execute(&mut *tx)
             .await?;
+            // Its KeyPackages carry the old certificate.
+            sqlx::query("DELETE FROM key_packages WHERE device_id = $1")
+                .bind(device)
+                .execute(&mut *tx)
+                .await?;
             device
         }
         Some(_) => {
@@ -323,6 +337,10 @@ async fn revoke_device(
                 .bind(&raw)
                 .execute(&mut *tx)
                 .await?;
+            sqlx::query("DELETE FROM key_packages WHERE device_id = $1")
+                .bind(device)
+                .execute(&mut *tx)
+                .await?;
         }
     }
     let row: DeviceRow = sqlx::query_as(concat!(
@@ -351,4 +369,276 @@ async fn public_keys(
     .await?;
     let p = row.map(|r| persona(&state, r)).ok_or(ApiError::NotFound)?;
     keys_of(&state, &p).await.map(Json)
+}
+
+// ---- KeyPackages (2c) --------------------------------------------------------
+
+/// One-time packages a device may have waiting.
+const MAX_POOL: i64 = 100;
+/// Bytes per package; real ones are well under 1 KiB.
+const MAX_KEY_PACKAGE_BYTES: usize = 16 * 1024;
+/// Longest lifetime accepted (OpenMLS allows about 84 days).
+const MAX_LIFETIME_SECS: u64 = 90 * 86_400;
+/// Claims per account per hour.
+const CLAIMS_PER_HOUR: usize = 60;
+/// The device-certificate leaf extension (protocol draft, section 6).
+const DEVICE_CERT_EXTENSION: u16 = 0xF0A1;
+
+fn now_secs() -> u64 {
+    now_ms() / 1000
+}
+
+/// A device of one of the caller's personas that may publish packages: not
+/// revoked, and certified by the current identity key. Returns its key.
+async fn publishing_device(
+    state: &AppState,
+    p: &Persona,
+    device: Uuid,
+) -> Result<Vec<u8>, ApiError> {
+    let Some((_, version)) = &p.identity else {
+        return Err(ApiError::NotFound);
+    };
+    let row: Option<(Vec<u8>, i32, bool)> = sqlx::query_as(
+        "SELECT device_key, key_version, revocation IS NOT NULL
+         FROM devices WHERE id = $1 AND actor_id = $2",
+    )
+    .bind(device)
+    .bind(p.id)
+    .fetch_optional(&state.pool)
+    .await?;
+    match row {
+        None => Err(ApiError::NotFound),
+        Some((_, _, true)) => Err(ApiError::Conflict("That device is revoked.".into())),
+        Some((_, v, _)) if u32::try_from(v).ok() != Some(*version) => Err(ApiError::Conflict(
+            "That device needs certifying with the current identity key first.".into(),
+        )),
+        Some((key, ..)) => Ok(key),
+    }
+}
+
+async fn pool_status(state: &AppState, device: Uuid) -> Result<KeyPackageStatus, ApiError> {
+    let now = i64::try_from(now_secs()).unwrap_or(i64::MAX);
+    let (available, last_resort): (i64, Option<i64>) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE NOT last_resort),
+                max(not_after) FILTER (WHERE last_resort)
+         FROM key_packages WHERE device_id = $1 AND not_after > $2",
+    )
+    .bind(device)
+    .bind(now)
+    .fetch_one(&state.pool)
+    .await?;
+    Ok(KeyPackageStatus {
+        available: u32::try_from(available).unwrap_or(0),
+        last_resort_until: last_resort.and_then(|t| u64::try_from(t).ok()),
+    })
+}
+
+async fn key_package_status(
+    State(state): State<AppState>,
+    authed: Authed,
+    Path((id, device)): Path<(Uuid, Uuid)>,
+) -> Result<Json<KeyPackageStatus>, ApiError> {
+    let p = owned(&state, authed.account_id, id).await?;
+    publishing_device(&state, &p, device).await?;
+    pool_status(&state, device).await.map(Json)
+}
+
+/// Checks an uploaded package's public structure against the device it's
+/// filed under. Signatures are for claimers' clients to verify.
+fn check_upload(
+    text: &str,
+    actor_uri: &str,
+    device_key: &[u8],
+    last_resort: bool,
+) -> Result<(Vec<u8>, u64), ApiError> {
+    let raw = bytes("keyPackage", text)?;
+    if raw.len() > MAX_KEY_PACKAGE_BYTES {
+        return Err(ApiError::PayloadTooLarge);
+    }
+    let refuse = |why: &str| ApiError::BadRequest(format!("KeyPackage refused: {why}"));
+    let info = quill_mls_envelope::key_package::parse(&raw).map_err(|e| refuse(&e.to_string()))?;
+    if info.cipher_suite != quill_mls_envelope::key_package::CIPHERSUITE_X25519_AES128GCM_ED25519 {
+        return Err(refuse("unsupported ciphersuite"));
+    }
+    if info.identity != actor_uri.as_bytes() {
+        return Err(refuse("its credential names another actor"));
+    }
+    if info.signature_key != device_key {
+        return Err(refuse("it isn't signed by this device's key"));
+    }
+    if !info.leaf_extensions.contains(&DEVICE_CERT_EXTENSION) {
+        return Err(refuse("it has no device certificate"));
+    }
+    if info.last_resort != last_resort {
+        return Err(refuse(if last_resort {
+            "a last-resort package must be marked as one"
+        } else {
+            "a last-resort package can't go in the one-time pool"
+        }));
+    }
+    let now = now_secs();
+    if info.not_after <= now || info.not_before > now + 86_400 {
+        return Err(refuse("it's out of date"));
+    }
+    if info.not_after.saturating_sub(info.not_before) > MAX_LIFETIME_SECS {
+        return Err(refuse("its lifetime is too long"));
+    }
+    Ok((raw, info.not_after))
+}
+
+/// `POST /personas/{id}/devices/{device}/key-packages`.
+async fn upload_key_packages(
+    State(state): State<AppState>,
+    authed: Authed,
+    Path((id, device)): Path<(Uuid, Uuid)>,
+    ApiJson(body): ApiJson<UploadKeyPackages>,
+) -> Result<Json<KeyPackageStatus>, ApiError> {
+    let p = owned(&state, authed.account_id, id).await?;
+    let device_key = publishing_device(&state, &p, device).await?;
+    let one_time = body
+        .key_packages
+        .iter()
+        .map(|k| check_upload(k, &p.actor_uri, &device_key, false))
+        .collect::<Result<Vec<_>, _>>()?;
+    let last_resort = body
+        .last_resort
+        .as_deref()
+        .map(|k| check_upload(k, &p.actor_uri, &device_key, true))
+        .transpose()?;
+
+    let mut tx = state.pool.begin().await?;
+    // Lock the device row so concurrent uploads can't overfill the pool.
+    sqlx::query("SELECT 1 FROM devices WHERE id = $1 FOR UPDATE")
+        .bind(device)
+        .execute(&mut *tx)
+        .await?;
+    let now = i64::try_from(now_secs()).unwrap_or(i64::MAX);
+    sqlx::query("DELETE FROM key_packages WHERE device_id = $1 AND not_after <= $2")
+        .bind(device)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+    let pooled: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM key_packages WHERE device_id = $1 AND NOT last_resort",
+    )
+    .bind(device)
+    .fetch_one(&mut *tx)
+    .await?;
+    if pooled + i64::try_from(one_time.len()).unwrap_or(i64::MAX) > MAX_POOL {
+        return Err(ApiError::Conflict(format!(
+            "A device can have at most {MAX_POOL} KeyPackages waiting; it has {pooled}."
+        )));
+    }
+    for (raw, not_after) in &one_time {
+        sqlx::query(
+            "INSERT INTO key_packages (device_id, data, last_resort, not_after)
+             VALUES ($1, $2, false, $3)",
+        )
+        .bind(device)
+        .bind(raw)
+        .bind(i64::try_from(*not_after).unwrap_or(i64::MAX))
+        .execute(&mut *tx)
+        .await?;
+    }
+    if let Some((raw, not_after)) = &last_resort {
+        sqlx::query("DELETE FROM key_packages WHERE device_id = $1 AND last_resort")
+            .bind(device)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO key_packages (device_id, data, last_resort, not_after)
+             VALUES ($1, $2, true, $3)",
+        )
+        .bind(device)
+        .bind(raw)
+        .bind(i64::try_from(*not_after).unwrap_or(i64::MAX))
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    pool_status(&state, device).await.map(Json)
+}
+
+/// `POST /actors/{handle}/key-packages/claim`: one package per current
+/// device, removing one-time packages and falling back to the last-resort
+/// one. Devices with nothing in date are left out.
+async fn claim_key_packages(
+    State(state): State<AppState>,
+    authed: Authed,
+    Path(handle): Path<String>,
+) -> Result<Json<KeyPackageClaim>, ApiError> {
+    if !state.limiter.allow(
+        &format!("claim:{}", authed.account_id),
+        CLAIMS_PER_HOUR,
+        std::time::Duration::from_secs(3600),
+    ) {
+        return Err(ApiError::TooManyRequests);
+    }
+    let row: Option<PersonaRow> = sqlx::query_as(
+        "SELECT id, preferred_username, identity_key, identity_key_version
+         FROM actors WHERE preferred_username = lower($1)",
+    )
+    .bind(&handle)
+    .fetch_optional(&state.pool)
+    .await?;
+    let p = row.map(|r| persona(&state, r)).ok_or(ApiError::NotFound)?;
+    let Some((_, version)) = &p.identity else {
+        return Err(ApiError::Conflict(
+            "That persona has no keys, so it can't take part in sessions.".into(),
+        ));
+    };
+    let now = i64::try_from(now_secs()).unwrap_or(i64::MAX);
+    let mut tx = state.pool.begin().await?;
+    let devices: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM devices
+         WHERE actor_id = $1 AND revocation IS NULL AND key_version = $2
+         ORDER BY id",
+    )
+    .bind(p.id)
+    .bind(i32::try_from(*version).unwrap_or(i32::MAX))
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut packages = Vec::new();
+    for device in devices {
+        sqlx::query("DELETE FROM key_packages WHERE device_id = $1 AND not_after <= $2")
+            .bind(device)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        let one_time: Option<Vec<u8>> = sqlx::query_scalar(
+            "DELETE FROM key_packages WHERE id = (
+                 SELECT id FROM key_packages WHERE device_id = $1 AND NOT last_resort
+                 ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
+             RETURNING data",
+        )
+        .bind(device)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let (data, last_resort) = match one_time {
+            Some(d) => (d, false),
+            None => {
+                let lr: Option<Vec<u8>> = sqlx::query_scalar(
+                    "SELECT data FROM key_packages WHERE device_id = $1 AND last_resort",
+                )
+                .bind(device)
+                .fetch_optional(&mut *tx)
+                .await?;
+                match lr {
+                    Some(d) => (d, true),
+                    None => continue,
+                }
+            }
+        };
+        packages.push(ClaimedKeyPackage {
+            device,
+            key_package: b64(&data),
+            last_resort,
+        });
+    }
+    tx.commit().await?;
+    Ok(Json(KeyPackageClaim {
+        actor_uri: p.actor_uri,
+        handle: p.handle,
+        packages,
+    }))
 }

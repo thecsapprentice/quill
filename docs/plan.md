@@ -168,7 +168,7 @@ Each writing session is one MLS group, created and managed entirely by clients w
 ### Ciphersuite and identity
 
 - **Ciphersuite:** `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (the mandatory-to-implement suite), with `MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519` allowed for devices without AES hardware. Plan a migration path to a hybrid post-quantum KEM (X-Wing) once it is stable in OpenMLS; MLS supports this via group re-init.
-- **Crypto provider:** `openmls_rust_crypto` (RustCrypto backend). Pin `hpke-rs-rust-crypto` ≥ 0.6.0, which added the all-zero X25519 shared-secret check (RUSTSEC-2026-0072). Pin `openmls` ≥ 0.7.1 (GHSA-qr9h-x63w-vqfm, secret-tree persistence bug); current releases are 0.8.x.
+- **Crypto provider:** `openmls_rust_crypto` (RustCrypto backend). Pin `hpke-rs-rust-crypto` ≥ 0.6.0, which added the all-zero X25519 shared-secret check (RUSTSEC-2026-0072). Pin `openmls` ≥ 0.7.1 (GHSA-qr9h-x63w-vqfm, secret-tree persistence bug); the client uses 0.9.2 from 2c, with `openmls_rust_crypto` 0.6 (hpke-rs 0.7).
 - **Credential:** MLS `BasicCredential` whose identity is the ActivityPub actor URI, signed by a per-device Ed25519 signature key held only on the device. The same public key is published on the actor as a FEP-521a `Multikey` so other clients can cross-check it.
 
 ### Defending against key substitution

@@ -104,7 +104,8 @@ cargo run -p quill -- account notices        # what administrators did to your p
 # The CLI keeps its login and keys in an encrypted local store (keychain or passphrase).
 cargo run -p quill -- store status
 # Keys for a persona (needed for writing sessions), and checking anyone's.
-cargo run -p quill -- keys init --as your_handle
+cargo run -p quill -- keys init --as your_handle      # also publishes KeyPackages
+cargo run -p quill -- keys status --as your_handle    # KeyPackages waiting; `keys publish` tops up
 cargo run -p quill -- keys show some_handle
 cargo run -p quill -- device list --as your_handle
 cargo run -p quill -- admin namespace-set genre --required true   # every prompt needs a genre

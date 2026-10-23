@@ -237,8 +237,8 @@ before device linking, which needs it.
 | Sub-phase | Scope | Status |
 | --- | --- | --- |
 | 2a | Encrypted local store in `quill-core`; the CLI's login moves into it | done (#9) |
-| 2b | Identity keys per persona, device keys and certificates; the server's device directory | next |
-| 2c | OpenMLS on the client; KeyPackage upload and claim; certificate checks on claimed packages | planned |
+| 2b | Identity keys per persona, device keys and certificates; the server's device directory | done (#10) |
+| 2c | OpenMLS on the client; KeyPackage upload and claim; certificate checks on claimed packages | next |
 | 2d | Device linking and the personal device group | planned |
 | 2e | Collaboration requests: request, approve, silent decline, 30-day expiry, one pending per prompt | planned |
 | 2f | Session creation and Welcome delivery; the epoch sequencer | planned |
@@ -346,9 +346,56 @@ and revocation; a client detects a forged device or a swapped identity key
 even when the server accepts it; and a persona's keys reveal nothing that
 links it to the login's other personas.
 
+### 2c: OpenMLS, KeyPackages and claims
+
+A writer's client can now be added to an MLS group while they're offline: each
+device publishes KeyPackages, and anyone can claim one per device of a
+persona and check it. Groups themselves come in 2f.
+
+- **OpenMLS 0.9 on the client only**, with the RustCrypto provider and
+  ciphersuite `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`. The server's
+  dependency ban keeps it out of the server.
+- **MLS state in the encrypted store.** OpenMLS's storage interface is
+  implemented over the store (adapted from its in-memory storage, MIT), with
+  batches so the many writes of one MLS operation land together or not at
+  all.
+- **KeyPackages.** Credential: MLS `BasicCredential` whose identity is the
+  persona's actor URI. Signature key: this device's key for the persona
+  (2b). Leaf extension `0xF0A1` carries the device certificate, and the
+  leaf's capabilities list it so groups can require it. Lifetimes run from
+  the day before to 28 days after the UTC day they're made, so packages
+  made together for different personas share no telling timestamps.
+- **The pool.** Each device keeps up to 20 one-time KeyPackages per persona
+  on the server, plus one last-resort package (reused only when the others
+  run out, replaced when it nears expiry).
+  - `quill keys publish --as HANDLE [--count N]` tops it up.
+  - `quill keys status --as HANDLE` shows what's left.
+  - The server holds at most 100 one-time packages per device.
+- **Server checks** (structure only, no MLS library): `quill-mls-envelope`
+  parses a KeyPackage just far enough to check that it's MLS 1.0, our
+  ciphersuite, a basic credential naming this persona's actor URI, signed
+  by this registered, unrevoked, currently certified device key, carries a
+  certificate extension, and is in date. Signatures are for clients to
+  verify.
+- **Claims.** `POST /actors/{handle}/key-packages/claim` (signed in, rate
+  limited per account) returns one package per current device, removing
+  one-time packages as it hands them out and falling back to the
+  last-resort one. Expired packages are dropped.
+- **Checking a claim.** The claimer's client accepts a package only if
+  OpenMLS validates it (signatures, lifetime), its credential names the
+  persona, its signature key is a device the directory lists as valid, and
+  its certificate extension verifies under the persona's pinned identity
+  key. A changed identity key stops the claim until the user accepts it.
+  Anything else is reported and never used.
+
+Done when: a claimed package from every device of a persona passes the
+checks; tampered, substituted or uncertified packages are refused by the
+claimer even when the server hands them out; the pool drains to the
+last-resort package and refills; and MLS state survives reopening the store.
+
 ### Later sub-phases
 
-2c to 2k follow the [plan](plan.md#writing-session-cryptography) and the
+2d to 2k follow the [plan](plan.md#writing-session-cryptography) and the
 [protocol draft](protocol-draft.md), with keys per persona throughout: one
 KeyPackage pool per persona and device, and one personal device group per
 account carrying every persona's identity key. Each gets a detailed section

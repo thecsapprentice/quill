@@ -7,6 +7,7 @@
 
 pub mod client;
 pub mod keys;
+pub mod mls;
 pub mod profile;
 pub mod store;
 

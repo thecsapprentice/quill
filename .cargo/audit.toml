@@ -1,4 +1,18 @@
 # cargo audit configuration. Keep in step with deny.toml's [advisories]
 # ignore list, which explains each entry.
+#
+# cargo audit also reads optional dependencies that are listed in
+# Cargo.lock but never built. RUSTSEC-2026-0330 and -0331 (libcrux-kem) are
+# such: hpke-rs lists its libcrux backend as an optional dependency, and
+# OpenMLS's RustCrypto provider doesn't enable it (`cargo tree --target all
+# -e all -i hpke-rs-libcrux` prints nothing). cargo deny, which follows the
+# real build graph, doesn't report them.
 [advisories]
-ignore = ["RUSTSEC-2026-0370", "RUSTSEC-2026-0371", "RUSTSEC-2026-0372"]
+ignore = [
+  "RUSTSEC-2026-0370",
+  "RUSTSEC-2026-0371",
+  "RUSTSEC-2026-0372",
+  "RUSTSEC-2026-0173",
+  "RUSTSEC-2026-0330",
+  "RUSTSEC-2026-0331",
+]

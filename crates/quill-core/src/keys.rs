@@ -102,6 +102,11 @@ impl DeviceKey {
         self.key.verifying_key().to_bytes()
     }
 
+    /// Its MLS signature key.
+    pub(crate) fn signing_key(&self) -> &SigningKey {
+        &self.key
+    }
+
     fn encode(&self) -> Zeroizing<Vec<u8>> {
         let mut out = Zeroizing::new(self.id.unwrap_or(Uuid::nil()).as_bytes().to_vec());
         out.extend_from_slice(self.key.as_bytes());
@@ -119,6 +124,27 @@ impl DeviceKey {
             key: seed_of(&bytes[16..48])?,
             certificate: bytes[48..].to_vec(),
         })
+    }
+}
+
+/// A certified device key made directly from an identity key, for tests.
+#[cfg(test)]
+pub(crate) fn test_device(identity: &SigningKey, version: u32, actor_uri: &str) -> DeviceKey {
+    let key = generate().unwrap_or_else(|_| SigningKey::from_bytes(&[7; 32]));
+    let certificate = DeviceCertificate {
+        actor_uri: actor_uri.to_owned(),
+        device_key: key.verifying_key().to_bytes(),
+        identity_key_version: version,
+        limited: false,
+        not_before: day_start(now_ms()),
+        not_after: None,
+    }
+    .issue(identity)
+    .unwrap_or_default();
+    DeviceKey {
+        id: None,
+        key,
+        certificate,
     }
 }
 
@@ -380,6 +406,172 @@ pub async fn revoke(
         forget_device(store, persona.id)?;
     }
     Ok(info)
+}
+
+// ---- KeyPackages (2c) ------------------------------------------------------------
+
+/// One-time KeyPackages each device keeps on the server per persona.
+pub const POOL_TARGET: u32 = 20;
+/// Replace the last-resort package when it has less than this left.
+const LAST_RESORT_RENEW_SECS: u64 = 7 * 86_400;
+
+/// What [`publish`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublishOutcome {
+    pub uploaded: u32,
+    pub last_resort_renewed: bool,
+    pub available: u32,
+    pub last_resort_until: Option<u64>,
+}
+
+/// Tops up this device's KeyPackage pool for `persona` to `target`, and
+/// renews its last-resort package if it's missing or nearly expired.
+pub async fn publish(
+    store: &Store,
+    client: &Client,
+    persona: &Persona,
+    target: u32,
+) -> Result<PublishOutcome, CoreError> {
+    let device = load_device(store, persona.id)?.ok_or_else(|| {
+        keys_err(format!(
+            "this device has no key for @{}; run `quill keys init --as {}` first",
+            persona.handle, persona.handle
+        ))
+    })?;
+    let id = device.id.ok_or_else(|| {
+        keys_err(format!(
+            "this device isn't registered for @{} yet; run `quill keys init --as {}`",
+            persona.handle, persona.handle
+        ))
+    })?;
+    let status = client.key_package_status(persona.id, id).await?;
+    let now = now_ms() / 1000;
+    let one_time = target.saturating_sub(status.available);
+    let renew = status
+        .last_resort_until
+        .is_none_or(|until| until.saturating_sub(now) < LAST_RESORT_RENEW_SECS);
+    if one_time == 0 && !renew {
+        return Ok(PublishOutcome {
+            uploaded: 0,
+            last_resort_renewed: false,
+            available: status.available,
+            last_resort_until: status.last_resort_until,
+        });
+    }
+    let count = usize::try_from(one_time).unwrap_or(0);
+    let packages =
+        crate::mls::make_key_packages(store, &persona.actor_uri, &device, count, false, now)?;
+    let last_resort = if renew {
+        crate::mls::make_key_packages(store, &persona.actor_uri, &device, 1, true, now)?.pop()
+    } else {
+        None
+    };
+    let status = client
+        .upload_key_packages(
+            persona.id,
+            id,
+            &quill_proto::keys::UploadKeyPackages {
+                key_packages: packages.iter().map(|p| b64(p)).collect(),
+                last_resort: last_resort.as_deref().map(b64),
+            },
+        )
+        .await?;
+    Ok(PublishOutcome {
+        uploaded: one_time,
+        last_resort_renewed: renew,
+        available: status.available,
+        last_resort_until: status.last_resort_until,
+    })
+}
+
+/// A claimed KeyPackage that passed every check.
+#[derive(Debug)]
+pub struct ClaimedPackage {
+    pub device: Uuid,
+    pub key_package: openmls::prelude::KeyPackage,
+    pub last_resort: bool,
+}
+
+/// The result of claiming a persona's KeyPackages.
+#[derive(Debug, Default)]
+pub struct Claim {
+    pub packages: Vec<ClaimedPackage>,
+    /// Packages handed out but refused, with why. Never to be used.
+    pub refused: Vec<(Uuid, String)>,
+    /// Valid devices the server returned no package for.
+    pub missing: Vec<Uuid>,
+}
+
+/// Claims one KeyPackage per device of the persona at `actor_uri` and
+/// checks each against the directory and the pinned identity key. A
+/// changed identity key stops the claim until the user accepts it.
+pub async fn claim(
+    store: &Store,
+    client: &Client,
+    handle: &str,
+    actor_uri: &str,
+) -> Result<Claim, CoreError> {
+    let now = now_ms();
+    let published = client.actor_keys(handle).await?;
+    let checked = check_published(&published, actor_uri, now)?;
+    let (identity_key, version) = checked
+        .identity
+        .clone()
+        .ok_or_else(|| keys_err(format!("@{handle} has no keys yet")))?;
+    if let PinStatus::Changed { .. } = check_pin(store, actor_uri, &identity_key, version)? {
+        return Err(keys_err(format!(
+            "@{handle}'s identity key changed since it was pinned; check it with `quill keys show {handle}` first"
+        )));
+    }
+    let claimed = client.claim_key_packages(handle).await?;
+    if claimed.actor_uri != actor_uri {
+        return Err(keys_err("the server returned packages for another persona"));
+    }
+    let mut result = Claim::default();
+    for p in &claimed.packages {
+        let Some(device) = checked.devices.iter().find(|d| d.id == p.device) else {
+            result
+                .refused
+                .push((p.device, "not a device the directory lists".into()));
+            continue;
+        };
+        if !matches!(device.status, DeviceStatus::Valid { .. }) {
+            result
+                .refused
+                .push((p.device, format!("its device is {:?}", device.status)));
+            continue;
+        }
+        let checked_package = unb64(&p.key_package)
+            .ok_or_else(|| keys_err("not base64url"))
+            .and_then(|bytes| {
+                crate::mls::check_key_package(
+                    &bytes,
+                    &crate::mls::PackageExpect {
+                        actor_uri,
+                        identity_key: &identity_key,
+                        identity_key_version: version,
+                        device_key: &device.device_key,
+                        now_ms: now,
+                    },
+                )
+            });
+        match checked_package {
+            Ok(key_package) => result.packages.push(ClaimedPackage {
+                device: p.device,
+                key_package,
+                last_resort: p.last_resort,
+            }),
+            Err(e) => result.refused.push((p.device, e.to_string())),
+        }
+    }
+    result.missing = checked
+        .devices
+        .iter()
+        .filter(|d| matches!(d.status, DeviceStatus::Valid { .. }))
+        .filter(|d| !claimed.packages.iter().any(|p| p.device == d.id))
+        .map(|d| d.id)
+        .collect();
+    Ok(result)
 }
 
 // ---- Checking published keys ------------------------------------------------

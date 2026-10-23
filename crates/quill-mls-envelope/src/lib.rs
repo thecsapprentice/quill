@@ -4,6 +4,10 @@
 //! and sequence it: `group_id`, `epoch` and `content_type` (RFC 9420,
 //! section 6.3). This crate will parse exactly those, and nothing else.
 //!
+//! It also reads the public structure of a KeyPackage ([`key_package`]),
+//! so the server can check an upload belongs to the device it's filed
+//! under. It verifies no signatures: clients do that.
+//!
 //! Contract (enforced by `scripts/check-server-deps.sh`): this crate must never
 //! depend on an MLS crypto provider, an HPKE implementation, or `quill-core`.
 //! It is implemented in Phase 2.
@@ -31,6 +35,8 @@ impl WireFormat {
         }
     }
 }
+
+pub mod key_package;
 
 #[cfg(test)]
 mod tests {

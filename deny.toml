@@ -17,6 +17,11 @@ ignore = [
   { id = "RUSTSEC-2026-0370", reason = "zvariant merged into zbus 6; client-only, Linux keychain" },
   { id = "RUSTSEC-2026-0371", reason = "zbus_names merged into zbus 6; client-only, Linux keychain" },
   { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6; client-only, Linux keychain" },
+  # Unmaintained proc-macro helper, used only at build time by hax-lib's
+  # verification annotations in libcrux-sha3 (via hpke-rs, via OpenMLS's
+  # RustCrypto provider). Client-only; no code from it runs. Remove when
+  # libcrux drops it.
+  { id = "RUSTSEC-2026-0173", reason = "build-time proc macro in libcrux-sha3's annotations; client-only" },
 ]
 
 [licenses]

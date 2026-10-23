@@ -426,6 +426,41 @@ impl Client {
         Self::json(Self::with_json(builder, body)).await
     }
 
+    pub async fn key_package_status(
+        &self,
+        persona: Uuid,
+        device: Uuid,
+    ) -> Result<quill_proto::keys::KeyPackageStatus, CoreError> {
+        Self::json(self.authed(
+            Method::GET,
+            &format!("/personas/{persona}/devices/{device}/key-packages"),
+        )?)
+        .await
+    }
+
+    pub async fn upload_key_packages(
+        &self,
+        persona: Uuid,
+        device: Uuid,
+        body: &quill_proto::keys::UploadKeyPackages,
+    ) -> Result<quill_proto::keys::KeyPackageStatus, CoreError> {
+        let builder = self.authed(
+            Method::POST,
+            &format!("/personas/{persona}/devices/{device}/key-packages"),
+        )?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    /// Claims one KeyPackage per current device of a persona.
+    pub async fn claim_key_packages(
+        &self,
+        handle: &str,
+    ) -> Result<quill_proto::keys::KeyPackageClaim, CoreError> {
+        let builder =
+            self.authed_segments(Method::POST, "/actors", &[handle, "key-packages", "claim"])?;
+        Self::json(builder).await
+    }
+
     /// Any persona's published keys. Needs no login.
     pub async fn actor_keys(
         &self,

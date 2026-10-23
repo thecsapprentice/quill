@@ -382,6 +382,12 @@ impl Store {
         self.kv.apply(ops)
     }
 
+    /// How many entries a table holds (tests).
+    #[cfg(test)]
+    pub(crate) fn scan_count(&self, table: Table) -> usize {
+        self.kv.scan(table, b"").map(|v| v.len()).unwrap_or(0)
+    }
+
     // ---- Profile: the server and login token ----------------------------
 
     fn text(&self, table: Table, key: &[u8]) -> Result<Option<Zeroizing<String>>, StoreError> {
