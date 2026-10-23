@@ -242,8 +242,8 @@ before device linking, which needs it.
 | 2d | Device linking and the personal device group, on the group message log and epoch sequencer | done (#12) |
 | 2e | Collaboration requests: request, approve, silent decline, 30-day expiry, one pending per prompt | done (#13) |
 | 2f | Sessions after acceptance: the session list, Welcomes for members' other and later devices, writing to the log, Leave | done (#14) |
-| 2g | Messages: ordering (HLC), history that is never lost, live delivery over SSE | next |
-| 2h | Channels within a session | planned |
+| 2g | Messages: ordering (HLC), history that is never lost, live delivery over SSE | done (#15) |
+| 2h | Channels within a session | next |
 | 2i | Attachments and size limits or quotas | planned |
 | 2j | Backup and recovery; safety numbers | planned |
 | 2k | Phase gate: the plaintext-canary test and the database-dump audit | planned |
@@ -648,9 +648,46 @@ writer; a second client sees a message within a second of its being sent;
 and acknowledged messages are deleted from the server only after every
 device has them.
 
+### 2h: Channels
+
+A session is one MLS group and one log; channels live entirely inside the
+encrypted activities (plan: channel tag in the payload), so the server
+can't tell planning from story, or how many channels a session has. 2g
+already carries a `channel` on every activity; 2h makes channels something
+writers can see, name, and move between. Nothing changes on the server.
+
+- **Names.** `story` and `planning` always exist. Other names follow slug
+  rules: lowercase letters, digits and single hyphens, 1 to 32 characters.
+  A device refuses to send to a name that breaks them; one received from
+  the other writer's client is filed under `story`, with the note kept as
+  sent.
+- **Naming a channel** (`quill session channel add ID NAME [--about
+  TEXT]`): an encrypted `Create` of a `wr:Channel` object, so the channel
+  shows for both writers before anything is written in it. `--about`
+  again replaces the description (an `Update`), keeping earlier versions
+  as for notes. Either writer can describe any channel. Channels are never
+  deleted, since nothing in a session is lost; writing in one names it
+  too.
+- **Replies across channels** (`quill session write ID --reply-to N`): a
+  note can carry `inReplyTo`, the id of another note in any channel ("see
+  the planning note"). Reading shows what a note answers and where it is;
+  a reply to a note this device never received says so.
+- **Each channel in its own order:** `quill session read ID --channel
+  NAME` shows one channel by its clock order, as 2g does for the whole
+  session.
+- **The channel list** (`quill session channels ID`): every channel with
+  its description, how many notes it has, and how many this device hasn't
+  shown yet. That count is kept only on the device: no read status ever
+  reaches the other writer or the server.
+
+Done when: both writers see a named channel before anything is written in
+it; notes sort within their channel; a reply links across channels; a
+malformed channel name can't create a channel; and the server's view of
+a session (its log and its notices) is the same with one channel or many.
+
 ### Later sub-phases
 
-2h to 2k follow the [plan](plan.md#writing-session-cryptography) and the
+2i to 2k follow the [plan](plan.md#writing-session-cryptography) and the
 [protocol draft](protocol-draft.md), with keys per persona throughout: one
 KeyPackage pool per persona and device, and one personal device group per
 account carrying every persona's identity key. Each gets a detailed section
