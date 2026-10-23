@@ -243,8 +243,8 @@ before device linking, which needs it.
 | 2e | Collaboration requests: request, approve, silent decline, 30-day expiry, one pending per prompt | done (#13) |
 | 2f | Sessions after acceptance: the session list, Welcomes for members' other and later devices, writing to the log, Leave | done (#14) |
 | 2g | Messages: ordering (HLC), history that is never lost, live delivery over SSE | done (#15) |
-| 2h | Channels within a session | next |
-| 2i | Attachments and size limits or quotas | planned |
+| 2h | Channels within a session | done (#16) |
+| 2i | Attachments and size limits or quotas | next |
 | 2j | Backup and recovery; safety numbers | planned |
 | 2k | Phase gate: the plaintext-canary test and the database-dump audit | planned |
 
@@ -685,9 +685,60 @@ it; notes sort within their channel; a reply links across channels; a
 malformed channel name can't create a channel; and the server's view of
 a session (its log and its notices) is the same with one channel or many.
 
+### 2i: Attachments, limits and quotas
+
+Writers can attach files to messages. Decided 2026-10-23: any file type,
+with size caps and nothing else. The server can't see what a file is, and
+any type check a client could make is defeated by renaming. Cleaning images
+(stripping metadata such as GPS, re-encoding) and showing them wait for the
+GUI, which is the first client that renders anything; 2i makes sure
+messages can carry attachments that a later client can show.
+
+- **Encrypted blobs** (plan: encrypted blob plus key in the message). The
+  sending device encrypts each file with a fresh 256-bit key (AES-256-GCM,
+  one shot), pads the ciphertext to a size bucket, and uploads it to the
+  session (`POST /sessions/{id}/blobs`). The server returns an id and a
+  random capability token, keeping only the token's hash.
+- **The message carries the rest.** The note's `attachment` list holds an
+  `EncryptedAttachment` for each file (protocol draft, section 5): its URL,
+  token, key, nonce, plaintext SHA-256, size, name and media type. The
+  media type is only a label from the file name; nothing checks it. The
+  server sees a blob of a bucketed size and nothing else.
+- **Size buckets:** powers of two from 4 KiB up to the attachment limit
+  (10 MiB). The server refuses any other size, so it learns only the
+  bucket.
+- **Fetching:** `GET /blobs/{id}` needs a login in the session and the
+  capability token. Each device fetches, decrypts and checks every
+  attachment as it reads the message that carries it, keeps the file in its
+  encrypted store, and only then acknowledges the message. So 2g's
+  retention also covers blobs.
+- **Retention:** posting a message names the blobs it carries, binding
+  them to its log position. A blob goes when its message does: every
+  device has acknowledged it and the grace period has passed. A blob no
+  message names is deleted after a day.
+- **Limits and quotas:**
+  - Requests: the attachment limit is enforced while the body is read, so
+    an oversized upload is cut off without being buffered.
+  - Quota: each login may store up to 500 MiB of blobs at once.
+  - Rate: 30 messages per minute per login.
+  - Clients refuse to fetch or decrypt more than the server's advertised
+    attachment limit.
+- **CLI:** `quill session write ID --attach FILE` (repeatable); `read`
+  lists each message's attachments; `quill session save ID N --to DIR`
+  writes them out.
+
+Not in 2i: inline base64 images, image cleaning and rendering (GUI), and
+fetching blobs through one's own server from another (Phase 3).
+
+Done when: a file attached on one device arrives intact on every device of
+both writers; a changed byte is caught; the server sees only bucketed
+sizes; a blob can't be fetched without its token or by a login outside the
+session; quotas and limits refuse what's over them; and a blob is deleted
+with the message that carries it.
+
 ### Later sub-phases
 
-2i to 2k follow the [plan](plan.md#writing-session-cryptography) and the
+2j and 2k follow the [plan](plan.md#writing-session-cryptography) and the
 [protocol draft](protocol-draft.md), with keys per persona throughout: one
 KeyPackage pool per persona and device, and one personal device group per
 account carrying every persona's identity key. Each gets a detailed section
@@ -777,6 +828,9 @@ done.
   the group, the Welcome and the pitch, and acceptance registers the group
   on the message log. 2f covers sessions from there: the session list,
   Welcomes for members' other and later devices, writing, and Leave.
+- **2i, attachments (decided 2026-10-23):** any file type, size caps only;
+  no type checks, which renaming defeats. Image cleaning (metadata
+  stripping, re-encoding) and rendering wait for the GUI.
 - **2d, scope (decided 2026-10-23):** the group message log and epoch
   sequencer move from 2f into 2d, since the personal device group needs
   them; 2f builds session groups on them. Only full devices are linked;
