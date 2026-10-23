@@ -51,8 +51,10 @@ mod tests {
 
     #[test]
     fn the_list_is_the_bip39_english_list() {
+        // As published, with LF line endings (a checkout could add CRs).
+        let lf = LIST.replace("\r\n", "\n");
         assert_eq!(
-            hex(&Sha256::digest(LIST.as_bytes())),
+            hex(&Sha256::digest(lf.as_bytes())),
             "2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda"
         );
         let l = list();
