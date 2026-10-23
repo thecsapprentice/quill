@@ -83,7 +83,7 @@ async fn old_messages_go_and_readers_from_before_them_get_gone() {
     }
     // Inside the retention period, nothing goes.
     age(&db, &gid, &[1, 2], 29).await;
-    let swept = retention::sweep(&db, 30).await.unwrap();
+    let swept = retention::sweep(&db, Some(30)).await.unwrap();
     assert_eq!(swept.aged, 0);
     assert_eq!(
         alice
@@ -96,7 +96,19 @@ async fn old_messages_go_and_readers_from_before_them_get_gone() {
     );
 
     age(&db, &gid, &[1, 2], 31).await;
-    assert_eq!(retention::sweep(&db, 30).await.unwrap().aged, 2);
+    // With deleting by age turned off (QUILL_RETENTION_DAYS=-1), everything
+    // stays however old.
+    assert_eq!(retention::sweep(&db, None).await.unwrap().aged, 0);
+    assert_eq!(
+        alice
+            .group_messages(&g, &after(0))
+            .await
+            .unwrap()
+            .messages
+            .len(),
+        3
+    );
+    assert_eq!(retention::sweep(&db, Some(30)).await.unwrap().aged, 2);
     let pruned: i64 =
         sqlx::query_scalar("SELECT pruned_through FROM mls_groups WHERE group_id = $1")
             .bind(gid.as_slice())
@@ -197,7 +209,7 @@ async fn the_device_group_takes_blobs_only_its_login_can_use() {
         .await
         .unwrap();
     age(&db, &gid, &[1], 31).await;
-    let swept = retention::sweep(&db, 30).await.unwrap();
+    let swept = retention::sweep(&db, Some(30)).await.unwrap();
     assert_eq!((swept.aged, swept.blobs), (1, 1));
     let e = alice.fetch_blob(&url, &up.token, max).await.unwrap_err();
     assert_eq!(e.status(), Some(404), "{e}");
@@ -214,4 +226,23 @@ async fn the_device_group_takes_blobs_only_its_login_can_use() {
         .await
         .unwrap();
     assert_eq!(left, 0);
+}
+
+#[tokio::test]
+async fn a_server_keeping_messages_regardless_of_age_says_so() {
+    let Some(server) = TestServer::start_with(|c| c.limits.retention_days = None)
+        .await
+        .unwrap()
+    else {
+        return;
+    };
+    let info = server.client().instance().await.unwrap();
+    assert_eq!(info.limits.retention_days, None);
+    let raw: serde_json::Value = reqwest::get(format!("{}/api/v1/instance", server.url()))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(raw["limits"]["retentionDays"].is_null(), "{raw}");
 }

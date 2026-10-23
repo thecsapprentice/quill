@@ -67,12 +67,16 @@ pub(crate) async fn delete_orphan_blobs(
     Ok(deleted.rows_affected())
 }
 
-/// One pass: deletes by age, then what's acknowledged and past the grace
+/// One pass: deletes by age (unless `retention_days` is `None`, set by
+/// `QUILL_RETENTION_DAYS=-1`), then what's acknowledged and past the grace
 /// period (which no new acknowledgement may come along to trigger), then
 /// orphaned blobs and stale rejoin requests.
-pub async fn sweep(pool: &PgPool, retention_days: u32) -> Result<Swept, ApiError> {
+pub async fn sweep(pool: &PgPool, retention_days: Option<u32>) -> Result<Swept, ApiError> {
     let mut tx = pool.begin().await?;
-    let aged = delete_aged(&mut tx, retention_days).await?;
+    let aged = match retention_days {
+        Some(days) => delete_aged(&mut tx, days).await?,
+        None => 0,
+    };
     let groups: Vec<Vec<u8>> = sqlx::query_scalar(
         "SELECT DISTINCT m.group_id FROM group_messages m
          JOIN sessions s ON s.group_id = m.group_id

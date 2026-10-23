@@ -37,7 +37,10 @@ pub struct Limits {
     pub max_attachment_bytes: u64,
     pub max_envelope_bytes: u64,
     pub request_expiry_days: u32,
-    pub retention_days: u32,
+    /// How long the server keeps ciphertext, read or not; `None` (`null`)
+    /// when it keeps it until every device has read it (2k).
+    #[serde(default = "default_retention")]
+    pub retention_days: Option<u32>,
     /// Blobs a login may store at once, in bytes.
     #[serde(default = "default_quota")]
     pub account_quota_bytes: u64,
@@ -46,6 +49,10 @@ pub struct Limits {
     /// The largest backup a login may keep.
     #[serde(default = "default_backup")]
     pub max_backup_bytes: u64,
+}
+
+fn default_retention() -> Option<u32> {
+    Some(crate::limits::DEFAULT_RETENTION_DAYS)
 }
 
 fn default_backup() -> u64 {
@@ -68,7 +75,7 @@ impl Default for Limits {
             max_attachment_bytes: DEFAULT_MAX_ATTACHMENT_BYTES,
             max_envelope_bytes: DEFAULT_MAX_ENVELOPE_BYTES,
             request_expiry_days: DEFAULT_REQUEST_EXPIRY_DAYS,
-            retention_days: DEFAULT_RETENTION_DAYS,
+            retention_days: Some(DEFAULT_RETENTION_DAYS),
             account_quota_bytes: DEFAULT_ACCOUNT_QUOTA_BYTES,
             messages_per_minute: DEFAULT_MESSAGES_PER_MINUTE,
             max_backup_bytes: DEFAULT_MAX_BACKUP_BYTES,

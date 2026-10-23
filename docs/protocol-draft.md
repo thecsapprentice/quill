@@ -296,6 +296,7 @@ As built in 2k, for history:
 - A device of the login that has read past `to` (or to the end of an ended session) with no gap of its own in the range answers with `HistoryBundle {forDevice, session, from, to, parts, last}`. Each part is an `EncryptedAttachment` for a blob in the device group (`POST /groups/{id}/blobs`): either JSON rows (the notes with a version in the range, with every version; every channel and its descriptions; the `authorSeq` values seen per device), or one file the notes carry, named by its original attachment URL. At most 10 blobs per message; more parts go in more messages, the final one marked `last`.
 - The asker merges: notes it lacks are added, notes it has gain the versions they lack (by log position; none is ever dropped), counts are joined. Once `last` arrives with every part, the range is had. It then deletes the bundle's blobs (`DELETE /blobs/{id}`, allowed only for the login's own device group). Another device seeing an answer to a request it holds drops the request.
 - A request nobody answers is sent again after 7 days, and dropped by the devices holding it after 30.
+- The server deletes ciphertext older than `retentionDays` whether or not it was read. A server that keeps it regardless of age (`QUILL_RETENTION_DAYS=-1`) publishes `retentionDays: null`; messages then go only once every device has read them.
 - These are JSON objects tagged by `type` inside the device group's MLS messages, like the 2d payloads, not ActivityStreams activities.
 
 ## 6. Binary formats

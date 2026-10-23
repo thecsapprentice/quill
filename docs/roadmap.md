@@ -861,7 +861,9 @@ devices instead of from the server.
   session's and the device group's ciphertext once it's older than the
   retention period (published as `retentionDays`, 30 days by default,
   `QUILL_RETENTION_DAYS`), and with it the blobs it carried, whatever the
-  acknowledgements say. Deleting once every device has acknowledged, after
+  acknowledgements say. `QUILL_RETENTION_DAYS=-1` turns this off: messages
+  then stay until every device has read them, however old, and
+  `retentionDays` is published as `null`. Deleting once every device has acknowledged, after
   the 7-day grace, carries on as before. A sweep runs hourly.
 - **Devices that fell behind** (plan: idle devices).
   - The server records how far each group's log has been deleted. Asking

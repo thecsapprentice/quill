@@ -292,7 +292,7 @@ async fn age_and_sweep(db: &sqlx::PgPool, kind: &str) {
     .execute(db)
     .await
     .unwrap();
-    let swept = quill_server::retention::sweep(db, 30).await.unwrap();
+    let swept = quill_server::retention::sweep(db, Some(30)).await.unwrap();
     assert!(swept.aged > 0);
 }
 
