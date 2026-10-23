@@ -11,6 +11,7 @@ pub mod backup;
 pub mod client;
 pub mod devices;
 pub mod history;
+pub mod history_sync;
 pub mod hlc;
 pub mod keys;
 pub mod mls;

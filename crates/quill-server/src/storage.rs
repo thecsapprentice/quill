@@ -77,10 +77,14 @@ pub(crate) async fn account_storage(
     .bind(account)
     .fetch_all(&mut *conn)
     .await?;
+    // The device group's messages and blobs (history bundles, 2k).
     let device_sync: i64 = sqlx::query_scalar(
-        "SELECT coalesce(sum(octet_length(m.data)), 0)::bigint
-         FROM group_messages m JOIN mls_groups g ON g.group_id = m.group_id
-         WHERE g.kind = 'personal' AND g.account_id = $1",
+        "SELECT ((SELECT coalesce(sum(octet_length(m.data)), 0)
+                 FROM group_messages m JOIN mls_groups g ON g.group_id = m.group_id
+                 WHERE g.kind = 'personal' AND g.account_id = $1)
+              + (SELECT coalesce(sum(b.size), 0)
+                 FROM blobs b JOIN mls_groups g ON g.group_id = b.group_id
+                 WHERE g.kind = 'personal' AND g.account_id = $1))::bigint",
     )
     .bind(account)
     .fetch_one(&mut *conn)

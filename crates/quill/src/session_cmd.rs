@@ -88,6 +88,10 @@ fn standing_text(s: &Standing) -> String {
         Standing::Joined => "joined".into(),
         Standing::Waiting => "waiting for another of your devices to add this one".into(),
         Standing::NoKeys => "no keys for this persona on this device".into(),
+        Standing::Rejoining => {
+            "away too long: waiting to be let back in by another of your devices or the other writer"
+                .into()
+        }
         Standing::Broken(why) => format!("stopped: {why}"),
     }
 }
@@ -107,7 +111,13 @@ pub enum ChannelCommand {
 
 fn print_messages(store: &Store, reading: &Reading, messages: &[&Message]) {
     for m in messages {
-        let who = if m.own {
+        // Sent by this login's persona, from this device or another.
+        let mine = reading
+            .session
+            .members
+            .iter()
+            .any(|x| x.persona.is_some() && x.actor_uri == m.sender);
+        let who = if m.own || mine {
             "you".to_owned()
         } else {
             sessions::sender_name(&reading.session, &m.sender)
@@ -162,6 +172,7 @@ pub async fn list(ctx: &Ctx) -> Result<()> {
                 "ended": l.session.ended,
                 "standing": standing_text(&l.standing),
                 "messages": l.messages,
+                "historyIncomplete": l.history_missing.is_some(),
                 "verified": sessions::verified(&ctx.store, &l.session).unwrap_or(false),
             })
         })
@@ -181,11 +192,16 @@ pub async fn list(ctx: &Ctx) -> Result<()> {
                 ""
             };
             println!(
-                "{}  @{me} with {partner}{mark}  {}{}  {} messages",
+                "{}  @{me} with {partner}{mark}  {}{}  {} messages{}",
                 l.session.id,
                 if l.session.ended { "ended, " } else { "" },
                 standing_text(&l.standing),
-                l.messages
+                l.messages,
+                if l.history_missing.is_some() {
+                    " (earlier history still to come from your other devices)"
+                } else {
+                    ""
+                }
             );
         }
     })
@@ -223,11 +239,18 @@ pub async fn session(ctx: &Ctx, cmd: SessionCommand) -> Result<()> {
                 print_messages(&ctx.store, &reading, messages)
             })?;
             sessions::mark_shown(&ctx.store, &reading, channel.as_deref())?;
-            for g in &reading.gaps {
+            if reading.history_missing.is_some() {
+                // Until it arrives, numbers missing in between are expected.
                 eprintln!(
-                    "warning: {} message(s) from one device never arrived; the server may be holding them back",
-                    g.missing.len()
+                    "note: this device doesn't have all of the session's earlier history yet; your other devices send it when they next run"
                 );
+            } else {
+                for g in &reading.gaps {
+                    eprintln!(
+                        "warning: {} message(s) from one device never arrived; the server may be holding them back",
+                        g.missing.len()
+                    );
+                }
             }
             Ok(())
         }

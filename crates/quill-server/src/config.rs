@@ -52,7 +52,10 @@ impl Config {
             reserved_handles_file: std::env::var_os("QUILL_RESERVED_HANDLES_FILE")
                 .filter(|v| !v.is_empty())
                 .map(Into::into),
-            limits: Limits::default(),
+            limits: Limits {
+                retention_days: retention_days()?,
+                ..Limits::default()
+            },
             attachments: parse_or("QUILL_ATTACHMENTS", true)?,
         })
     }
@@ -72,6 +75,25 @@ impl Config {
             limits: Limits::default(),
             attachments: true,
         }
+    }
+}
+
+/// `QUILL_RETENTION_DAYS`: how long the server keeps any ciphertext, read
+/// or not (2k). Clients that are away longer catch up from their other
+/// devices. `-1` turns deleting by age off: messages then stay until every
+/// device has read them.
+fn retention_days() -> Result<Option<u32>> {
+    let default = Limits::default().retention_days.map_or(-1, i64::from);
+    parse_retention(parse_or("QUILL_RETENTION_DAYS", default)?)
+}
+
+fn parse_retention(days: i64) -> Result<Option<u32>> {
+    match days {
+        -1 => Ok(None),
+        1..=3650 => Ok(u32::try_from(days).ok()),
+        _ => anyhow::bail!(
+            "QUILL_RETENTION_DAYS must be from 1 to 3650, or -1 to keep messages regardless of age"
+        ),
     }
 }
 
@@ -98,5 +120,19 @@ where
     match std::env::var(name) {
         Ok(v) => v.parse().with_context(|| format!("{name} is invalid")),
         Err(_) => Ok(default),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retention_is_days_or_off() {
+        assert_eq!(parse_retention(30).unwrap(), Some(30));
+        assert_eq!(parse_retention(-1).unwrap(), None);
+        for bad in [0, -2, 3651] {
+            assert!(parse_retention(bad).is_err(), "{bad}");
+        }
     }
 }

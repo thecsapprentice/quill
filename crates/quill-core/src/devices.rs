@@ -59,9 +59,23 @@ const K_OWN: &[u8] = b"own";
 const K_PENDING: &[u8] = b"pending-link";
 const K_REMOVED: &[u8] = b"removed";
 const K_ANNOUNCED: &[u8] = b"announced";
+/// This device fell behind the device group: what it needed to follow it
+/// was deleted, so it must be linked again (2k).
+const K_STALE: &[u8] = b"stale";
+/// History requests from the login's other devices, waiting for an answer.
+pub(crate) const K_ASKS: &[u8] = b"history-asks";
+/// History bundles for this device, waiting to be fetched and merged.
+pub(crate) const K_INBOX: &[u8] = b"history-inbox";
 
 fn err(msg: impl Into<String>) -> CoreError {
     CoreError::Keys(msg.into())
+}
+
+/// The error for a device that fell behind the device group.
+fn fell_behind() -> CoreError {
+    err(
+        "this device was away longer than the server keeps your devices' messages: link it again with `quill device link` (its keys and sessions stay)",
+    )
 }
 
 fn conflict(e: &CoreError) -> bool {
@@ -93,6 +107,73 @@ pub enum Payload {
         device: Uuid,
         personas: Vec<PersonaDevice>,
     },
+    /// The sender lacks a session's history from `from` to `to` (log
+    /// positions, inclusive): any device that has it may answer (2k).
+    HistoryRequest { session: String, from: u64, to: u64 },
+    /// Part of a session's history for one device (protocol draft:
+    /// `HistoryBundle`).
+    HistoryBundle(HistoryBundle),
+}
+
+/// A session's history from one device of the login for another (2k): the
+/// rows and files travel as encrypted blobs in the device group, their keys
+/// here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryBundle {
+    /// The account device it's for.
+    pub for_device: Uuid,
+    pub session: String,
+    /// The log positions the sender vouches for (inclusive).
+    pub from: u64,
+    pub to: u64,
+    pub parts: Vec<BundlePart>,
+    /// The sender's last message for this request.
+    pub last: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BundlePart {
+    /// For a file: the attachment URL the notes name it by. For rows, none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    pub blob: crate::attachments::Attachment,
+}
+
+/// A history request waiting on this device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Ask {
+    /// The asking account device.
+    pub device: Uuid,
+    pub session: String,
+    pub from: u64,
+    pub to: u64,
+    pub at_ms: u64,
+}
+
+pub(crate) fn load_list<T: for<'de> Deserialize<'de>>(
+    p: &Provider<'_>,
+    key: &[u8],
+) -> Result<Vec<T>, CoreError> {
+    match p.get(Table::Account, key)? {
+        Some(v) => serde_json::from_slice(&v).map_err(|_| err("damaged state")),
+        None => Ok(Vec::new()),
+    }
+}
+
+pub(crate) fn save_list<T: Serialize>(
+    p: &Provider<'_>,
+    key: &[u8],
+    list: &[T],
+) -> Result<(), CoreError> {
+    let value = if list.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_vec(list).map_err(|_| err("state"))?)
+    };
+    p.set(Table::Account, key, value)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -188,6 +269,24 @@ fn group_id(store: &Store) -> Result<Option<Vec<u8>>, CoreError> {
     Ok(store.get(Table::Account, K_GROUP)?.map(|v| v.to_vec()))
 }
 
+/// This store's account device id, if it has one yet.
+fn this_device_id(p: &Provider<'_>) -> Result<Option<Uuid>, CoreError> {
+    Ok(p.get(Table::Account, K_DEVICE)?
+        .and_then(|v| v.get(..16).and_then(|b| Uuid::from_slice(b).ok())))
+}
+
+/// This device's id among the login's devices, once it's in the device
+/// group.
+pub(crate) fn account_device_id(store: &Store) -> Result<Option<Uuid>, CoreError> {
+    if group_id(store)?.is_none()
+        || store.get(Table::Account, K_REMOVED)?.is_some()
+        || store.get(Table::Account, K_STALE)?.is_some()
+    {
+        return Ok(None);
+    }
+    this_device_id(&Provider::new(store))
+}
+
 fn u64_of(v: Option<Vec<u8>>) -> u64 {
     v.and_then(|b| b.try_into().ok())
         .map(u64::from_be_bytes)
@@ -274,6 +373,9 @@ pub struct CatchUp {
     pub granted: usize,
     /// This device was removed from the login's devices; its keys are gone.
     pub removed: bool,
+    /// This device was away longer than the server keeps the device group's
+    /// messages: it must be linked again, keeping its keys (2k).
+    pub stale: bool,
 }
 
 /// Reads and applies everything new in the personal device group: other
@@ -289,6 +391,10 @@ pub async fn catch_up(store: &Store, client: &Client) -> Result<CatchUp, CoreErr
         report.removed = true;
         return Ok(report);
     }
+    if store.get(Table::Account, K_STALE)?.is_some() {
+        report.stale = true;
+        return Ok(report);
+    }
     if store.get(Table::Account, K_PENDING)?.is_some() {
         // A link waiting for the user to compare words: take nothing yet.
         return Ok(report);
@@ -296,7 +402,7 @@ pub async fn catch_up(store: &Store, client: &Client) -> Result<CatchUp, CoreErr
     let gid_text = b64(&gid);
     loop {
         let after = u64_of(store.get(Table::Account, K_SEQ)?.map(|v| v.to_vec()));
-        let page = client
+        let page = match client
             .group_messages(
                 &gid_text,
                 &MessagesQuery {
@@ -304,7 +410,20 @@ pub async fn catch_up(store: &Store, client: &Client) -> Result<CatchUp, CoreErr
                     limit: Some(100),
                 },
             )
-            .await?;
+            .await
+        {
+            Ok(page) => page,
+            Err(e) if e.status() == Some(410) => {
+                store.apply(&[Op::Put {
+                    table: Table::Account,
+                    key: K_STALE,
+                    value: &[1],
+                }])?;
+                report.stale = true;
+                return Ok(report);
+            }
+            Err(e) => return Err(e),
+        };
         for m in &page.messages {
             let bytes = unb64(&m.message).ok_or_else(|| err("server sent bad base64"))?;
             let provider = Provider::new(store);
@@ -379,9 +498,7 @@ fn apply(p: &Provider<'_>, gid: &[u8], bytes: &[u8]) -> Result<Applied, CoreErro
                     devices,
                 } => {
                     out.granted = take_grant(p, &identities, &pins)?;
-                    let me = p
-                        .get(Table::Account, K_DEVICE)?
-                        .and_then(|v| v.get(..16).and_then(|b| Uuid::from_slice(b).ok()));
+                    let me = this_device_id(p)?;
                     for d in devices {
                         // Never let another device describe this one; and
                         // what a device announced itself wins.
@@ -407,6 +524,38 @@ fn apply(p: &Provider<'_>, gid: &[u8], bytes: &[u8]) -> Result<Applied, CoreErro
                         device.as_bytes(),
                         Some(serde_json::to_vec(&personas).map_err(|_| err("state"))?),
                     )?;
+                }
+                Payload::HistoryRequest { session, from, to } => {
+                    let Some(device) = sender else {
+                        return Ok(out);
+                    };
+                    if Some(device) == this_device_id(p)? || from > to {
+                        return Ok(out);
+                    }
+                    let mut asks: Vec<Ask> = load_list(p, K_ASKS)?;
+                    asks.retain(|a| !(a.device == device && a.session == session));
+                    asks.push(Ask {
+                        device,
+                        session,
+                        from,
+                        to,
+                        at_ms: keys::now_ms(),
+                    });
+                    save_list(p, K_ASKS, &asks)?;
+                }
+                Payload::HistoryBundle(bundle) => {
+                    if Some(bundle.for_device) == this_device_id(p)? {
+                        let mut inbox: Vec<HistoryBundle> = load_list(p, K_INBOX)?;
+                        inbox.push(bundle);
+                        save_list(p, K_INBOX, &inbox)?;
+                    } else {
+                        // Another device answered: this one needn't.
+                        let mut asks: Vec<Ask> = load_list(p, K_ASKS)?;
+                        asks.retain(|a| {
+                            !(a.device == bundle.for_device && a.session == bundle.session)
+                        });
+                        save_list(p, K_ASKS, &asks)?;
+                    }
                 }
             }
         }
@@ -527,6 +676,36 @@ async fn send(
     gid: &[u8],
     payload: &Payload,
 ) -> Result<(), CoreError> {
+    send_with(store, client, gid, payload, &[]).await
+}
+
+/// Sends a payload to the device group, if this device is in one, with
+/// the blobs it carries.
+pub(crate) async fn send_payload(
+    store: &Store,
+    client: &Client,
+    payload: &Payload,
+    blobs: &[Uuid],
+) -> Result<(), CoreError> {
+    if store.get(Table::Account, K_REMOVED)?.is_some() {
+        return Err(err("this device was removed from this login's devices"));
+    }
+    let gid = group_id(store)?.ok_or_else(|| err("this device has no device group"))?;
+    send_with(store, client, &gid, payload, blobs).await
+}
+
+/// The device group's id, base64url, if this device is in one.
+pub(crate) fn device_group(store: &Store) -> Result<Option<String>, CoreError> {
+    Ok(group_id(store)?.map(|g| b64(&g)))
+}
+
+async fn send_with(
+    store: &Store,
+    client: &Client,
+    gid: &[u8],
+    payload: &Payload,
+    blobs: &[Uuid],
+) -> Result<(), CoreError> {
     let me = account_device(store)?;
     let plain = Zeroizing::new(serde_json::to_vec(payload).map_err(|_| err("encoding"))?);
     for _ in 0..RETRIES {
@@ -539,7 +718,7 @@ async fn send(
         })?;
         let body = PostMessage {
             message: b64(&encode(&message)?),
-            blobs: Vec::new(),
+            blobs: blobs.to_vec(),
         };
         match client.post_group_message(&b64(gid), &body).await {
             Ok(posted) => return record_own(store, posted.seq),
@@ -596,7 +775,9 @@ pub async fn announce(store: &Store, client: &Client) -> Result<(), CoreError> {
     let Some(gid) = group_id(store)? else {
         return Ok(());
     };
-    if store.get(Table::Account, K_REMOVED)?.is_some() {
+    if store.get(Table::Account, K_REMOVED)?.is_some()
+        || store.get(Table::Account, K_STALE)?.is_some()
+    {
         return Ok(());
     }
     let personas: Vec<PersonaDevice> = keys::own_persona_devices(store)?
@@ -644,9 +825,12 @@ pub struct PendingLink {
 /// On the new device: posts a KeyPackage for the personal group and
 /// returns the code to show.
 pub async fn start_link(store: &Store, client: &Client) -> Result<PendingLink, CoreError> {
-    if store.get(Table::Account, K_REMOVED)?.is_some() {
-        // Removed earlier: start over as a new device, dropping the old
-        // group's MLS state too.
+    if store.get(Table::Account, K_REMOVED)?.is_some()
+        || store.get(Table::Account, K_STALE)?.is_some()
+    {
+        // Removed earlier, or fell behind: start over as a new device,
+        // dropping the old group's MLS state too. A device that fell behind
+        // keeps its persona keys and sessions.
         if let Some(old) = group_id(store)? {
             let provider = Provider::new(store);
             provider.atomically(|p| {
@@ -666,6 +850,9 @@ pub async fn start_link(store: &Store, client: &Client) -> Result<PendingLink, C
             K_PENDING,
             K_REMOVED,
             K_ANNOUNCED,
+            K_STALE,
+            K_ASKS,
+            K_INBOX,
         ]
         .iter()
         .map(|k| k.to_vec())
@@ -885,6 +1072,9 @@ pub async fn approve(
     if caught.removed {
         return Err(err("this device was removed from this login's devices"));
     }
+    if caught.stale {
+        return Err(fell_behind());
+    }
     let mailbox = client.read_link(&code.link_id).await.map_err(|e| {
         if e.status() == Some(404) {
             err("no such link: it may have expired")
@@ -1004,6 +1194,9 @@ pub async fn list(store: &Store, client: &Client) -> Result<Vec<ListedDevice>, C
     if caught.removed {
         return Err(err("this device was removed from this login's devices"));
     }
+    if caught.stale {
+        return Err(fell_behind());
+    }
     let Some(gid) = group_id(store)? else {
         return Ok(Vec::new());
     };
@@ -1060,7 +1253,18 @@ pub async fn remove(
     }
     let personas = client.personas().await?;
     let mut revoked = Vec::new();
-    for pd in &target.personas {
+    // A device linked again after falling behind (2k) announces the persona
+    // devices its old entry did: those stay.
+    let in_use: Vec<Uuid> = devices
+        .iter()
+        .filter(|d| d.id != device)
+        .flat_map(|d| d.personas.iter().map(|p| p.device))
+        .collect();
+    for pd in target
+        .personas
+        .iter()
+        .filter(|p| !in_use.contains(&p.device))
+    {
         let Some(persona) = personas.iter().find(|p| p.id == pd.persona) else {
             continue;
         };
@@ -1103,6 +1307,10 @@ pub struct Upkeep {
     pub requests_dropped: usize,
     /// What syncing the login's sessions did.
     pub sessions: crate::sessions::SyncReport,
+    /// History sent to and received from the login's other devices (2k).
+    pub history: crate::history_sync::HistoryReport,
+    /// Why history couldn't be synced this time, if it couldn't.
+    pub history_problem: Option<String>,
 }
 
 /// Runs before a command: catches up on the device group, refills low
@@ -1141,6 +1349,12 @@ pub async fn maintain(store: &Store, client: &Client) -> Result<Upkeep, CoreErro
     announce(store, client).await?;
     report.requests_dropped = crate::requests::tidy(store, client).await?;
     report.sessions = crate::sessions::sync(store, client).await?;
+    // History waits for the next run if it can't go now (a full quota, an
+    // unreachable blob): it never stops the rest.
+    match crate::history_sync::run(store, client).await {
+        Ok(h) => report.history = h,
+        Err(e) => report.history_problem = Some(e.to_string()),
+    }
     Ok(report)
 }
 

@@ -2,6 +2,10 @@
 //! buckets, uploaded to a session and fetched with a capability token. The
 //! key travels inside the message that carries the blob; the server keeps
 //! only the token's hash.
+//!
+//! The login's personal device group takes blobs too (2k: history
+//! bundles). The administrators' attachments switch doesn't apply to it,
+//! the quota does, and the login may delete them once read.
 
 use axum::{
     Json, Router,
@@ -29,7 +33,11 @@ pub fn router() -> Router<AppState> {
             // API's smaller envelope limit doesn't apply here.
             post(upload).layer(DefaultBodyLimit::disable()),
         )
-        .route("/blobs/{id}", get(fetch))
+        .route(
+            "/groups/{id}/blobs",
+            post(upload).layer(DefaultBodyLimit::disable()),
+        )
+        .route("/blobs/{id}", get(fetch).delete(remove))
 }
 
 fn quota_full() -> ApiError {
@@ -38,7 +46,8 @@ fn quota_full() -> ApiError {
     )
 }
 
-/// `POST /sessions/{id}/blobs`: the body is the padded ciphertext.
+/// `POST /sessions/{id}/blobs` (or `/groups/{id}/blobs`, which also takes
+/// the login's device group): the body is the padded ciphertext.
 async fn upload(
     State(state): State<AppState>,
     authed: Authed,
@@ -70,26 +79,36 @@ async fn upload(
     }
 
     let mut tx = state.pool.begin().await?;
-    if !crate::server_settings::attachments(&mut tx).await? {
-        return Err(ApiError::Forbidden(
-            "This server doesn't take attachments: its administrators keep sessions to writing."
-                .into(),
-        ));
-    }
-    let open: Option<bool> = sqlx::query_scalar(
-        "SELECT s.ended_at IS NULL FROM sessions s
-         WHERE s.group_id = $1 AND EXISTS (
-             SELECT 1 FROM session_members m JOIN actors a ON a.id = m.actor_id
-             WHERE m.group_id = s.group_id AND a.account_id = $2)",
+    let personal: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM mls_groups
+                        WHERE group_id = $1 AND kind = 'personal' AND account_id = $2)",
     )
     .bind(&group)
     .bind(authed.account_id)
-    .fetch_optional(&mut *tx)
+    .fetch_one(&mut *tx)
     .await?;
-    match open {
-        None => return Err(ApiError::NotFound),
-        Some(false) => return Err(ApiError::Forbidden("The session has ended.".into())),
-        Some(true) => {}
+    if !personal {
+        if !crate::server_settings::attachments(&mut tx).await? {
+            return Err(ApiError::Forbidden(
+                "This server doesn't take attachments: its administrators keep sessions to writing."
+                    .into(),
+            ));
+        }
+        let open: Option<bool> = sqlx::query_scalar(
+            "SELECT s.ended_at IS NULL FROM sessions s
+             WHERE s.group_id = $1 AND EXISTS (
+                 SELECT 1 FROM session_members m JOIN actors a ON a.id = m.actor_id
+                 WHERE m.group_id = s.group_id AND a.account_id = $2)",
+        )
+        .bind(&group)
+        .bind(authed.account_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        match open {
+            None => return Err(ApiError::NotFound),
+            Some(false) => return Err(ApiError::Forbidden("The session has ended.".into())),
+            Some(true) => {}
+        }
     }
     // Serialize a login's uploads so two can't both squeeze under the quota.
     sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR UPDATE")
@@ -131,24 +150,31 @@ async fn upload(
     ))
 }
 
-/// `GET /blobs/{id}`: needs a login in the blob's session and the blob's
-/// token (header `Blob-Token`). Anything else looks like a missing blob.
+fn token_of(headers: &HeaderMap) -> Result<Vec<u8>, ApiError> {
+    headers
+        .get(BLOB_TOKEN_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(unb64)
+        .ok_or(ApiError::NotFound)
+}
+
+/// `GET /blobs/{id}`: needs a login in the blob's session (or whose device
+/// group it's in) and the blob's token (header `Blob-Token`). Anything
+/// else looks like a missing blob.
 async fn fetch(
     State(state): State<AppState>,
     authed: Authed,
     Path(id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let token = headers
-        .get(BLOB_TOKEN_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .and_then(unb64)
-        .ok_or(ApiError::NotFound)?;
+    let token = token_of(&headers)?;
     let data: Option<Vec<u8>> = sqlx::query_scalar(
         "SELECT b.data FROM blobs b
-         WHERE b.id = $1 AND b.token_hash = $2 AND EXISTS (
+         WHERE b.id = $1 AND b.token_hash = $2 AND (EXISTS (
              SELECT 1 FROM session_members m JOIN actors a ON a.id = m.actor_id
-             WHERE m.group_id = b.group_id AND a.account_id = $3)",
+             WHERE m.group_id = b.group_id AND a.account_id = $3) OR EXISTS (
+             SELECT 1 FROM mls_groups g
+             WHERE g.group_id = b.group_id AND g.kind = 'personal' AND g.account_id = $3))",
     )
     .bind(id)
     .bind(Sha256::digest(&token).to_vec())
@@ -157,4 +183,30 @@ async fn fetch(
     .await?;
     let data = data.ok_or(ApiError::NotFound)?;
     Ok(([(header::CONTENT_TYPE, "application/octet-stream")], data).into_response())
+}
+
+/// `DELETE /blobs/{id}`: a blob in the login's own device group, once the
+/// device it was for has it (2k). Session attachments go only with their
+/// messages.
+async fn remove(
+    State(state): State<AppState>,
+    authed: Authed,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let token = token_of(&headers)?;
+    let deleted = sqlx::query(
+        "DELETE FROM blobs b USING mls_groups g
+         WHERE b.id = $1 AND b.token_hash = $2 AND g.group_id = b.group_id
+           AND g.kind = 'personal' AND g.account_id = $3",
+    )
+    .bind(id)
+    .bind(Sha256::digest(&token).to_vec())
+    .bind(authed.account_id)
+    .execute(&state.pool)
+    .await?;
+    if deleted.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+    Ok(StatusCode::NO_CONTENT)
 }

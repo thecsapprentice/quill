@@ -372,12 +372,20 @@ pub fn keep_file(
     url: &str,
     contents: Option<&[u8]>,
 ) -> Result<(), CoreError> {
-    Provider::new(store).atomically(|p| {
-        if let Some(c) = contents {
-            p.set(Table::Files, url.as_bytes(), Some(c.to_vec()))?;
-        }
-        p.set(Table::Messages, &key(gid, PENDING, url.as_bytes()), None)
-    })
+    Provider::new(store).atomically(|p| keep_file_in(p, gid, url, contents))
+}
+
+/// [`keep_file`] within the caller's batch.
+pub fn keep_file_in(
+    p: &Provider<'_>,
+    gid: &[u8],
+    url: &str,
+    contents: Option<&[u8]>,
+) -> Result<(), CoreError> {
+    if let Some(c) = contents {
+        p.set(Table::Files, url.as_bytes(), Some(c.to_vec()))?;
+    }
+    p.set(Table::Messages, &key(gid, PENDING, url.as_bytes()), None)
 }
 
 /// An attachment's contents, if this device has them.
@@ -438,6 +446,154 @@ pub fn gaps(store: &Store, gid: &[u8]) -> Result<Vec<Gap>, CoreError> {
         }
     }
     Ok(out)
+}
+
+// ---- Sharing history with the login's other devices (2k) -------------------
+
+/// Part of a session's history, as one device of the login sends it to
+/// another: notes with every version, channels with every description, and
+/// the `authorSeq` values seen. What this device has shown and what it
+/// still has to fetch stay here.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Rows {
+    #[serde(default)]
+    pub notes: Vec<Message>,
+    #[serde(default)]
+    pub channels: Vec<ChannelInfo>,
+    /// Per sending device (signature key, base64url).
+    #[serde(default)]
+    pub seen: Vec<(String, BTreeSet<u64>)>,
+}
+
+/// The notes with a version logged in `from..=to`, and every channel and
+/// count, for another device of the login.
+pub fn export(store: &Store, gid: &[u8], from: u64, to: u64) -> Result<Rows, CoreError> {
+    let notes = messages(store, gid)?
+        .into_iter()
+        .filter(|m| m.versions.iter().any(|v| (from..=to).contains(&v.seq)))
+        .map(|mut m| {
+            m.own = false;
+            m
+        })
+        .collect();
+    let mut channels = Vec::new();
+    for (_, v) in store.scan(Table::Messages, &prefix(gid, CHANNEL))? {
+        let mut c: ChannelInfo =
+            serde_json::from_slice(&v).map_err(|_| err("a stored channel is damaged"))?;
+        c.notes = 0;
+        c.unseen = 0;
+        channels.push(c);
+    }
+    let start = prefix(gid, SEEN);
+    let mut seen = Vec::new();
+    for (k, v) in store.scan(Table::Messages, &start)? {
+        let set: BTreeSet<u64> =
+            serde_json::from_slice(&v).map_err(|_| err("a stored message is damaged"))?;
+        seen.push((String::from_utf8_lossy(&k[start.len()..]).into_owned(), set));
+    }
+    Ok(Rows {
+        notes,
+        channels,
+        seen,
+    })
+}
+
+/// Joins two lists of versions by log position; the result is in log
+/// order. Nothing is dropped.
+fn join_versions(mine: &[Version], theirs: &[Version]) -> Vec<Version> {
+    let mut all: Vec<Version> = mine.to_vec();
+    for v in theirs {
+        if !all.iter().any(|m| m.seq == v.seq) {
+            all.push(v.clone());
+        }
+    }
+    all.sort_by_key(|v| v.seq);
+    all
+}
+
+/// Merges rows from another device of the login, within the caller's
+/// batch: notes this device lacks are added, notes it has gain the
+/// versions they lack, channels their descriptions, counts their values.
+/// Attachments not here yet are noted to fetch.
+pub fn merge(p: &Provider<'_>, gid: &[u8], rows: &Rows) -> Result<(), CoreError> {
+    for m in &rows.notes {
+        if m.versions.is_empty() {
+            continue;
+        }
+        let k = key(gid, NOTE, &m.seq.to_be_bytes());
+        let index = key(gid, INDEX, m.id.as_bytes());
+        let merged = match get::<Message>(p, &k)? {
+            Some(mut have) => {
+                if have.id != m.id || have.sender != m.sender {
+                    // Not the same note: this device's stands.
+                    continue;
+                }
+                have.versions = join_versions(&have.versions, &m.versions);
+                have
+            }
+            None => {
+                if get::<u64>(p, &index)?.is_some_and(|at| at != m.seq) {
+                    // A note id seen at another position: the first stands.
+                    continue;
+                }
+                let mut fresh = m.clone();
+                fresh.own = false;
+                fresh.versions = join_versions(&[], &m.versions);
+                for a in &fresh.attachments {
+                    if p.get(Table::Files, a.url.as_bytes())?.is_none() {
+                        put(p, &key(gid, PENDING, a.url.as_bytes()), a)?;
+                    }
+                }
+                fresh
+            }
+        };
+        let mut merged = merged;
+        // The current state follows from the versions: the last text, and
+        // deleted if the last version deleted it.
+        if let Some(text) = merged.versions.iter().rev().find_map(|v| v.content.clone()) {
+            merged.content = text;
+        }
+        merged.deleted = merged.versions.last().is_some_and(|v| v.content.is_none());
+        name_channel(p, gid, &merged.channel)?;
+        put(p, &k, &merged)?;
+        put(p, &index, &merged.seq)?;
+    }
+    for c in &rows.channels {
+        if validate::channel(&c.name).is_err() {
+            continue;
+        }
+        let k = key(gid, CHANNEL, c.name.as_bytes());
+        let mut info: ChannelInfo = get(p, &k)?.unwrap_or_else(|| ChannelInfo {
+            name: c.name.clone(),
+            summary: None,
+            versions: Vec::new(),
+            notes: 0,
+            unseen: 0,
+        });
+        info.versions = join_versions(&info.versions, &c.versions);
+        info.summary = info.versions.last().and_then(|v| v.content.clone());
+        put(p, &k, &info)?;
+    }
+    for (device, values) in &rows.seen {
+        let k = key(gid, SEEN, device.as_bytes());
+        let mut seen: BTreeSet<u64> = get(p, &k)?.unwrap_or_default();
+        seen.extend(values.iter().copied());
+        put(p, &k, &seen)?;
+    }
+    Ok(())
+}
+
+/// The highest log position this device holds a note or version from.
+pub fn latest(store: &Store, gid: &[u8]) -> Result<u64, CoreError> {
+    let mut top = 0;
+    for m in messages(store, gid)? {
+        top = top.max(m.versions.iter().map(|v| v.seq).max().unwrap_or(m.seq));
+    }
+    for c in channels(store, gid)? {
+        top = top.max(c.versions.iter().map(|v| v.seq).max().unwrap_or(0));
+    }
+    Ok(top)
 }
 
 #[cfg(test)]
@@ -617,5 +773,62 @@ mod tests {
                 missing: vec![3, 4]
             }]
         );
+    }
+
+    #[test]
+    fn history_from_another_device_merges_without_losing_a_version() {
+        // The device that was there throughout.
+        let full = Store::in_memory();
+        // One that joined at position 4 and read on from there.
+        let late = Store::in_memory();
+        let note = Activity::create("Opening.", "story", h(1), 1);
+        let world = Activity::channel("Create", "world", Some("Places"), h(2), 2);
+        let second = Activity::create("Second.", "world", h(3), 3);
+        let edit = Activity::update(note.target(), "Opening, edited.", "story", h(5), 4);
+        let gone = Activity::delete(second.target(), "world", h(6), 5);
+        let third = Activity::create("Third.", "story", h(7), 6);
+        let script: [(u64, &Activity); 6] = [
+            (1, &note),
+            (2, &world),
+            (3, &second),
+            (5, &edit),
+            (6, &gone),
+            (7, &third),
+        ];
+        for (seq, a) in script {
+            rec(&full, from(seq, "alice", "A"), a);
+            if seq >= 5 {
+                rec(&late, from(seq, "alice", "A"), a);
+            }
+        }
+        // Updates for notes it never saw were dropped; it holds only
+        // "Third." so far.
+        assert_eq!(count(&late, GID).unwrap(), 1);
+        assert_eq!(latest(&late, GID).unwrap(), 7);
+
+        let rows = export(&full, GID, 1, 4).unwrap();
+        assert_eq!(rows.notes.len(), 2, "both notes created before 4");
+        // Merging twice changes nothing more.
+        for _ in 0..2 {
+            Provider::new(&late)
+                .atomically(|p| merge(p, GID, &rows))
+                .unwrap();
+        }
+        assert_eq!(messages(&late, GID).unwrap(), messages(&full, GID).unwrap());
+        assert_eq!(channels(&late, GID).unwrap(), channels(&full, GID).unwrap());
+        assert_eq!(gaps(&late, GID).unwrap(), gaps(&full, GID).unwrap());
+
+        // A version only the receiver has is kept too.
+        let mut theirs = export(&full, GID, 1, 7).unwrap();
+        for m in &mut theirs.notes {
+            m.versions.retain(|v| v.seq < 5);
+        }
+        Provider::new(&late)
+            .atomically(|p| merge(p, GID, &theirs))
+            .unwrap();
+        let opening = message(&late, GID, 1).unwrap().unwrap();
+        assert_eq!(opening.content, "Opening, edited.");
+        assert_eq!(opening.versions.len(), 2);
+        assert!(message(&late, GID, 3).unwrap().unwrap().deleted);
     }
 }

@@ -22,6 +22,10 @@ pub enum ApiError {
     NotFound,
     #[error("{0}")]
     Conflict(String),
+    /// What was asked for has been deleted for good (2k: a log read from
+    /// before its deleted part).
+    #[error("{0}")]
+    Gone(String),
     #[error("request body too large")]
     PayloadTooLarge,
     #[error("unsupported media type")]
@@ -40,6 +44,7 @@ impl ApiError {
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::Gone(_) => StatusCode::GONE,
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
             Self::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
@@ -55,6 +60,7 @@ impl ApiError {
             Self::Forbidden(_) => "forbidden",
             Self::NotFound => "not-found",
             Self::Conflict(_) => "conflict",
+            Self::Gone(_) => "gone",
             Self::PayloadTooLarge => "payload-too-large",
             Self::UnsupportedMediaType => "unsupported-media-type",
             Self::TooManyRequests => "too-many-requests",

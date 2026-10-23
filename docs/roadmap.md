@@ -245,8 +245,8 @@ before device linking, which needs it.
 | 2g | Messages: ordering (HLC), history that is never lost, live delivery over SSE | done (#15) |
 | 2h | Channels within a session | done (#16) |
 | 2i | Attachments and size limits or quotas | done (#17) |
-| 2j | Safety numbers; backup and recovery; rejoining sessions after a restore | next |
-| 2k | History sync for devices added later; deleting messages by age | planned |
+| 2j | Safety numbers; backup and recovery; rejoining sessions after a restore | done (#18) |
+| 2k | History sync for devices added later; deleting messages by age | next |
 | 2l | Phase gate: the plaintext-canary test and the database-dump audit | planned |
 
 ### 2a: Encrypted local store
@@ -637,7 +637,7 @@ and the server learns when it may let go of ciphertext.
   acknowledged it and a grace period of 7 days has passed. A device that
   hasn't acknowledged anything holds everything, so nothing is deleted
   before a device that will need it has read it. Deleting by age alone, for
-  devices that never come back, waits for 2j's history re-sync.
+  devices that never come back, waits for 2k's history sync.
 
 Not in 2g: cover traffic (optional `IntransitiveActivity` messages), and
 `inReplyTo` and channel management, which are 2h.
@@ -827,13 +827,91 @@ mistyped code is caught, and the backup opens with the `age` tool; and the
 restored device rejoins its sessions through the other writer, who refuses
 a rejoin request that isn't signed by the persona's identity key.
 
+### 2k: History sync and deleting by age
+
+A device added to a session after it began reads only from the commit that
+added it. 2k gives it the rest from the login's other devices, and with
+that in place the server can delete ciphertext by age, not only once every
+device has it: a device that was away too long catches up from its other
+devices instead of from the server.
+
+- **History requests and bundles** (plan: linking a new device; protocol
+  draft: `HistoryBundle`), over the personal device group.
+  - Each device notes, per session, the log positions it has no history
+    for: up to the commit that added it (less what a restored backup
+    already holds), or the stretch it missed while away. While that's not
+    empty it sends one `HistoryRequest` (the session and the range) to the
+    device group.
+  - Another device of the login answers once it has read past the range
+    and has no gap of its own in it. Its `HistoryBundle` is addressed to
+    the asking device and carries the notes with a version in the range
+    (every version), the channels and the `authorSeq` counts, and each file
+    those notes carry. The rows travel as encrypted blobs in the personal
+    group (the attachment mechanism, at most 10 per message, more messages
+    for more), each file re-sealed as its own blob, so nothing is limited
+    by the message size.
+  - The asking device merges: notes it lacks are added; notes it has gain
+    the versions they lack (a version is never dropped); `authorSeq`
+    counts are joined. Then it marks the range as had, and deletes the
+    bundle's blobs, which only it needed.
+  - Sessions that ended before a device was linked are listed too; the
+    device asks for their whole history the same way.
+  - `quill sessions` shows a session whose history is still incomplete.
+- **Deleting by age** (plan: retention). The server deletes every
+  session's and the device group's ciphertext once it's older than the
+  retention period (published as `retentionDays`, 30 days by default,
+  `QUILL_RETENTION_DAYS`), and with it the blobs it carried, whatever the
+  acknowledgements say. `QUILL_RETENTION_DAYS=-1` turns this off: messages
+  then stay until every device has read them, however old, and
+  `retentionDays` is published as `null`. Deleting once every device has acknowledged, after
+  the 7-day grace, carries on as before. A sweep runs hourly.
+- **Devices that fell behind** (plan: idle devices).
+  - The server records how far each group's log has been deleted. Asking
+    for messages from before that point gets `410 Gone`: the device can't
+    follow the group's keys any more.
+  - **In a session**, the device drops its keys for it (keeping the
+    history), and asks to be let back in: through another of the persona's
+    devices, which adds it back as for any device that's missing, or, if
+    it's the persona's only device, through a rejoin request (2j) to the
+    other writer, removing its old place and adding the new one in one
+    commit. It then asks its other devices for what it missed.
+  - The persona's other devices remove a device that fell behind from
+    their sessions, so an idle device holds no current keys; the server
+    lists them with the session. A device the server has left a Welcome
+    for counts as having read up to it.
+  - **In the device group**, the device must be linked again
+    (`quill device link`), with a new account device key; its persona
+    keys and sessions stay. `quill device remove` of its old entry
+    doesn't revoke persona devices another device still uses.
+
+As built: a request nobody answers is sent again after 7 days and dropped
+after 30; a device that fell behind waits a day for the persona's other
+devices before asking the other writer (at once when it has none). While a
+device's history is incomplete, `quill session read` says so instead of
+warning about gaps. An edit read live for a note the device doesn't have
+yet is dropped; the bundle brings the note with its versions as the
+answering device holds them. The server counts a device that never
+acknowledged anything as having read nothing when listing devices that
+fell behind.
+
+Not in 2k: answering history requests from the other writer's devices
+(they ask only their own), deleting by age in a client's own history, and
+removing the device-group entry of a device that never comes back
+(`quill device remove` does it by hand).
+
+Done when: a device added to a session after many messages, edits and
+files, and a device linked after a session ended, both end up holding the
+same history as the device that was there from the start; ciphertext
+older than the retention period is gone from the database with its blobs;
+and a device away longer than that rejoins its sessions (through a sibling,
+or through the other writer when it has none) and gets back what it
+missed.
+
 ### Later sub-phases
 
-2k and 2l follow the [plan](plan.md#writing-session-cryptography) and the
-[protocol draft](protocol-draft.md), with keys per persona throughout: one
-KeyPackage pool per persona and device, and one personal device group per
-account carrying every persona's identity key. Each gets a detailed section
-like the ones above when it's next.
+2l follows the [plan](plan.md#writing-session-cryptography) and the
+[protocol draft](protocol-draft.md), and gets a detailed section like the
+ones above when it's next.
 
 ## Phase 3: Federation
 
@@ -874,6 +952,8 @@ ranges. Known so far:
   - Requests and sessions: request expiry (30 days), requests per hour
     (20), message retention grace period (7 days), low-pool notice
     threshold (10), live notice buffer (1024).
+  - Retention (2k): the sweep's interval (1 hour). The retention period
+    itself is `QUILL_RETENTION_DAYS` already.
   - Attachments: size limit (10 MiB), smallest bucket (4 KiB), quota per
     login (500 MiB), blobs per message (10), unattached-blob lifetime (1
     day), messages per minute (30). These are in the config's limits but
@@ -881,6 +961,9 @@ ranges. Known so far:
 - **Client (sessions):** message padding (256 bytes), how far ahead a
   clock may be and still move the reader's (1 day), longest pitch and
   message.
+- **Client (history, 2k):** asking again for history (7 days), dropping
+  unanswered requests (30 days), waiting for a sibling before asking the
+  other writer to rejoin (1 day), history part size (4 MiB).
 
 ## Phases 5 and 6
 

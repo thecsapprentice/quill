@@ -291,6 +291,14 @@ Allowed activity types: `Create`, `Update`, `Delete`, `Like`, `Announce`, `Undo`
 
 The user's own device group uses the same envelope with these extra activity objects: `DeviceGrant` (carries the identity private key to a newly linked full device), `HistoryBundle` (an `EncryptedAttachment` holding exported history for one session), `TrustPins` (TOFU identity pins), `Settings` and `Personas`. These never appear in session groups; clients reject them there.
 
+As built in 2k, for history:
+- A device that lacks part of a session's history (it joined after the session began, was linked after it ended, or was away while the server deleted the log) sends `HistoryRequest {session, from, to}`: the log positions it lacks, inclusive (`to` is the largest integer for a session that ended).
+- A device of the login that has read past `to` (or to the end of an ended session) with no gap of its own in the range answers with `HistoryBundle {forDevice, session, from, to, parts, last}`. Each part is an `EncryptedAttachment` for a blob in the device group (`POST /groups/{id}/blobs`): either JSON rows (the notes with a version in the range, with every version; every channel and its descriptions; the `authorSeq` values seen per device), or one file the notes carry, named by its original attachment URL. At most 10 blobs per message; more parts go in more messages, the final one marked `last`.
+- The asker merges: notes it lacks are added, notes it has gain the versions they lack (by log position; none is ever dropped), counts are joined. Once `last` arrives with every part, the range is had. It then deletes the bundle's blobs (`DELETE /blobs/{id}`, allowed only for the login's own device group). Another device seeing an answer to a request it holds drops the request.
+- A request nobody answers is sent again after 7 days, and dropped by the devices holding it after 30.
+- The server deletes ciphertext older than `retentionDays` whether or not it was read. A server that keeps it regardless of age (`QUILL_RETENTION_DAYS=-1`) publishes `retentionDays: null`; messages then go only once every device has read them.
+- These are JSON objects tagged by `type` inside the device group's MLS messages, like the 2d payloads, not ActivityStreams activities.
+
 ## 6. Binary formats
 
 All structures use TLS presentation language (as in RFC 9420) and are signed with `SignWithLabel` under distinct labels. Every format needs published test vectors before Phase 2 ends.
@@ -347,6 +355,8 @@ All structures use TLS presentation language (as in RFC 9420) and are signed wit
 
 Sent as an `Offer` whose `object` is a `RejoinRequest` (base64url) addressed to the session's other participants. A peer client verifies it, then commits Add plus the listed Removes.
 
+As built in 2k, a device that fell behind (the log it needed was deleted by age) uses the same request with `remove_keys` holding only its own device key, so the commit removes its old leaf and adds a fresh one with the same key. It does this at once when it's the persona's only device, and otherwise after waiting a day for one of the persona's other devices to add it back.
+
 As built in 2j, on one server: the request goes to `POST /sessions/{id}/rejoin`, which checks the signature against the persona's identity key. The list is `remove_keys` (device keys, not leaf indices, since a restored device can't see the tree). The other writer's client carries the request as the commit's authenticated data, and every member checks it before accepting an Add of a device that isn't the committer's own, or a Remove of the other persona's devices. Test vectors: `test-vectors/rejoin-request.json`.
 
 ### Backup
@@ -389,13 +399,14 @@ A JSON-over-HTTPS API under `/api/v1`, authenticated with bearer tokens, used by
 | Keys     | `POST /devices/{id}/key-packages`, `GET /key-packages/status`                                         | Upload KeyPackages, check remaining pool                                                 |
 | Keys     | `POST /actors/{actor}/key-packages/claim?device=`                                                     | Local claim (remote claims go server-to-server); `device` limits it to one device (2f)   |
 | Linking  | `POST /link`, `GET /link/{id}`, `POST /link/{id}/reply`                                               | Short-lived device-linking mailbox                                                       |
-| Groups   | `POST /groups`, `GET /account/device-group`, `GET/POST /groups/{id}/messages?after=`                  | Group message logs (2d): first commit per epoch wins, `409` otherwise; personal device group |
-| Sessions | `GET /sessions`                                                                                       | The login's sessions: members, place in the log, ended or not, Welcomes for its devices (built in 2f; the id is the group id) |
+| Groups   | `POST /groups`, `GET /account/device-group`, `GET/POST /groups/{id}/messages?after=`                  | Group message logs (2d): first commit per epoch wins, `409` otherwise; personal device group. `410` when `after` is before the part of the log deleted by age (2k) |
+| Sessions | `GET /sessions`                                                                                       | The login's sessions: members, place in the log, ended or not, Welcomes for its devices (built in 2f; the id is the group id), and its devices that fell behind the deleted part of the log (2k) |
 | Sessions | `GET/POST /groups/{id}/messages?after=`                                                               | A session's log is its group's (2f); `409` if a commit lost the epoch race, `403` once ended |
 | Sessions | `POST /sessions/{id}/welcomes`, `DELETE /sessions/{id}/welcomes/{device}`                             | A Welcome for one of the caller's own persona's devices just added; taken once it has joined (2f) |
 | Sessions | `POST /sessions/{id}/leave`                                                                           | Leave; with two writers, ends the session (2f)                                           |
 | Sessions | `POST /sessions/{id}/ack`                                                                             | Per-device delivery ack (2g): how far one of the caller's devices has read; only the server sees it |
 | Blobs    | `POST /sessions/{id}/blobs`, `GET /blobs/{id}`                                                        | Encrypted attachments (2i): raw padded ciphertext in size buckets; fetching needs a login in the session and the `Blob-Token` header |
+| Blobs    | `POST /groups/{id}/blobs`, `DELETE /blobs/{id}`                                                       | Blobs in the login's own device group (2k: history bundles); the login deletes them once read |
 | Storage  | `GET /account/storage`, `GET /admin/storage`, `GET /admin/storage/{account}`                          | Sizes of what sessions take (2i); the administrators' per-login view omits persona handles |
 | Backup   | `PUT /backup/{generation}/{part}`, `POST /backup/{generation}/commit`, `GET /backup`, `GET /backup/{part}`, `DELETE /backup` | Opaque backup, uploaded in parts and committed whole (2j)                                |
 | Sessions | `POST /sessions/{id}/rejoin`, `DELETE /sessions/{id}/rejoins/{id}`; `DELETE /account/device-group`    | Rejoin requests; starting the device group again after a restore (2j)                    |
