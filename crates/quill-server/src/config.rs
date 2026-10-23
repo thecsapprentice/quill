@@ -5,6 +5,10 @@ use std::net::SocketAddr;
 use anyhow::{Context, Result};
 use quill_proto::{api::Limits, board::TagPolicy};
 
+/// The upstream repository. Operators running a modified server must point
+/// `QUILL_SOURCE_URL` at their own source.
+pub const DEFAULT_SOURCE_URL: &str = "https://github.com/thecsapprentice/quill";
+
 #[derive(Debug, Clone)]
 pub struct Config {
     /// Public host name of this instance, e.g. `writers.example`.
@@ -16,6 +20,9 @@ pub struct Config {
     pub token_ttl_days: i64,
     /// Which tags users may attach to prompts.
     pub tag_policy: TagPolicy,
+    /// Where users can download this server's source code. The AGPL requires
+    /// offering it to everyone who uses the server over a network.
+    pub source_url: String,
     pub limits: Limits,
 }
 
@@ -33,6 +40,7 @@ impl Config {
             max_personas_per_account: parse_or("QUILL_MAX_PERSONAS", 20)?,
             token_ttl_days: parse_or("QUILL_TOKEN_TTL_DAYS", 30)?,
             tag_policy: parse_or("QUILL_TAG_POLICY", TagPolicy::Both)?,
+            source_url: var_or("QUILL_SOURCE_URL", DEFAULT_SOURCE_URL),
             limits: Limits::default(),
         })
     }
@@ -47,6 +55,7 @@ impl Config {
             max_personas_per_account: 20,
             token_ttl_days: 30,
             tag_policy: TagPolicy::Both,
+            source_url: DEFAULT_SOURCE_URL.into(),
             limits: Limits::default(),
         }
     }

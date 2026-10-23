@@ -58,6 +58,14 @@ criteria = "safe-to-deploy"
 version = "0.6.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.askama_escape]]
+version = "0.13.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.async-trait]]
+version = "0.1.92"
+criteria = "safe-to-deploy"
+
 [[exemptions.atoi]]
 version = "2.0.0"
 criteria = "safe-to-deploy"
@@ -154,6 +162,18 @@ criteria = "safe-to-deploy"
 version = "0.10.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.const_format]]
+version = "0.2.36"
+criteria = "safe-to-deploy"
+
+[[exemptions.const_format_proc_macros]]
+version = "0.2.34"
+criteria = "safe-to-deploy"
+
+[[exemptions.convert_case]]
+version = "0.8.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.core-foundation]]
 version = "0.10.1"
 criteria = "safe-to-deploy"
@@ -186,6 +206,18 @@ criteria = "safe-to-deploy"
 version = "0.4.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.darling]]
+version = "0.13.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.darling_core]]
+version = "0.13.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.darling_macro]]
+version = "0.13.4"
+criteria = "safe-to-deploy"
+
 [[exemptions.deranged]]
 version = "0.5.9"
 criteria = "safe-to-deploy"
@@ -196,6 +228,58 @@ criteria = "safe-to-deploy"
 
 [[exemptions.digest]]
 version = "0.11.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus-config-macros]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus-core]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus-core-macro]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus-core-types]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus-hooks]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus-html]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus-html-internal-macro]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus-rsx]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus-signals]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus-ssr]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus-stores]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.dioxus-stores-macro]]
+version = "0.7.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.directories]]
@@ -224,6 +308,14 @@ criteria = "safe-to-deploy"
 
 [[exemptions.either]]
 version = "1.19.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.enumset]]
+version = "1.1.14"
+criteria = "safe-to-deploy"
+
+[[exemptions.enumset_derive]]
+version = "0.15.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.equivalent]]
@@ -280,6 +372,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.futures-util]]
 version = "0.3.34"
+criteria = "safe-to-deploy"
+
+[[exemptions.generational-box]]
+version = "0.7.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.generic-array]]
@@ -418,12 +514,32 @@ criteria = "safe-to-deploy"
 version = "0.3.106"
 criteria = "safe-to-deploy"
 
+[[exemptions.keyboard-types]]
+version = "0.7.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.konst]]
+version = "0.2.20"
+criteria = "safe-to-deploy"
+
+[[exemptions.konst_macro_rules]]
+version = "0.2.19"
+criteria = "safe-to-deploy"
+
+[[exemptions.lazy-js-bundle]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
 [[exemptions.lazy_static]]
 version = "1.5.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.libc]]
 version = "0.2.191"
+criteria = "safe-to-deploy"
+
+[[exemptions.libloading]]
+version = "0.8.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.libredox]]
@@ -436,7 +552,7 @@ criteria = "safe-to-deploy"
 
 [[exemptions.linux-raw-sys]]
 version = "0.12.1"
-criteria = "safe-to-run"
+criteria = "safe-to-deploy"
 
 [[exemptions.litemap]]
 version = "0.8.3"
@@ -448,6 +564,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.log]]
 version = "0.4.34"
+criteria = "safe-to-deploy"
+
+[[exemptions.longest-increasing-subsequence]]
+version = "0.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.maplit]]
@@ -468,6 +588,14 @@ criteria = "safe-to-deploy"
 
 [[exemptions.memchr]]
 version = "2.8.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.memfd]]
+version = "0.6.6"
+criteria = "safe-to-deploy"
+
+[[exemptions.memmap2]]
+version = "0.9.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.mime]]
@@ -526,6 +654,14 @@ criteria = "safe-to-deploy"
 version = "0.14.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.pin-project]]
+version = "1.1.13"
+criteria = "safe-to-deploy"
+
+[[exemptions.pin-project-internal]]
+version = "1.1.13"
+criteria = "safe-to-deploy"
+
 [[exemptions.pin-project-lite]]
 version = "0.2.17"
 criteria = "safe-to-deploy"
@@ -540,6 +676,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.proc-macro2]]
 version = "1.0.107"
+criteria = "safe-to-deploy"
+
+[[exemptions.proc-macro2-diagnostics]]
+version = "0.10.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.pulldown-cmark]]
@@ -600,7 +740,7 @@ criteria = "safe-to-deploy"
 
 [[exemptions.rustix]]
 version = "1.1.5"
-criteria = "safe-to-run"
+criteria = "safe-to-deploy"
 
 [[exemptions.rustls]]
 version = "0.23.46"
@@ -702,6 +842,10 @@ criteria = "safe-to-deploy"
 version = "0.4.12"
 criteria = "safe-to-deploy"
 
+[[exemptions.slotmap]]
+version = "1.1.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.smallvec]]
 version = "1.16.3"
 criteria = "safe-to-deploy"
@@ -756,6 +900,14 @@ criteria = "safe-to-deploy"
 
 [[exemptions.stringprep]]
 version = "0.1.5"
+criteria = "safe-to-deploy"
+
+[[exemptions.subsecond]]
+version = "0.7.10"
+criteria = "safe-to-deploy"
+
+[[exemptions.subsecond-types]]
+version = "0.7.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.syn]]
@@ -876,6 +1028,14 @@ criteria = "safe-to-deploy"
 
 [[exemptions.want]]
 version = "0.3.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.warnings]]
+version = "0.2.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.warnings-macro]]
+version = "0.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasi]]

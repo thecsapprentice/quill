@@ -55,13 +55,13 @@ fn parse_enum<T: std::str::FromStr>(value: &str) -> Result<T, ApiError> {
 // ---- Account settings ----------------------------------------------------
 
 /// Highest maturity this viewer may see on the board.
-pub async fn viewer_cap(pool: &PgPool, authed: Option<&Authed>) -> Result<Maturity, ApiError> {
-    let Some(authed) = authed else {
+pub async fn viewer_cap(pool: &PgPool, viewer: Option<Uuid>) -> Result<Maturity, ApiError> {
+    let Some(account) = viewer else {
         return Ok(Maturity::DEFAULT_MAX);
     };
     let raw: Option<String> =
         sqlx::query_scalar("SELECT maturity_max::text FROM accounts WHERE id = $1")
-            .bind(authed.account_id)
+            .bind(account)
             .fetch_optional(pool)
             .await?;
     match raw {
@@ -70,19 +70,42 @@ pub async fn viewer_cap(pool: &PgPool, authed: Option<&Authed>) -> Result<Maturi
     }
 }
 
+pub async fn account_settings(
+    state: &AppState,
+    account: Uuid,
+) -> Result<AccountSettings, ApiError> {
+    let row: Option<(String, bool)> =
+        sqlx::query_as("SELECT maturity_max::text, is_admin FROM accounts WHERE id = $1")
+            .bind(account)
+            .fetch_optional(&state.pool)
+            .await?;
+    let (maturity, is_admin) = row.ok_or(ApiError::Unauthorized)?;
+    Ok(AccountSettings {
+        maturity_max: parse_enum(&maturity)?,
+        is_admin,
+    })
+}
+
+pub async fn update_account_settings(
+    state: &AppState,
+    account: Uuid,
+    body: &UpdateAccountSettings,
+) -> Result<AccountSettings, ApiError> {
+    if let Some(m) = body.maturity_max {
+        sqlx::query("UPDATE accounts SET maturity_max = $2::maturity WHERE id = $1")
+            .bind(account)
+            .bind(m.as_str())
+            .execute(&state.pool)
+            .await?;
+    }
+    account_settings(state, account).await
+}
+
 async fn get_account(
     State(state): State<AppState>,
     authed: Authed,
 ) -> Result<Json<AccountSettings>, ApiError> {
-    let (maturity, is_admin): (String, bool) =
-        sqlx::query_as("SELECT maturity_max::text, is_admin FROM accounts WHERE id = $1")
-            .bind(authed.account_id)
-            .fetch_one(&state.pool)
-            .await?;
-    Ok(Json(AccountSettings {
-        maturity_max: parse_enum(&maturity)?,
-        is_admin,
-    }))
+    account_settings(&state, authed.account_id).await.map(Json)
 }
 
 async fn update_account(
@@ -90,14 +113,9 @@ async fn update_account(
     authed: Authed,
     ApiJson(body): ApiJson<UpdateAccountSettings>,
 ) -> Result<Json<AccountSettings>, ApiError> {
-    if let Some(m) = body.maturity_max {
-        sqlx::query("UPDATE accounts SET maturity_max = $2::maturity WHERE id = $1")
-            .bind(authed.account_id)
-            .bind(m.as_str())
-            .execute(&state.pool)
-            .await?;
-    }
-    get_account(State(state), authed).await
+    update_account_settings(&state, authed.account_id, &body)
+        .await
+        .map(Json)
 }
 
 // ---- Loading prompts -----------------------------------------------------
@@ -334,13 +352,23 @@ async fn list_prompts(
     MaybeAuthed(authed): MaybeAuthed,
     Query(q): Query<PromptQuery>,
 ) -> Result<Json<PromptPage>, ApiError> {
+    search_prompts(&state, authed.map(|a| a.account_id), &q)
+        .await
+        .map(Json)
+}
+
+/// Searches the board as `viewer` (an account id, or anonymous).
+pub async fn search_prompts(
+    state: &AppState,
+    viewer: Option<Uuid>,
+    q: &PromptQuery,
+) -> Result<PromptPage, ApiError> {
     let limit = q.limit.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE);
     let mine = q.author.as_deref() == Some("me");
-    let viewer = authed.as_ref().map(|a| a.account_id);
     if mine && viewer.is_none() {
         return Err(ApiError::Unauthorized);
     }
-    let cap = viewer_cap(&state.pool, authed.as_ref()).await?;
+    let cap = viewer_cap(&state.pool, viewer).await?;
     let cap = q.maturity_max.map_or(cap, |m| m.min(cap));
 
     let include_keys = validate::tag_filter(q.include.as_deref())?;
@@ -349,10 +377,10 @@ async fn list_prompts(
     let known_include = resolve_tags(&mut conn, &include_keys).await?;
     if known_include.len() < include_keys.len() {
         // A required tag doesn't exist, so nothing can match.
-        return Ok(Json(PromptPage {
+        return Ok(PromptPage {
             items: Vec::new(),
             next_cursor: None,
-        }));
+        });
     }
     let include: Vec<i64> = known_include.into_values().collect();
     let exclude: Vec<i64> = resolve_tags(&mut conn, &exclude_keys)
@@ -425,7 +453,7 @@ async fn list_prompts(
         None
     };
     let items = hydrate(&state.pool, rows, viewer).await?;
-    Ok(Json(PromptPage { items, next_cursor }))
+    Ok(PromptPage { items, next_cursor })
 }
 
 /// `GET /prompts/{id}`. The maturity cap is not applied to a direct link;
@@ -449,6 +477,16 @@ async fn create_prompt(
     authed: Authed,
     ApiJson(body): ApiJson<CreatePrompt>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let prompt = post_prompt(&state, authed.account_id, &body).await?;
+    Ok((StatusCode::CREATED, Json(prompt)))
+}
+
+/// Posts a prompt as one of `account`'s personas.
+pub async fn post_prompt(
+    state: &AppState,
+    account: Uuid,
+    body: &CreatePrompt,
+) -> Result<Prompt, ApiError> {
     let title = validate::prompt_title(&body.title)?;
     let markdown_body = validate::prompt_body(&body.body)?;
     let specs = validate::tag_specs(&body.tags)?;
@@ -458,7 +496,7 @@ async fn create_prompt(
     let owns: Option<i32> =
         sqlx::query_scalar("SELECT 1 FROM actors WHERE id = $1 AND account_id = $2")
             .bind(body.persona)
-            .bind(authed.account_id)
+            .bind(account)
             .fetch_optional(&mut *tx)
             .await?;
     if owns.is_none() {
@@ -482,10 +520,9 @@ async fn create_prompt(
     .await?;
     tx.commit().await?;
 
-    let prompt = load_prompt(&state.pool, id, Some(authed.account_id), true)
+    load_prompt(&state.pool, id, Some(account), true)
         .await?
-        .ok_or(ApiError::NotFound)?;
-    Ok((StatusCode::CREATED, Json(prompt)))
+        .ok_or(ApiError::NotFound)
 }
 
 async fn update_prompt(
@@ -494,6 +531,18 @@ async fn update_prompt(
     Path(id): Path<Uuid>,
     ApiJson(body): ApiJson<UpdatePrompt>,
 ) -> Result<Json<Prompt>, ApiError> {
+    edit_prompt(&state, authed.account_id, id, &body)
+        .await
+        .map(Json)
+}
+
+/// Edits a prompt posted by one of `account`'s personas.
+pub async fn edit_prompt(
+    state: &AppState,
+    account: Uuid,
+    id: Uuid,
+    body: &UpdatePrompt,
+) -> Result<Prompt, ApiError> {
     let title = body
         .title
         .as_deref()
@@ -512,7 +561,7 @@ async fn update_prompt(
          WHERE p.id = $1 AND a.account_id = $2 FOR UPDATE OF p",
     )
     .bind(id)
-    .bind(authed.account_id)
+    .bind(account)
     .fetch_optional(&mut *tx)
     .await?;
     match removed {
@@ -551,9 +600,8 @@ async fn update_prompt(
     .await?;
     tx.commit().await?;
 
-    load_prompt(&state.pool, id, Some(authed.account_id), true)
+    load_prompt(&state.pool, id, Some(account), true)
         .await?
-        .map(Json)
         .ok_or(ApiError::NotFound)
 }
 
@@ -562,19 +610,25 @@ async fn delete_prompt(
     authed: Authed,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
+    remove_own_prompt(&state, authed.account_id, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Deletes a prompt posted by one of `account`'s personas.
+pub async fn remove_own_prompt(state: &AppState, account: Uuid, id: Uuid) -> Result<(), ApiError> {
     // Phase 3 adds a federated `Delete`; Phase 2 expires pending requests.
     let result = sqlx::query(
         "DELETE FROM prompts p USING actors a
          WHERE p.id = $1 AND p.actor_id = a.id AND a.account_id = $2",
     )
     .bind(id)
-    .bind(authed.account_id)
+    .bind(account)
     .execute(&state.pool)
     .await?;
     if result.rows_affected() == 0 {
         return Err(ApiError::NotFound);
     }
-    Ok(StatusCode::NO_CONTENT)
+    Ok(())
 }
 
 // ---- Tags ----------------------------------------------------------------
@@ -582,19 +636,22 @@ async fn delete_prompt(
 async fn list_namespaces(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<TagNamespace>>, ApiError> {
+    namespaces(&state).await.map(Json)
+}
+
+pub async fn namespaces(state: &AppState) -> Result<Vec<TagNamespace>, ApiError> {
     let rows: Vec<(String, String, bool)> =
         sqlx::query_as("SELECT name, display, locked FROM tag_namespaces ORDER BY name")
             .fetch_all(&state.pool)
             .await?;
-    Ok(Json(
-        rows.into_iter()
-            .map(|(name, display, locked)| TagNamespace {
-                name,
-                display,
-                locked,
-            })
-            .collect(),
-    ))
+    Ok(rows
+        .into_iter()
+        .map(|(name, display, locked)| TagNamespace {
+            name,
+            display,
+            locked,
+        })
+        .collect())
 }
 
 fn escape_like(input: &str) -> String {
@@ -608,6 +665,11 @@ async fn list_tags(
     State(state): State<AppState>,
     Query(q): Query<TagQuery>,
 ) -> Result<Json<Vec<Tag>>, ApiError> {
+    search_tags(&state, &q).await.map(Json)
+}
+
+/// Canonical local tags, optionally filtered by namespace and prefix.
+pub async fn search_tags(state: &AppState, q: &TagQuery) -> Result<Vec<Tag>, ApiError> {
     let limit = q.limit.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE);
     let mut qb = QueryBuilder::new(
         "SELECT namespace, slug, display, origin FROM tags
@@ -639,8 +701,7 @@ async fn list_tags(
                 origin: parse_enum(&origin)?,
             })
         })
-        .collect::<Result<Vec<_>, ApiError>>()
-        .map(Json)
+        .collect()
 }
 
 async fn load_tag(conn: &mut PgConnection, namespace: &str, slug: &str) -> Result<Tag, ApiError> {

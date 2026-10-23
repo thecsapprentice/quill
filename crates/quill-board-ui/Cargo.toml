@@ -1,0 +1,24 @@
+[package]
+name = "quill-board-ui"
+description = "Prompt board UI components (Dioxus), shared by the server-rendered board and future clients. No cryptography."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+quill-proto.workspace = true
+
+dioxus.workspace = true
+dioxus-ssr.workspace = true
+time.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+time = { workspace = true, features = ["macros"] }
+
+[lints]
+workspace = true
