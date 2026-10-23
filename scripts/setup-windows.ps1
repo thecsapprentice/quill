@@ -13,7 +13,8 @@
       - NASM, the assembler aws-lc-rs uses on 64-bit Windows.
       - Git.
       - rustup, then the Rust version this project pins in
-        rust-toolchain.toml (with rustfmt and clippy).
+        rust-toolchain.toml (with rustfmt and clippy). rustup's self-update
+        is turned off, since Chocolatey manages rustup.
 
     Safe to run again: anything already installed is left as it is.
     Needs an elevated (Administrator) PowerShell, as Chocolatey does.
@@ -145,11 +146,22 @@ if (-not (Test-Command 'rustup')) {
 }
 
 Write-Step "Rust $RustVersion with rustfmt and clippy"
+# Chocolatey manages rustup itself; rustup replacing its own files would
+# fail ("Access is denied") and isn't wanted. Upgrade with `choco upgrade
+# rustup.install` instead.
+rustup set auto-self-update disable
+if ($LASTEXITCODE -ne 0) { throw 'rustup could not turn off self-update.' }
 rustup toolchain install $RustVersion --profile minimal --component rustfmt --component clippy
 if ($LASTEXITCODE -ne 0) { throw 'rustup could not install the toolchain.' }
-# Outside this repository (where rust-toolchain.toml decides), use stable.
-rustup default stable
-if ($LASTEXITCODE -ne 0) { throw 'rustup could not set the default toolchain.' }
+# Outside this repository (where rust-toolchain.toml decides), use the same
+# version unless a default is already set.
+$null = rustup default 2>$null
+if ($LASTEXITCODE -ne 0) {
+    rustup default $RustVersion
+    if ($LASTEXITCODE -ne 0) { throw 'rustup could not set the default toolchain.' }
+} else {
+    Write-Host "Keeping your default toolchain: $(rustup default)"
+}
 
 Write-Step 'Checking the tools'
 Update-Path
