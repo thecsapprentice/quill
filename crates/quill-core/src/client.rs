@@ -585,6 +585,40 @@ impl Client {
         Self::json(builder).await
     }
 
+    /// Uploads a padded, encrypted blob to the login's device group (2k:
+    /// history bundles).
+    pub async fn upload_group_blob(
+        &self,
+        group: &str,
+        blob: Vec<u8>,
+    ) -> Result<quill_proto::sessions::BlobUploaded, CoreError> {
+        let builder = self
+            .authed_segments(Method::POST, "/groups", &[group, "blobs"])?
+            .header(header::CONTENT_TYPE, "application/octet-stream")
+            .body(blob);
+        Self::json(builder).await
+    }
+
+    /// Deletes a blob in the login's device group once it's been read.
+    pub async fn delete_blob(&self, url: &str, token: &str) -> Result<(), CoreError> {
+        let id = self.blob_id(url)?;
+        let builder = self
+            .authed(Method::DELETE, &format!("/blobs/{id}"))?
+            .header(quill_proto::sessions::BLOB_TOKEN_HEADER, token);
+        Self::empty(builder).await
+    }
+
+    fn blob_id(&self, url: &str) -> Result<Uuid, CoreError> {
+        let prefix = self.url("/blobs/")?.to_string();
+        url.strip_prefix(&prefix)
+            .and_then(|id| Uuid::parse_str(id).ok())
+            .ok_or_else(|| {
+                CoreError::Keys(
+                    "the attachment is on another server; fetching it comes with federation".into(),
+                )
+            })
+    }
+
     /// A blob's URL, as attachments carry it.
     pub fn blob_url(&self, id: Uuid) -> Result<String, CoreError> {
         Ok(self.url(&format!("/blobs/{id}"))?.to_string())
@@ -593,15 +627,7 @@ impl Client {
     /// Fetches a blob on this client's server, refusing more than `max`
     /// bytes.
     pub async fn fetch_blob(&self, url: &str, token: &str, max: u64) -> Result<Vec<u8>, CoreError> {
-        let prefix = self.url("/blobs/")?.to_string();
-        let id = url
-            .strip_prefix(&prefix)
-            .and_then(|id| Uuid::parse_str(id).ok())
-            .ok_or_else(|| {
-                CoreError::Keys(
-                    "the attachment is on another server; fetching it comes with federation".into(),
-                )
-            })?;
+        let id = self.blob_id(url)?;
         let builder = self
             .authed(Method::GET, &format!("/blobs/{id}"))?
             .header(quill_proto::sessions::BLOB_TOKEN_HEADER, token);
