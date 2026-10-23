@@ -11,7 +11,7 @@ use axum::{
 use quill_proto::{
     events::Event,
     keys::{actor_uri, b64, unb64},
-    sessions::{Ack, DeviceWelcome, LeaveWelcome, Session, SessionMember},
+    sessions::{Ack, DeviceWelcome, LeaveWelcome, Rejoin, SendRejoin, Session, SessionMember},
 };
 use sqlx::PgConnection;
 use uuid::Uuid;
@@ -25,6 +25,8 @@ pub fn router() -> Router<AppState> {
         .route("/sessions/{id}/welcomes/{device}", delete(take_welcome))
         .route("/sessions/{id}/leave", post(leave))
         .route("/sessions/{id}/ack", post(ack))
+        .route("/sessions/{id}/rejoin", post(rejoin))
+        .route("/sessions/{id}/rejoins/{rejoin}", delete(rejoin_done))
 }
 
 fn decode(field: &str, text: &str) -> Result<Vec<u8>, ApiError> {
@@ -93,6 +95,14 @@ async fn list(
     .bind(authed.account_id)
     .fetch_all(&mut *conn)
     .await?;
+    let rejoins: Vec<(Vec<u8>, Uuid, String, Vec<u8>)> = sqlx::query_as(
+        "SELECT r.group_id, r.id, a.preferred_username, r.request
+         FROM session_rejoins r JOIN actors a ON a.id = r.actor_id
+         WHERE r.group_id = ANY($1) ORDER BY r.created_at",
+    )
+    .bind(&groups)
+    .fetch_all(&mut *conn)
+    .await?;
     let domain = &state.config.domain;
     Ok(Json(
         rows.into_iter()
@@ -124,6 +134,15 @@ async fn list(
                             from_seq: as_u64(*from),
                         })
                         .collect(),
+                    rejoins: rejoins
+                        .iter()
+                        .filter(|r| r.0 == group)
+                        .map(|(_, id, handle, request)| Rejoin {
+                            id: *id,
+                            actor_uri: actor_uri(domain, handle),
+                            request: b64(request),
+                        })
+                        .collect(),
                 },
             )
             .collect(),
@@ -149,11 +168,16 @@ async fn leave_welcome(
     }
     let mut tx = state.pool.begin().await?;
     member(&mut tx, authed.account_id, &group).await?;
+    // The caller's own persona's device; or a device of the other persona
+    // that asked to rejoin (2j).
     let own: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM devices d
              JOIN session_members m ON m.actor_id = d.actor_id AND m.group_id = $1
              JOIN actors a ON a.id = d.actor_id
-             WHERE d.id = $2 AND a.account_id = $3 AND d.revocation IS NULL)",
+             WHERE d.id = $2 AND d.revocation IS NULL
+               AND (a.account_id = $3 OR EXISTS (
+                   SELECT 1 FROM session_rejoins r
+                   WHERE r.group_id = $1 AND r.actor_id = d.actor_id)))",
     )
     .bind(&group)
     .bind(body.device)
@@ -162,7 +186,7 @@ async fn leave_welcome(
     .await?;
     if !own {
         return Err(ApiError::BadRequest(
-            "Welcomes can only be left for your own persona's devices in the session.".into(),
+            "Welcomes can only be left for your own persona's devices in the session, or a device asking to rejoin.".into(),
         ));
     }
     sqlx::query(
@@ -331,4 +355,95 @@ pub(crate) async fn prune(conn: &mut PgConnection, group: &[u8]) -> Result<u64, 
     .execute(&mut *conn)
     .await?;
     Ok(deleted.rows_affected())
+}
+
+// ---- Rejoin requests (2j) ----------------------------------------------------
+
+/// How long a rejoin request stays.
+const REJOIN_DAYS: i32 = 30;
+
+/// `POST /sessions/{id}/rejoin`: a restored device asks to be let back in.
+/// The request must be signed by the identity key of the caller's persona
+/// in the session; the other writer's client checks it again.
+async fn rejoin(
+    State(state): State<AppState>,
+    authed: Authed,
+    Path(id): Path<String>,
+    ApiJson(body): ApiJson<SendRejoin>,
+) -> Result<StatusCode, ApiError> {
+    let group = decode("session id", &id)?;
+    let request = decode("request", &body.request)?;
+    if u64::try_from(request.len()).unwrap_or(u64::MAX) > state.config.limits.max_message_bytes {
+        return Err(ApiError::PayloadTooLarge);
+    }
+    let mut tx = state.pool.begin().await?;
+    let persona: Option<(Uuid, String, Option<Vec<u8>>, bool)> = sqlx::query_as(
+        "SELECT a.id, a.preferred_username, a.identity_key, s.ended_at IS NOT NULL
+         FROM session_members m JOIN actors a ON a.id = m.actor_id
+         JOIN sessions s ON s.group_id = m.group_id
+         WHERE m.group_id = $1 AND a.account_id = $2",
+    )
+    .bind(&group)
+    .bind(authed.account_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let (actor, handle, key, ended) = persona.ok_or(ApiError::NotFound)?;
+    if ended {
+        return Err(ApiError::Forbidden("The session has ended.".into()));
+    }
+    let key = key.ok_or_else(|| ApiError::BadRequest("the persona has no identity key".into()))?;
+    quill_certs::RejoinRequest::verify(
+        &request,
+        &actor_uri(&state.config.domain, &handle),
+        &group,
+        &key,
+    )
+    .map_err(|e| ApiError::BadRequest(format!("rejoin request refused: {e}")))?;
+    sqlx::query("DELETE FROM session_rejoins WHERE created_at < now() - make_interval(days => $1)")
+        .bind(REJOIN_DAYS)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "INSERT INTO session_rejoins (id, group_id, actor_id, request) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (group_id, actor_id)
+         DO UPDATE SET id = EXCLUDED.id, request = EXCLUDED.request, created_at = now()",
+    )
+    .bind(Uuid::new_v4())
+    .bind(&group)
+    .bind(actor)
+    .bind(&request)
+    .execute(&mut *tx)
+    .await?;
+    let members = crate::events::group_accounts(&mut tx, &group).await?;
+    tx.commit().await?;
+    state.events.send(
+        members,
+        Event::Session {
+            id: b64(&group),
+            ended: false,
+        },
+    );
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `DELETE /sessions/{id}/rejoins/{rejoin}`: a member's client has dealt
+/// with it.
+async fn rejoin_done(
+    State(state): State<AppState>,
+    authed: Authed,
+    Path((id, rejoin)): Path<(String, Uuid)>,
+) -> Result<StatusCode, ApiError> {
+    let group = decode("session id", &id)?;
+    let mut tx = state.pool.begin().await?;
+    member(&mut tx, authed.account_id, &group).await?;
+    let deleted = sqlx::query("DELETE FROM session_rejoins WHERE id = $1 AND group_id = $2")
+        .bind(rejoin)
+        .bind(&group)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    if deleted.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+    Ok(StatusCode::NO_CONTENT)
 }

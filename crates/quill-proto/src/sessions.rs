@@ -52,6 +52,27 @@ pub struct Session {
     /// Welcomes left for the caller's devices added since.
     #[serde(default)]
     pub device_welcomes: Vec<DeviceWelcome>,
+    /// Rejoin requests waiting in the session (2j).
+    #[serde(default)]
+    pub rejoins: Vec<Rejoin>,
+}
+
+/// A restored device's request to be let back into a session (2j).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Rejoin {
+    pub id: Uuid,
+    /// The persona asking.
+    pub actor_uri: String,
+    /// The signed `RejoinRequest`, base64url.
+    pub request: String,
+}
+
+/// `POST /sessions/{id}/rejoin`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendRejoin {
+    pub request: String,
 }
 
 /// `POST /sessions/{id}/welcomes`: a Welcome for one of the caller's
