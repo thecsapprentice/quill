@@ -28,6 +28,20 @@ and servers federate over ActivityPub.
 [`scripts/check-server-deps.sh`](scripts/check-server-deps.sh) enforces this
 in CI, so a decryption path cannot be added by accident.
 
+## Try it with Docker
+
+With Docker installed, this builds the server and starts it with a database:
+
+```sh
+docker compose up --build -d
+# Open http://localhost:8080/ and register an account, then make it an admin:
+docker compose exec server quill-server make-admin yourname
+docker compose down        # stop; add -v to also delete the database
+```
+
+The compose setup is for local testing only: it serves plain HTTP, which
+browsers accept for the board's Secure session cookie only on `localhost`.
+
 ## Development
 
 Requirements: the Rust toolchain pinned in `rust-toolchain.toml` (rustup
