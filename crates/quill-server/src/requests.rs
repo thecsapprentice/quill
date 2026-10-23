@@ -274,16 +274,17 @@ async fn list_own(
 }
 
 /// `(state, requester login, author login)`.
-type SidesRow = (String, Uuid, Uuid);
+/// The author's login is `None` once the author persona is deleted.
+type SidesRow = (String, Uuid, Option<Uuid>);
 
 async fn sides(conn: &mut PgConnection, id: Uuid, lock: bool) -> Result<SidesRow, ApiError> {
     let sql = if lock {
         "SELECT r.state::text, r.requester_account_id, a.account_id
-         FROM session_requests r JOIN actors a ON a.id = r.author_actor_id
+         FROM session_requests r LEFT JOIN actors a ON a.id = r.author_actor_id
          WHERE r.id = $1 FOR UPDATE OF r"
     } else {
         "SELECT r.state::text, r.requester_account_id, a.account_id
-         FROM session_requests r JOIN actors a ON a.id = r.author_actor_id
+         FROM session_requests r LEFT JOIN actors a ON a.id = r.author_actor_id
          WHERE r.id = $1"
     };
     sqlx::query_as(sqlx::AssertSqlSafe(sql))
@@ -302,7 +303,7 @@ async fn status(
     let mut conn = state.pool.acquire().await?;
     expire(&mut conn).await?;
     let (st, requester, author) = sides(&mut conn, id, false).await?;
-    let status = if author == authed.account_id {
+    let status = if author == Some(authed.account_id) {
         if st == "refused" {
             return Err(ApiError::NotFound);
         }
@@ -441,7 +442,7 @@ async fn accept(
     let row: Option<AcceptRow> = sqlx::query_as(
         "SELECT r.state::text, a.account_id, r.group_id, r.epoch, r.pitch,
                 r.author_actor_id, r.requester_actor_id
-         FROM session_requests r JOIN actors a ON a.id = r.author_actor_id
+         FROM session_requests r LEFT JOIN actors a ON a.id = r.author_actor_id
          WHERE r.id = $1 FOR UPDATE OF r",
     )
     .bind(id)
@@ -509,7 +510,7 @@ async fn decline(
     let mut tx = state.pool.begin().await?;
     expire(&mut tx).await?;
     let (st, _, author) = sides(&mut tx, id, true).await?;
-    if author != authed.account_id || st == "refused" {
+    if author != Some(authed.account_id) || st == "refused" {
         return Err(ApiError::NotFound);
     }
     match st.as_str() {

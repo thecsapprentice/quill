@@ -507,7 +507,9 @@ request, writing, Leave) is 2f.
 - **Withdrawing** (`quill request withdraw ID`) deletes a request that isn't
   a session yet; `quill request list` shows the login's requests.
 - **Expiry:** the earlier of the requester's choice and 30 days. Deleting a
-  prompt expires its waiting requests at once. Expired requests lose their
+  prompt, or the author's persona or login, expires its waiting requests at
+  once, so the requester sees *no response* rather than the request
+  vanishing. Expired requests lose their
   ciphertext; the requester's view keeps *no response* until dismissed.
 - **Cleaning up.** Each device notes the requests it holds a group for.
   The upkeep before each command checks those still undecided and drops

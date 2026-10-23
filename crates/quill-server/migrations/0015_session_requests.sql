@@ -30,7 +30,9 @@ CREATE TABLE session_requests (
     id                   uuid          PRIMARY KEY,
     -- Cleared if the prompt is deleted (its waiting requests expire first).
     prompt_id            uuid          REFERENCES prompts (id) ON DELETE SET NULL,
-    author_actor_id      uuid          NOT NULL REFERENCES actors (id) ON DELETE CASCADE,
+    -- Cleared if the author persona is deleted (its waiting requests expire
+    -- first), so the requester still sees "no response".
+    author_actor_id      uuid          REFERENCES actors (id) ON DELETE SET NULL,
     requester_actor_id   uuid          NOT NULL REFERENCES actors (id) ON DELETE CASCADE,
     -- For the one-waiting-request-per-login rule. The server already knows
     -- which login each persona belongs to; this adds nothing to that.
@@ -60,3 +62,18 @@ CREATE INDEX session_requests_queue_idx ON session_requests (prompt_id, state);
 CREATE INDEX session_requests_requester_idx ON session_requests (requester_account_id);
 CREATE INDEX session_requests_expiry_idx ON session_requests (expires_at)
     WHERE state IN ('pending', 'held', 'refused', 'declined');
+
+-- Deleting a persona (or its login) expires the waiting requests sent to
+-- it, as deleting a prompt does: the requester sees "no response" rather
+-- than the request vanishing.
+CREATE FUNCTION session_requests_author_gone() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE session_requests SET state = 'expired', welcome = NULL, pitch = NULL
+    WHERE author_actor_id = OLD.id AND state IN ('pending', 'held', 'refused', 'declined');
+    RETURN OLD;
+END;
+$$;
+
+CREATE TRIGGER session_requests_author_gone
+    BEFORE DELETE ON actors
+    FOR EACH ROW EXECUTE FUNCTION session_requests_author_gone();

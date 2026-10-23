@@ -652,3 +652,39 @@ async fn the_server_checks_what_it_files() {
     );
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_the_authors_persona_means_no_response() {
+    let server = server!();
+    let alice_c = server.account("alice").await.unwrap();
+    let (fox, _alice) = writer(&alice_c, "ink_fox").await;
+    let p = prompt(&alice_c, fox.id, PromptState::Open).await;
+    let bob_c = server.account("bob").await.unwrap();
+    let (wren, bob) = writer(&bob_c, "quiet_wren").await;
+    let sent = requests::send(&bob, &bob_c, &wren, p.id, PITCH, None)
+        .await
+        .unwrap();
+    alice_c.delete_persona(fox.id).await.unwrap();
+    let r = requests::list(&bob_c)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.id == sent.request.id)
+        .unwrap();
+    assert_eq!((r.status, r.prompt), (RequestStatus::NoResponse, None));
+    assert_eq!(
+        bob_c.request_status(sent.request.id).await.unwrap().status,
+        RequestStatus::NoResponse
+    );
+    assert_eq!(
+        devices::maintain(&bob, &bob_c)
+            .await
+            .unwrap()
+            .requests_dropped,
+        1
+    );
+    requests::withdraw(&bob, &bob_c, sent.request.id)
+        .await
+        .unwrap();
+    server.stop().await.unwrap();
+}
