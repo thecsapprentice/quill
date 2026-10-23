@@ -71,7 +71,16 @@ jobs:
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo clippy --locked -p quill-core -p quill --all-targets -- -D warnings
-      - run: cargo test --locked -p quill-core
+      - name: cargo test -p quill-core
+        shell: bash
+        # Failing tests are also reported as annotations, readable without
+        # downloading the log.
+        run: |
+          set -o pipefail
+          cargo test --locked -p quill-core 2>&1 | tee test.log || {
+            grep -E "panicked at|^test .* FAILED|^---- " test.log | head -20 | sed 's/^/::error::/'
+            exit 1
+          }
 
   supply-chain:
     name: supply chain
