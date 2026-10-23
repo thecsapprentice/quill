@@ -1,0 +1,28 @@
+[package]
+name = "quill-certs"
+description = "Device certificates and revocations: TLS encoding, MLS-style labeled signatures, strict verification. Linked by the server (verification only) and the client."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Issuing certificates and revocations (client only).
+sign = []
+
+[dependencies]
+ed25519-dalek.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tls_codec.workspace = true
+
+[dev-dependencies]
+# The tests issue certificates.
+quill-certs = { path = ".", features = ["sign"] }
+hex = "0.4"
+serde_json.workspace = true
+
+[lints]
+workspace = true

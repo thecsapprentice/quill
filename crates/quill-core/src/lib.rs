@@ -6,6 +6,7 @@
 //! state; that is why the server must never depend on it.
 
 pub mod client;
+pub mod keys;
 pub mod profile;
 pub mod store;
 

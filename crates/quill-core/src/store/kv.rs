@@ -23,15 +23,30 @@ pub enum Table {
     Meta,
     /// The server address and login token.
     Profile,
+    /// Each persona's identity private key, by persona id.
+    Identities,
+    /// This device's key and certificate for each persona, by persona id.
+    Devices,
+    /// Identity keys first seen for other personas, by actor URI.
+    Pins,
 }
 
 impl Table {
-    pub const ALL: [Self; 2] = [Self::Meta, Self::Profile];
+    pub const ALL: [Self; 5] = [
+        Self::Meta,
+        Self::Profile,
+        Self::Identities,
+        Self::Devices,
+        Self::Pins,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Meta => "meta",
             Self::Profile => "profile",
+            Self::Identities => "identities",
+            Self::Devices => "devices",
+            Self::Pins => "pins",
         }
     }
 }

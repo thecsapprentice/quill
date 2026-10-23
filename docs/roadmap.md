@@ -236,8 +236,8 @@ before device linking, which needs it.
 
 | Sub-phase | Scope | Status |
 | --- | --- | --- |
-| 2a | Encrypted local store in `quill-core`; the CLI's login moves into it | next |
-| 2b | Identity keys per persona, device keys and certificates; the server's device directory | planned |
+| 2a | Encrypted local store in `quill-core`; the CLI's login moves into it | done (#9) |
+| 2b | Identity keys per persona, device keys and certificates; the server's device directory | next |
 | 2c | OpenMLS on the client; KeyPackage upload and claim; certificate checks on claimed packages | planned |
 | 2d | Device linking and the personal device group | planned |
 | 2e | Collaboration requests: request, approve, silent decline, 30-day expiry, one pending per prompt | planned |
@@ -289,21 +289,62 @@ point of a commit, and the CLI works end to end from the store.
 
 ### 2b: Identity keys per persona, device certificates, device directory
 
-- Every **persona** that takes part in sessions gets its own Ed25519 identity
-  key, created on the client on first use. Each device holds a separate
-  device key and certificate per persona. Publishing one key across personas
-  would let anyone link them, which the anonymity plan forbids; only the home
-  server knows they share a login, as today.
-- `DeviceCertificate` and `DeviceRevocation` in TLS encoding, signed with
-  MLS-style `SignWithLabel` under the `"wr "` labels; test vectors for both,
-  including the must-reject cases.
-- Server: `PUT /personas/{id}/identity-key`, `GET/POST /personas/{id}/devices`,
-  `POST /personas/{id}/devices/{device}/revoke`. The server checks
-  certificate structure and signatures (public-key operations only, which
-  the dependency ban allows) and publishes the keys; clients check again
-  and never trust the server's word.
-- Trust-on-first-use pins and safety numbers are per persona identity key.
-- CLI: `quill keys init --persona`, `quill device list`, `quill device revoke`.
+Each persona that will take part in sessions gets keys; the server publishes
+the public halves so other writers' clients can check them. Nothing here
+encrypts yet: 2c uses these keys for MLS.
+
+- **Actor URIs.** Every persona gets its permanent identifier,
+  `https://{domain}/users/{handle}`, shown in the personas API. Handles are
+  never renamed or reused, so it's stable. Certificates sign it, so changing
+  the server's domain later invalidates them (fine before Phase 3).
+- **Keys, all Ed25519 and generated on the client:**
+  - an **identity key** per persona, with a version that goes up when it's
+    replaced;
+  - a **device key** per persona on each device (one device per persona
+    until linking arrives in 2d). It becomes the MLS signature key in 2c.
+  - Private halves live only in the encrypted store.
+- **Formats** (new crate `quill-certs`, linked by both client and server):
+  `DeviceCertificate` and `DeviceRevocation` exactly as in the protocol
+  draft, TLS-encoded, signed with MLS's `SignWithLabel` (labels
+  `"MLS 1.0 wr device cert v1"` and `"MLS 1.0 wr device revoke v1"`).
+  Verification is strict: exact lengths, no trailing bytes, unknown flag
+  bits refused, Ed25519 strict verification. Signing is client-only.
+- **Test vectors** in `test-vectors/`, generated from fixed seeds and
+  checked by the tests: labeled signatures, certificates and revocations,
+  each with the must-reject cases from the protocol draft.
+- **Server: the device directory.** The server checks certificates and
+  revocations itself (public-key operations only, which the dependency ban
+  allows) and refuses anything that wouldn't verify; clients check again
+  and never take the server's word.
+  - `PUT /personas/{id}/identity-key` sets or replaces the key; a
+    replacement needs a higher version and leaves the persona's existing
+    devices uncertified until each is certified again.
+  - `POST /personas/{id}/devices` registers a certified device;
+    `POST /personas/{id}/devices/{device}/revoke` takes a signed
+    revocation, which is permanent.
+  - `GET /actors/{handle}/keys` is public: the identity key, its version,
+    and every device with its certificate, plus revocations.
+- **Unlinkability.** Device ids are random (not time-ordered), the server
+  publishes no creation times, and clients round a certificate's start time
+  down to the UTC day, so devices certified together for different personas
+  can't be matched up by timestamps.
+- **Trust on first use.** The store pins the first identity key seen for
+  each persona; a later different key is reported as a change, never
+  accepted silently. Safety numbers come in 2j.
+- **CLI:**
+  - `quill keys init --as HANDLE` creates and publishes keys.
+  - `quill keys show HANDLE` fetches any persona's keys, checks every
+    certificate, and reports its fingerprint and pin status.
+  - `quill device list --as HANDLE` and
+    `quill device revoke DEVICE --as HANDLE [--reason lost|compromised|retired]`.
+  - On a second computer, `keys init` refuses to replace a persona's key
+    unless given `--new-identity`, which warns that other devices stop
+    working until linked (2d).
+
+Done when: the test vectors pass; the server refuses every bad certificate
+and revocation; a client detects a forged device or a swapped identity key
+even when the server accepts it; and a persona's keys reveal nothing that
+links it to the login's other personas.
 
 ### Later sub-phases
 

@@ -44,6 +44,10 @@ pub enum CoreError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Store(#[from] crate::store::StoreError),
+    #[error("{0}")]
+    Keys(String),
+    #[error("certificate: {0}")]
+    Cert(#[from] quill_certs::CertError),
 }
 
 impl CoreError {
@@ -378,6 +382,60 @@ impl Client {
     pub async fn admin_create_tag(&self, body: &CreateTag) -> Result<Tag, CoreError> {
         let builder = self.authed(Method::POST, "/admin/tags")?;
         Self::json(Self::with_json(builder, body)).await
+    }
+
+    // ---- Keys and devices (2b) --------------------------------------------
+
+    /// Sets or replaces a persona's identity key.
+    pub async fn set_identity_key(
+        &self,
+        persona: Uuid,
+        body: &quill_proto::keys::SetIdentityKey,
+    ) -> Result<quill_proto::keys::PersonaKeys, CoreError> {
+        let builder = self.authed(Method::PUT, &format!("/personas/{persona}/identity-key"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    /// One of this account's personas' keys and devices.
+    pub async fn persona_keys(
+        &self,
+        persona: Uuid,
+    ) -> Result<quill_proto::keys::PersonaKeys, CoreError> {
+        Self::json(self.authed(Method::GET, &format!("/personas/{persona}/devices"))?).await
+    }
+
+    pub async fn register_device(
+        &self,
+        persona: Uuid,
+        body: &quill_proto::keys::RegisterDevice,
+    ) -> Result<quill_proto::keys::DeviceInfo, CoreError> {
+        let builder = self.authed(Method::POST, &format!("/personas/{persona}/devices"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn revoke_device(
+        &self,
+        persona: Uuid,
+        device: Uuid,
+        body: &quill_proto::keys::RevokeDevice,
+    ) -> Result<quill_proto::keys::DeviceInfo, CoreError> {
+        let builder = self.authed(
+            Method::POST,
+            &format!("/personas/{persona}/devices/{device}/revoke"),
+        )?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    /// Any persona's published keys. Needs no login.
+    pub async fn actor_keys(
+        &self,
+        handle: &str,
+    ) -> Result<quill_proto::keys::PersonaKeys, CoreError> {
+        let mut url = self.url("/actors")?;
+        url.path_segments_mut()
+            .map_err(|()| CoreError::Url(url::ParseError::RelativeUrlWithCannotBeABaseBase))?
+            .extend([handle, "keys"]);
+        Self::json(self.http.request(Method::GET, url)).await
     }
 
     /// An authenticated request to `base` plus path segments, each escaped.

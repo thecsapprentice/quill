@@ -18,6 +18,7 @@ path = "src/main.rs"
 # INVARIANT: no MLS, HPKE or client-crypto crate may appear in this crate's
 # dependency tree. `scripts/check-server-deps.sh` enforces this in CI.
 [dependencies]
+quill-certs.workspace = true
 quill-proto.workspace = true
 quill-mls-envelope.workspace = true
 quill-board-ui.workspace = true

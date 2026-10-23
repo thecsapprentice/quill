@@ -42,6 +42,7 @@ pub fn api() -> Router<AppState> {
         .merge(crate::server_settings::router())
         .merge(crate::reserved::router())
         .merge(crate::notices::router())
+        .merge(crate::keys::router())
 }
 
 async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, ApiError> {
@@ -174,9 +175,13 @@ async fn logout(State(state): State<AppState>, authed: Authed) -> Result<StatusC
 
 type PersonaRow = (Uuid, String, Option<String>, Option<String>, OffsetDateTime);
 
-fn persona_from_row((id, handle, display_name, summary, created_at): PersonaRow) -> Persona {
+fn persona_from_row(
+    domain: &str,
+    (id, handle, display_name, summary, created_at): PersonaRow,
+) -> Persona {
     Persona {
         id,
+        actor_uri: quill_proto::keys::actor_uri(domain, &handle),
         handle,
         display_name,
         summary,
@@ -200,7 +205,10 @@ pub async fn personas(state: &AppState, account: Uuid) -> Result<Vec<Persona>, A
     .bind(account)
     .fetch_all(&state.pool)
     .await?;
-    Ok(rows.into_iter().map(persona_from_row).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| persona_from_row(&state.config.domain, r))
+        .collect())
 }
 
 async fn create_persona(
@@ -280,7 +288,7 @@ async fn insert_persona(
     .fetch_one(&state.pool)
     .await;
     match inserted {
-        Ok(row) => Ok(persona_from_row(row)),
+        Ok(row) => Ok(persona_from_row(&state.config.domain, row)),
         Err(e) if is_unique_violation(&e) => {
             Err(ApiError::Conflict("That handle isn't available.".into()))
         }
@@ -315,7 +323,7 @@ async fn update_persona(
     .bind(&summary)
     .fetch_optional(&state.pool)
     .await?;
-    row.map(|r| Json(persona_from_row(r)))
+    row.map(|r| Json(persona_from_row(&state.config.domain, r)))
         .ok_or(ApiError::NotFound)
 }
 

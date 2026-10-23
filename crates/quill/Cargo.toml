@@ -13,6 +13,7 @@ name = "quill"
 path = "src/main.rs"
 
 [dependencies]
+quill-certs.workspace = true
 quill-core.workspace = true
 quill-proto.workspace = true
 

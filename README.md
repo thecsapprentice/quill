@@ -100,6 +100,13 @@ QUILL_DATABASE_URL=... cargo run -p quill-server -- make-admin yourname
 QUILL_DATABASE_URL=... cargo run -p quill-server -- grant-handle yourname support "Support desk"
 cargo run -p quill -- admin reports
 cargo run -p quill -- account notices        # what administrators did to your prompts and tags
+
+# The CLI keeps its login and keys in an encrypted local store (keychain or passphrase).
+cargo run -p quill -- store status
+# Keys for a persona (needed for writing sessions), and checking anyone's.
+cargo run -p quill -- keys init --as your_handle
+cargo run -p quill -- keys show some_handle
+cargo run -p quill -- device list --as your_handle
 cargo run -p quill -- admin namespace-set genre --required true   # every prompt needs a genre
 cargo run -p quill -- admin tags --namespace theme                  # tags with usage counts
 cargo run -p quill -- admin settings --new-tags approval            # writers' new tags need approval

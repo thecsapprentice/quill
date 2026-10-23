@@ -4,6 +4,7 @@
 //! later phase adds the commands that exercise its server features.
 
 mod board;
+mod keys_cmd;
 mod local;
 
 use std::path::PathBuf;
@@ -77,6 +78,12 @@ enum Command {
     /// The encrypted local store holding this client's login and keys.
     #[command(subcommand)]
     Store(local::StoreCommand),
+    /// Persona identity keys: create, publish, and check anyone's.
+    #[command(subcommand)]
+    Keys(keys_cmd::KeysCommand),
+    /// A persona's devices: list and revoke.
+    #[command(subcommand)]
+    Device(keys_cmd::DeviceCommand),
 }
 
 #[derive(Args)]
@@ -257,6 +264,8 @@ async fn run(cli: Cli) -> Result<()> {
         } => board::report(&ctx, prompt, reason, details).await?,
         Command::Admin(cmd) => board::admin(&ctx, cmd).await?,
         Command::Store(cmd) => local::command(&mut ctx, cmd)?,
+        Command::Keys(cmd) => keys_cmd::keys(&ctx, cmd).await?,
+        Command::Device(cmd) => keys_cmd::device(&ctx, cmd).await?,
     }
     Ok(())
 }
