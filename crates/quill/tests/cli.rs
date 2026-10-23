@@ -12,8 +12,18 @@ const PASSPHRASE: &str = "a long enough passphrase";
 /// Runs `quill` with a store in `dir`; returns (success, stdout, stderr).
 /// Blocks its thread, so the test runtime needs another for the server.
 fn quill(dir: &Path, passphrase: &str, args: &[&str]) -> (bool, String, String) {
+    quill_with(dir, passphrase, &[], args)
+}
+
+fn quill_with(
+    dir: &Path,
+    passphrase: &str,
+    env: &[(&str, &str)],
+    args: &[&str],
+) -> (bool, String, String) {
     let out = Command::new(env!("CARGO_BIN_EXE_quill"))
         .args(args)
+        .envs(env.iter().copied())
         .env("QUILL_STORE", dir.join("store.quill"))
         .env("QUILL_PROFILE", dir.join("profile.json"))
         .env("QUILL_STORE_PASSPHRASE", passphrase)
@@ -451,6 +461,45 @@ async fn the_cli_sends_reads_and_accepts_a_request() {
         "{out}"
     );
     assert!(!out.contains("The lighthouse."), "{out}");
+    // Safety numbers and backups (2j).
+    let (ok, out, err) = as_alice(&["--json", "session", "verify", short]);
+    assert!(ok, "{err}");
+    let alices: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let (ok, out, err) = as_bob(&["--json", "session", "verify", short, "--confirm"]);
+    assert!(ok, "{err}");
+    let bobs: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(alices["identity"], bobs["identity"]);
+    assert_eq!(bobs["verified"], true);
+    let (_, out, _) = as_bob(&["sessions"]);
+    assert!(
+        out.contains("@quiet_wren with @ink_fox (verified)"),
+        "{out}"
+    );
+    let (ok, out, err) = as_alice(&["--json", "backup", "create"]);
+    assert!(ok, "{err}");
+    let code = serde_json::from_str::<serde_json::Value>(&out).unwrap()["recoveryCode"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let restored = tempfile::tempdir().unwrap();
+    let as_new = |args: &[&str]| {
+        quill_with(
+            restored.path(),
+            PASSPHRASE,
+            &[("QUILL_RECOVERY_CODE", &code)],
+            args,
+        )
+    };
+    assert!(as_new(&["server", &url]).0);
+    assert!(as_new(&["login", "cli_alice"]).0);
+    let (ok, out, err) = as_new(&["backup", "restore", "--yes"]);
+    assert!(ok, "{err}");
+    assert!(out.contains("restored: @ink_fox"), "{out}");
+    assert!(out.contains("asked to rejoin 1 sessions"), "{out}");
+    let (ok, out, err) = as_new(&["session", "read", short]);
+    assert!(ok, "{err}");
+    assert!(out.contains("The tide came in early."), "{out}");
+
     let (ok, out, err) = as_alice(&["session", "leave", short]);
     assert!(ok && out.contains("ended"), "{out}{err}");
     let (ok, _, err) = as_bob(&["session", "write", short, "--text", "Hello?"]);

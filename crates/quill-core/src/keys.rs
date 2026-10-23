@@ -70,6 +70,11 @@ impl Identity {
         fingerprint(&self.public())
     }
 
+    /// The key itself, for signing as the persona.
+    pub(crate) fn signing_key(&self) -> &SigningKey {
+        &self.key
+    }
+
     fn encode(&self) -> Zeroizing<Vec<u8>> {
         let mut out = Zeroizing::new(self.version.to_be_bytes().to_vec());
         out.extend_from_slice(self.key.as_bytes());

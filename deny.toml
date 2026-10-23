@@ -22,6 +22,12 @@ ignore = [
   # RustCrypto provider). Client-only; no code from it runs. Remove when
   # libcrux drops it.
   { id = "RUSTSEC-2026-0173", reason = "build-time proc macro in libcrux-sha3's annotations; client-only" },
+  # Unmaintained TOML parser, used only at build time by the age crate's
+  # localisation proc macros (i18n-embed-fl, i18n-embed-impl) to read their
+  # config; no code from it runs in the client. Client-only (backups, 2j).
+  # Remove when i18n-config moves off it, or if our own age implementation
+  # replaces the crate.
+  { id = "RUSTSEC-2026-0374", reason = "build-time proc macro config parser in age's i18n; client-only" },
 ]
 
 [licenses]

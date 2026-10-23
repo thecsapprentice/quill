@@ -43,6 +43,13 @@ pub struct Limits {
     pub account_quota_bytes: u64,
     #[serde(default = "default_rate")]
     pub messages_per_minute: u32,
+    /// The largest backup a login may keep.
+    #[serde(default = "default_backup")]
+    pub max_backup_bytes: u64,
+}
+
+fn default_backup() -> u64 {
+    crate::limits::DEFAULT_MAX_BACKUP_BYTES
 }
 
 fn default_quota() -> u64 {
@@ -64,6 +71,7 @@ impl Default for Limits {
             retention_days: DEFAULT_RETENTION_DAYS,
             account_quota_bytes: DEFAULT_ACCOUNT_QUOTA_BYTES,
             messages_per_minute: DEFAULT_MESSAGES_PER_MINUTE,
+            max_backup_bytes: DEFAULT_MAX_BACKUP_BYTES,
         }
     }
 }

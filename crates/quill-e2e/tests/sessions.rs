@@ -432,3 +432,75 @@ async fn a_device_added_through_its_last_resort_package_updates_its_key() {
     }
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn safety_numbers_match_and_a_swapped_key_changes_them() {
+    let server = server!();
+    let alice_c = server.account("alice").await.unwrap();
+    let (fox, laptop) = writer(&alice_c, "ink_fox").await;
+    let (desktop, desktop_c) = linked(&server, "alice", (&laptop, &alice_c)).await;
+    let bob_c = server.account("bob").await.unwrap();
+    let (wren, bob) = writer(&bob_c, "quiet_wren").await;
+    let id = session((&laptop, &alice_c, &fox), (&bob, &bob_c, &wren)).await;
+    for (s, c) in [(&laptop, &alice_c), (&desktop, &desktop_c), (&bob, &bob_c)] {
+        sync(s, c).await;
+    }
+    // Everyone ends up at the same epoch before comparing.
+    for (s, c) in [(&laptop, &alice_c), (&desktop, &desktop_c), (&bob, &bob_c)] {
+        sync(s, c).await;
+    }
+    let a = sessions::safety_numbers(&laptop, &alice_c, &id)
+        .await
+        .unwrap();
+    let d = sessions::safety_numbers(&desktop, &desktop_c, &id)
+        .await
+        .unwrap();
+    let b = sessions::safety_numbers(&bob, &bob_c, &id).await.unwrap();
+    assert_eq!(a.identity.len(), 12);
+    assert_eq!(
+        (&a.identity, a.epoch, &a.check),
+        (&b.identity, b.epoch, &b.check)
+    );
+    assert_eq!((&d.identity, &d.check), (&b.identity, &b.check));
+    assert!(!b.verified);
+    assert!(
+        sessions::confirm_verified(&bob, &bob_c, &id)
+            .await
+            .unwrap()
+            .verified
+    );
+    let listed = sessions::list(&bob, &bob_c).await.unwrap();
+    assert!(sessions::verified(&bob, &listed[0].session).unwrap());
+
+    // Alice's identity key is replaced: Bob's client stops at the changed
+    // pin, and once he accepts it the numbers differ and the mark is gone.
+    let fresh = Store::in_memory();
+    keys::init(&fresh, &alice_c, &fox, true).await.unwrap();
+    let e = sessions::safety_numbers(&bob, &bob_c, &id)
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("changed since it was pinned"), "{e}");
+    let published = keys::check_published(
+        &bob_c.actor_keys("ink_fox").await.unwrap(),
+        &fox.actor_uri,
+        keys::now_ms(),
+    )
+    .unwrap();
+    let (k, v) = published.identity.unwrap();
+    keys::accept_pin(&bob, &fox.actor_uri, &k, v).unwrap();
+    let listed = sessions::list(&bob, &bob_c).await.unwrap();
+    assert!(!sessions::verified(&bob, &listed[0].session).unwrap());
+    let fresh_number = sessions::identity_number(
+        (fox.actor_uri.as_str(), k.as_slice()),
+        (
+            wren.actor_uri.as_str(),
+            {
+                let id = keys::load_identity(&bob, wren.id).unwrap().unwrap();
+                id.public().to_vec()
+            }
+            .as_slice(),
+        ),
+    );
+    assert_ne!(fresh_number, b.identity);
+    server.stop().await.unwrap();
+}

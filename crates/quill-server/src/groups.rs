@@ -41,7 +41,10 @@ const LINKS_PER_HOUR: usize = 10;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/groups", post(create_group))
-        .route("/account/device-group", get(device_group))
+        .route(
+            "/account/device-group",
+            get(device_group).delete(drop_device_group),
+        )
         .route(
             "/groups/{id}/messages",
             get(read_messages).post(post_message),
@@ -414,6 +417,22 @@ async fn reply_link(
     .execute(&state.pool)
     .await?;
     if updated.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `DELETE /account/device-group`: a restored device starts the login's
+/// device group again, the old one's devices being lost (2j).
+async fn drop_device_group(
+    State(state): State<AppState>,
+    authed: Authed,
+) -> Result<StatusCode, ApiError> {
+    let deleted = sqlx::query("DELETE FROM mls_groups WHERE account_id = $1 AND kind = 'personal'")
+        .bind(authed.account_id)
+        .execute(&state.pool)
+        .await?;
+    if deleted.rows_affected() == 0 {
         return Err(ApiError::NotFound);
     }
     Ok(StatusCode::NO_CONTENT)

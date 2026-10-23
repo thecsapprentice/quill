@@ -1,4 +1,4 @@
-//! Short codes people compare or type: 6 words from the BIP-39 English list
+//! Short codes people compare or type: words from the BIP-39 English list
 //! (`bip39-english.txt`, 2048 words, SHA-256 `2f5eed53…24dbda`), carrying
 //! the first 66 bits of a hash, 11 bits per word, big-endian (protocol
 //! draft, section 11).
@@ -27,6 +27,53 @@ pub fn words(hash: &[u8]) -> Vec<&'static str> {
             list.get(index).copied().unwrap_or("")
         })
         .collect()
+}
+
+/// `count` words from the first `11 × count` bits of `bytes`, big-endian.
+pub fn take(bytes: &[u8], count: usize) -> Vec<&'static str> {
+    let list = list();
+    (0..count)
+        .map(|w| {
+            let mut index = 0usize;
+            for bit in w * 11..w * 11 + 11 {
+                let byte = bytes.get(bit / 8).copied().unwrap_or(0);
+                index = (index << 1) | usize::from((byte >> (7 - bit % 8)) & 1);
+            }
+            list.get(index).copied().unwrap_or("")
+        })
+        .collect()
+}
+
+/// A recovery code as a BIP-39 mnemonic: 128 bits of entropy and a 4-bit
+/// SHA-256 checksum, 12 words.
+pub fn mnemonic(entropy: &[u8; 16]) -> Vec<&'static str> {
+    let mut bytes = entropy.to_vec();
+    bytes.push(Sha256::digest(entropy)[0]);
+    take(&bytes, 12)
+}
+
+/// The entropy a typed 12-word mnemonic carries, if every word is on the
+/// list and the checksum holds.
+pub fn from_mnemonic(typed: &str) -> Option<[u8; 16]> {
+    let list = list();
+    let typed: Vec<String> = typed.split_whitespace().map(str::to_lowercase).collect();
+    if typed.len() != 12 {
+        return None;
+    }
+    let mut bits = Vec::with_capacity(132);
+    for w in &typed {
+        let index = list.iter().position(|l| l == w)?;
+        for i in (0..11).rev() {
+            bits.push(u8::from((index >> i) & 1 == 1));
+        }
+    }
+    let mut entropy = [0u8; 16];
+    for (i, bit) in bits.iter().take(128).enumerate() {
+        entropy[i / 8] |= bit << (7 - i % 8);
+    }
+    let check = Sha256::digest(entropy)[0] >> 4;
+    let got = bits[128..].iter().fold(0u8, |acc, b| (acc << 1) | b);
+    (check == got).then_some(entropy)
 }
 
 /// Whether `typed` (any case, any spacing) are the words for `hash`.
@@ -63,6 +110,37 @@ mod tests {
 
     fn hex(b: &[u8]) -> String {
         b.iter().map(|x| format!("{x:02x}")).collect()
+    }
+
+    #[test]
+    fn mnemonics_match_the_bip39_vectors() {
+        let cases: [([u8; 16], &str); 3] = [
+            (
+                [0; 16],
+                "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            ),
+            (
+                [0x7f; 16],
+                "legal winner thank year wave sausage worth useful legal winner thank yellow",
+            ),
+            (
+                [0xff; 16],
+                "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong",
+            ),
+        ];
+        for (entropy, phrase) in cases {
+            assert_eq!(mnemonic(&entropy).join(" "), phrase);
+            assert_eq!(from_mnemonic(&phrase.to_uppercase()), Some(entropy));
+        }
+        // A wrong last word fails the checksum; an unknown word fails too.
+        assert_eq!(from_mnemonic(&"abandon ".repeat(12)), None);
+        assert_eq!(
+            from_mnemonic("zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo quill"),
+            None
+        );
+        assert_eq!(from_mnemonic("abandon about"), None);
+        assert_eq!(take(&[0; 9], 6), words(&[0; 9]));
+        assert_eq!(take(&[0xAB; 9], 6), words(&[0xAB; 9]));
     }
 
     #[test]

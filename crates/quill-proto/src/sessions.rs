@@ -52,6 +52,27 @@ pub struct Session {
     /// Welcomes left for the caller's devices added since.
     #[serde(default)]
     pub device_welcomes: Vec<DeviceWelcome>,
+    /// Rejoin requests waiting in the session (2j).
+    #[serde(default)]
+    pub rejoins: Vec<Rejoin>,
+}
+
+/// A restored device's request to be let back into a session (2j).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Rejoin {
+    pub id: Uuid,
+    /// The persona asking.
+    pub actor_uri: String,
+    /// The signed `RejoinRequest`, base64url.
+    pub request: String,
+}
+
+/// `POST /sessions/{id}/rejoin`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendRejoin {
+    pub request: String,
 }
 
 /// `POST /sessions/{id}/welcomes`: a Welcome for one of the caller's
@@ -123,6 +144,9 @@ pub struct AccountStorage {
     pub quota_bytes: u64,
     /// The personal device group's log.
     pub device_sync_bytes: u64,
+    /// The login's encrypted backup (2j), counted apart from the quota.
+    #[serde(default)]
+    pub backup_bytes: u64,
     pub sessions: Vec<SessionStorage>,
 }
 
@@ -151,4 +175,22 @@ pub struct ServerStorage {
     pub message_bytes: u64,
     pub file_bytes: u64,
     pub accounts: Vec<AccountStorageSummary>,
+}
+
+/// The login's committed backup (`GET /backup`, 2j).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupInfo {
+    pub generation: Uuid,
+    pub parts: u32,
+    pub bytes: u64,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: time::OffsetDateTime,
+}
+
+/// `POST /backup/{generation}/commit`: the new backup is complete.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitBackup {
+    pub parts: u32,
 }

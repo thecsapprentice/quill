@@ -3,6 +3,7 @@
 //! Covers the server address, accounts, personas and the prompt board. Each
 //! later phase adds the commands that exercise its server features.
 
+mod backup_cmd;
 mod board;
 mod keys_cmd;
 mod local;
@@ -96,6 +97,9 @@ enum Command {
     Sessions,
     /// What your sessions take on the server: in total and per session.
     Storage,
+    /// Back up to the server with a recovery code, or restore from it.
+    #[command(subcommand)]
+    Backup(backup_cmd::BackupCommand),
     /// Read, write to, or leave a session.
     #[command(subcommand)]
     Session(session_cmd::SessionCommand),
@@ -288,6 +292,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Devices => keys_cmd::devices(&ctx).await?,
         Command::Request(cmd) => request_cmd::request(&ctx, cmd).await?,
         Command::Sessions => session_cmd::list(&ctx).await?,
+        Command::Backup(cmd) => backup_cmd::backup(&ctx, cmd).await?,
         Command::Storage => {
             let s = ctx.client()?.storage().await?;
             ctx.print(&s, print_storage)?;
@@ -308,6 +313,7 @@ fn needs_upkeep(command: &Command) -> bool {
             | Command::Logout
             | Command::Store(_)
             | Command::Device(keys_cmd::DeviceCommand::Link { .. })
+            | Command::Backup(backup_cmd::BackupCommand::Restore { .. })
     )
 }
 

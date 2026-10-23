@@ -2,6 +2,7 @@
 //! end-to-end tests share one code path.
 
 pub mod auth;
+pub mod backups;
 pub mod blobs;
 pub mod config;
 pub mod error;

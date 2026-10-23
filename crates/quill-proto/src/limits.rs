@@ -17,6 +17,12 @@ pub const DEFAULT_REQUEST_EXPIRY_DAYS: u32 = 30;
 /// Blobs a login may store at once, in bytes.
 pub const DEFAULT_ACCOUNT_QUOTA_BYTES: u64 = 500 * 1024 * 1024;
 
+/// The largest backup a login may keep, in bytes (2j).
+pub const DEFAULT_MAX_BACKUP_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Backups are uploaded in parts of at most this many bytes.
+pub const BACKUP_PART_BYTES: u64 = 8 * 1024 * 1024;
+
 /// Group messages a login may post per minute.
 pub const DEFAULT_MESSAGES_PER_MINUTE: u32 = 30;
 

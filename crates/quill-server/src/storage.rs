@@ -85,6 +85,12 @@ pub(crate) async fn account_storage(
     .bind(account)
     .fetch_one(&mut *conn)
     .await?;
+    let backup: i64 = sqlx::query_scalar(
+        "SELECT coalesce(sum(octet_length(data)), 0)::bigint FROM backup_parts WHERE account_id = $1",
+    )
+    .bind(account)
+    .fetch_one(&mut *conn)
+    .await?;
     let quota_used: i64 = sqlx::query_scalar(
         "SELECT coalesce(sum(size), 0)::bigint FROM blobs WHERE account_id = $1",
     )
@@ -113,12 +119,14 @@ pub(crate) async fn account_storage(
         .iter()
         .map(|s| s.message_bytes + s.file_bytes)
         .sum::<u64>()
-        + n(device_sync);
+        + n(device_sync)
+        + n(backup);
     Ok(AccountStorage {
         total_bytes: total,
         quota_used_bytes: n(quota_used),
         quota_bytes: quota,
         device_sync_bytes: n(device_sync),
+        backup_bytes: n(backup),
         sessions,
     })
 }

@@ -308,6 +308,49 @@ fn revocations() -> Value {
     })
 }
 
+fn rejoins() -> Value {
+    let id = key(1);
+    let request = RejoinRequest {
+        actor_uri: ACTOR.into(),
+        group_id: vec![7; 32],
+        key_package: vec![0, 1, 0, 5, 1, 2, 3],
+        certificate: vec![9; 40],
+        remove_keys: vec![
+            key(3).verifying_key().to_bytes(),
+            key(4).verifying_key().to_bytes(),
+        ],
+        created_at: 1_760_000_000_000,
+    };
+    let good = request.issue(&id).unwrap();
+    let mut tampered = good.clone();
+    let last = tampered.len() - 1;
+    tampered[last] ^= 1;
+    let other_actor = RejoinRequest {
+        actor_uri: "https://beta.example/users/inkfox".into(),
+        ..request.clone()
+    }
+    .issue(&id)
+    .unwrap();
+    let other_group = RejoinRequest {
+        group_id: vec![8; 32],
+        ..request.clone()
+    }
+    .issue(&id)
+    .unwrap();
+    json!({
+        "description": "Rejoin requests (protocol draft, section 6), signed with label \"wr rejoin v1\".",
+        "actorUri": ACTOR,
+        "groupId": hex(&request.group_id),
+        "identityKey": hex(&id.verifying_key().to_bytes()),
+        "valid": { "request": hex(&good), "createdAt": request.created_at, "removeKeys": request.remove_keys.iter().map(|k| hex(k)).collect::<Vec<_>>() },
+        "invalid": [
+            { "name": "bad signature", "request": hex(&tampered), "error": "bad-signature" },
+            { "name": "for another actor", "request": hex(&other_actor), "error": "wrong-actor" },
+            { "name": "for another group", "request": hex(&other_group), "error": "malformed" },
+        ],
+    })
+}
+
 fn dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-vectors")
 }
@@ -408,6 +451,31 @@ fn revocation_vectors() {
         let err = DeviceRevocation::verify(&unhex(&case["revocation"]), actor, &id)
             .expect_err(case["name"].as_str().unwrap());
         assert_eq!(error_name(&err), case["error"], "{}", case["name"]);
+    }
+}
+
+#[test]
+fn rejoin_vectors() {
+    let v = check_file("rejoin-request.json", &rejoins());
+    let actor = v["actorUri"].as_str().unwrap();
+    let group = unhex(&v["groupId"]);
+    let id = unhex(&v["identityKey"]);
+    let r = RejoinRequest::verify(&unhex(&v["valid"]["request"]), actor, &group, &id).unwrap();
+    assert_eq!(r.created_at, v["valid"]["createdAt"].as_u64().unwrap());
+    assert_eq!(r.remove_keys.len(), 2);
+    for case in v["invalid"].as_array().unwrap() {
+        let err = RejoinRequest::verify(&unhex(&case["request"]), actor, &group, &id).unwrap_err();
+        assert_eq!(
+            error_name(&err),
+            case["error"].as_str().unwrap(),
+            "{}",
+            case["name"]
+        );
+    }
+    // Damaged input is refused, never a panic.
+    let good = unhex(&v["valid"]["request"]);
+    for n in 0..good.len() {
+        assert!(RejoinRequest::verify(&good[..n], actor, &group, &id).is_err());
     }
 }
 

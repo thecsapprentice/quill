@@ -44,6 +44,14 @@ pub enum SessionCommand {
         #[arg(long = "attach", value_name = "FILE")]
         attach: Vec<PathBuf>,
     },
+    /// Show the safety numbers to compare with the other writer, in person
+    /// or over another channel you trust.
+    Verify {
+        id: String,
+        /// They match: mark the other writer verified on this device.
+        #[arg(long)]
+        confirm: bool,
+    },
     /// Save a message's attachments into a folder.
     Save {
         id: String,
@@ -154,6 +162,7 @@ pub async fn list(ctx: &Ctx) -> Result<()> {
                 "ended": l.session.ended,
                 "standing": standing_text(&l.standing),
                 "messages": l.messages,
+                "verified": sessions::verified(&ctx.store, &l.session).unwrap_or(false),
             })
         })
         .collect();
@@ -166,8 +175,13 @@ pub async fn list(ctx: &Ctx) -> Result<()> {
                 .partner()
                 .map_or_else(|| "(gone)".to_owned(), |m| format!("@{}", m.handle));
             let me = l.me().map_or("?", |m| m.handle.as_str());
+            let mark = if sessions::verified(&ctx.store, &l.session).unwrap_or(false) {
+                " (verified)"
+            } else {
+                ""
+            };
             println!(
-                "{}  @{me} with {partner}  {}{}  {} messages",
+                "{}  @{me} with {partner}{mark}  {}{}  {} messages",
                 l.session.id,
                 if l.session.ended { "ended, " } else { "" },
                 standing_text(&l.standing),
@@ -307,6 +321,43 @@ pub async fn session(ctx: &Ctx, cmd: SessionCommand) -> Result<()> {
             ctx.print(&saved, |saved| {
                 for p in saved {
                     println!("saved {p}");
+                }
+            })
+        }
+        SessionCommand::Verify { id, confirm } => {
+            let n = if confirm {
+                sessions::confirm_verified(&ctx.store, &client, &id).await?
+            } else {
+                sessions::safety_numbers(&ctx.store, &client, &id).await?
+            };
+            let body = json!({
+                "session": n.session,
+                "partner": n.partner.handle,
+                "identity": n.identity.join(" "),
+                "epoch": n.epoch,
+                "check": n.check.join(" "),
+                "verified": n.verified,
+            });
+            ctx.print(&body, |_| {
+                println!(
+                    "Compare these with @{}, in person or over a channel you trust:",
+                    n.partner.handle
+                );
+                println!();
+                println!("  identity number:  {}", n.identity[..6].join(" "));
+                println!("                    {}", n.identity[6..].join(" "));
+                println!(
+                    "  session check:    {} (epoch {})",
+                    n.check.join(" "),
+                    n.epoch
+                );
+                println!();
+                println!("The identity number changes only if either of your identity keys does.");
+                println!("The session check matches only between devices at the same epoch.");
+                if n.verified {
+                    println!("@{} is verified on this device.", n.partner.handle);
+                } else if !confirm {
+                    println!("If they match, run this again with --confirm.");
                 }
             })
         }

@@ -347,6 +347,8 @@ All structures use TLS presentation language (as in RFC 9420) and are signed wit
 
 Sent as an `Offer` whose `object` is a `RejoinRequest` (base64url) addressed to the session's other participants. A peer client verifies it, then commits Add plus the listed Removes.
 
+As built in 2j, on one server: the request goes to `POST /sessions/{id}/rejoin`, which checks the signature against the persona's identity key. The list is `remove_keys` (device keys, not leaf indices, since a restored device can't see the tree). The other writer's client carries the request as the commit's authenticated data, and every member checks it before accepting an Add of a device that isn't the committer's own, or a Remove of the other persona's devices. Test vectors: `test-vectors/rejoin-request.json`.
+
 ### Backup
 
 - **Container:** `age` v1 file using the scrypt passphrase recipient. The passphrase is the recovery code: 128 random bits shown as 12 BIP-39 words.
@@ -354,6 +356,17 @@ Sent as an `Offer` whose `object` is a `RejoinRequest` (base64url) addressed to 
 - **Plaintext:** zstd-compressed CBOR map: `version`, identity private key and version, TOFU pins, settings, personas, and per-session history (decrypted payload activities). Never MLS group state.
 
 - **Incremental:** one full snapshot plus numbered append-only chunks, each its own `age` file, stored at `PUT /api/v1/backup/{seq}`. A new snapshot replaces the chain.
+
+As built in 2j:
+- The recovery code is a BIP-39 mnemonic: 128 bits plus a 4-bit checksum, 12 words. The passphrase is the words, lowercase, joined by single spaces. scrypt's work factor is 15: the code is random, so it needs no stretching.
+- The plaintext is JSON, not CBOR: `{format: "quill-backup", version: 1, createdMs, tables}`, where `tables` maps the client store's `identities`, `pins`, `verified`, `messages` and `files` tables to lists of `[key, value]` in base64url. It is not compressed.
+- There are no incremental chunks yet: each backup replaces the last whole. It's uploaded in parts of up to 8 MiB (`PUT /backup/{generation}/{part}`), then committed (`POST /backup/{generation}/commit`), so a failed upload never replaces a good backup.
+- The `age` crate does the work, behind a small interface so our own implementation of the format can replace it.
+
+### Safety numbers
+
+- **Identity number:** 12 words (132 bits) from SHA-256 over the label `wr safety number v1` and the two personas' actor URIs and identity keys, each length-prefixed (4 bytes), in byte order of the URIs.
+- **Session check:** 6 words from SHA-256 over `wr session check v1`, the group id and the current epoch authenticator (length-prefixed), shown with the epoch number.
 
 ## 7. Client API outline
 
@@ -384,7 +397,8 @@ A JSON-over-HTTPS API under `/api/v1`, authenticated with bearer tokens, used by
 | Sessions | `POST /sessions/{id}/ack`                                                                             | Per-device delivery ack (2g): how far one of the caller's devices has read; only the server sees it |
 | Blobs    | `POST /sessions/{id}/blobs`, `GET /blobs/{id}`                                                        | Encrypted attachments (2i): raw padded ciphertext in size buckets; fetching needs a login in the session and the `Blob-Token` header |
 | Storage  | `GET /account/storage`, `GET /admin/storage`, `GET /admin/storage/{account}`                          | Sizes of what sessions take (2i); the administrators' per-login view omits persona handles |
-| Backup   | `PUT/GET /backup/{seq}`, `DELETE /backup`                                                             | Opaque backup chunks                                                                     |
+| Backup   | `PUT /backup/{generation}/{part}`, `POST /backup/{generation}/commit`, `GET /backup`, `GET /backup/{part}`, `DELETE /backup` | Opaque backup, uploaded in parts and committed whole (2j)                                |
+| Sessions | `POST /sessions/{id}/rejoin`, `DELETE /sessions/{id}/rejoins/{id}`; `DELETE /account/device-group`    | Rejoin requests; starting the device group again after a restore (2j)                    |
 | Safety   | `POST /blocks`, `DELETE /blocks/{id}`, `POST /reports`                                                | Account-level blocks; prompt reports (section 10)                                        |
 | Events   | `GET /events`                                                                                         | Server-Sent Events (2g): content-free notices of new messages, waiting requests, sessions starting or ending, and low KeyPackage pools |
 
