@@ -1,0 +1,26 @@
+[package]
+name = "quill-devtools"
+description = "Development tools for Quill. Never deployed: fills a test database with demo data."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "quill-seed"
+path = "src/main.rs"
+
+[dependencies]
+quill-proto.workspace = true
+quill-server.workspace = true
+
+anyhow.workspace = true
+clap.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

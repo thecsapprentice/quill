@@ -1953,6 +1953,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "quill-devtools"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "quill-proto",
+ "quill-server",
+ "sqlx",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "quill-e2e"
 version = "0.1.0"
 dependencies = [
@@ -2007,6 +2020,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
  "zeroize",
 ]

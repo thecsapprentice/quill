@@ -9,6 +9,8 @@
 //! Safety: all text is escaped by Dioxus. The only raw HTML inserted is a
 //! prompt's `body_html`, which the server has already sanitized.
 
+mod admin;
+pub mod chips;
 mod layout;
 mod pages;
 
@@ -18,13 +20,14 @@ use dioxus::prelude::*;
 use quill_proto::{
     api::Persona,
     board::{
-        AccountSettings, AdminLogEntry, Maturity, Prompt, PromptState, Report, ReportReason, Tag,
-        TagNamespace, TagPolicy,
+        AccountSettings, AdminLogEntry, AdminTag, ChipColor, Maturity, Prompt, PromptState, Report,
+        ReportReason, Tag, TagNamespace, TagPolicy,
     },
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+pub use admin::*;
 pub use pages::*;
 
 /// The board's stylesheet, served at [`STYLESHEET_PATH`].
@@ -42,7 +45,10 @@ pub enum Nav {
     Mine,
     Personas,
     Settings,
+    /// The report inbox and admin log.
     Admin,
+    /// Server settings (administrators only).
+    ServerSettings,
     SignIn,
     Other,
 }
@@ -54,6 +60,8 @@ pub struct Viewer {
     pub csrf: String,
     pub is_admin: bool,
     pub maturity_max: Maturity,
+    /// Tag requests waiting for approval (administrators only, else 0).
+    pub pending_tags: u64,
 }
 
 /// What every page needs: site identity, the visitor and navigation.
@@ -169,12 +177,40 @@ pub struct PromptFormView {
     pub title: String,
     pub body: String,
     pub maturity: Maturity,
-    /// Comma-separated `namespace:name`.
-    pub tags: String,
+    /// The chosen tags, as chips.
+    pub chips: Vec<TagChip>,
+    /// Text in the "add tags" field, kept when some of it couldn't be added.
+    pub add_text: String,
+    /// Why typed tags couldn't be added.
+    pub tag_errors: Vec<String>,
     pub state: PromptState,
     pub error: Option<String>,
+    /// Visible tags, for suggestions and "Browse tags".
     pub tag_options: Vec<Tag>,
     pub tag_policy: TagPolicy,
+    /// Tag types, to show which are required or curated-only.
+    pub namespaces: Vec<TagNamespace>,
+}
+
+/// A chosen tag on the prompt form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagChip {
+    /// What the form sends back: `namespace:slug`, or `namespace:Display`
+    /// for a tag that doesn't exist yet.
+    pub value: String,
+    /// For display. A new tag gets its type's colour.
+    pub tag: Tag,
+    pub kind: ChipKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChipKind {
+    /// A tag that exists.
+    Existing,
+    /// Created when the prompt is saved.
+    New,
+    /// Created when the prompt is saved, awaiting approval.
+    NewNeedsApproval,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,6 +247,71 @@ pub struct AdminLogView {
     pub older: Option<String>,
 }
 
+/// The "add a tag type" form's values, kept when it's sent back with an error.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NewTagType {
+    pub name: String,
+    pub display: String,
+    pub locked: bool,
+    pub required: bool,
+    pub color: Option<ChipColor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminTagTypesView {
+    /// The "new tags from writers" setting.
+    pub new_tags: TagPolicy,
+    pub namespaces: Vec<TagNamespace>,
+    pub new: NewTagType,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminTagsView {
+    pub namespaces: Vec<TagNamespace>,
+    pub tags: Vec<AdminTag>,
+    /// Filter: tag type name.
+    pub namespace: Option<String>,
+    /// Filter: search text.
+    pub search: String,
+    /// More tags matched than are shown.
+    pub truncated: bool,
+    /// The "add a tag" form's values, kept on error.
+    pub new_namespace: String,
+    pub new_name: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminTagRequestsView {
+    pub requests: Vec<AdminTag>,
+    pub namespaces: Vec<TagNamespace>,
+    pub new_tags: TagPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminTagView {
+    pub tag: AdminTag,
+    /// Display name of the tag's type.
+    pub namespace_display: String,
+    pub rename: String,
+    pub alias_target: String,
+    /// Suggestions for the alias target.
+    pub tag_options: Vec<Tag>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminTagDeleteView {
+    pub tag: AdminTag,
+    pub namespace: TagNamespace,
+}
+
+/// Board link for a tag's admin page.
+pub fn admin_tag_url(tag: &Tag) -> String {
+    format!("/admin/settings/tags/{}/{}", tag.namespace, tag.slug)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageView {
     pub title: String,
@@ -245,6 +346,7 @@ fn document(doc: Doc) -> Element {
                 meta { name: "referrer", content: "same-origin" }
                 title { "{page_title}" }
                 link { rel: "stylesheet", href: "{STYLESHEET_PATH}?v={chrome.version}" }
+                link { rel: "stylesheet", href: "{chips::TAG_COLORS_PATH}" }
             }
             body {
                 {layout::header(&chrome)}

@@ -9,11 +9,12 @@ use axum::{
     routing::{get, post},
 };
 use quill_proto::board::{
-    AdminLogEntry, CreateReport, Report, ReportQuery, ReportReason, Resolution, ResolveReport,
+    AdminAction, AdminLogEntry, CreateReport, Report, ReportQuery, ReportReason, Resolution,
+    ResolveReport,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use sqlx::AssertSqlSafe;
+use sqlx::{AssertSqlSafe, PgConnection};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -270,14 +271,36 @@ struct LogQuery {
     limit: Option<u32>,
 }
 
+/// Records an administrator's change to something other than a report.
+pub(crate) async fn log_action(
+    conn: &mut PgConnection,
+    admin: Uuid,
+    action: AdminAction,
+    subject: &str,
+    detail: Option<&str>,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        "INSERT INTO admin_log (action, subject, detail, admin_id) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(action.as_str())
+    .bind(subject)
+    .bind(detail)
+    .bind(admin)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
 type LogRow = (
     i64,
     OffsetDateTime,
     String,
     Option<Uuid>,
     Option<Uuid>,
-    Vec<u8>,
-    String,
+    Option<Vec<u8>>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
     Option<Uuid>,
 );
 
@@ -298,7 +321,8 @@ pub async fn admin_log(
 ) -> Result<Vec<AdminLogEntry>, ApiError> {
     let limit = i64::from(limit.unwrap_or(50).clamp(1, 200));
     let rows: Vec<LogRow> = sqlx::query_as(
-        "SELECT id, at, action, report_id, prompt_id, prompt_hash, reason::text, admin_id
+        "SELECT id, at, action, report_id, prompt_id, prompt_hash, reason::text, subject, detail,
+                admin_id
          FROM admin_log WHERE ($1::bigint IS NULL OR id < $1)
          ORDER BY id DESC LIMIT $2",
     )
@@ -308,15 +332,19 @@ pub async fn admin_log(
     .await?;
     rows.into_iter()
         .map(
-            |(id, at, action, report_id, prompt_id, hash, reason, admin)| {
+            |(id, at, action, report_id, prompt_id, hash, reason, subject, detail, admin)| {
                 Ok(AdminLogEntry {
                     id,
                     at,
-                    action,
+                    action: action.parse().map_err(|_| {
+                        ApiError::Internal(anyhow::anyhow!("unexpected log action {action:?}"))
+                    })?,
                     report_id,
                     prompt_id,
-                    prompt_hash: hex(&hash),
-                    reason: parse_reason(&reason)?,
+                    prompt_hash: hash.as_deref().map(hex),
+                    reason: reason.as_deref().map(parse_reason).transpose()?,
+                    subject,
+                    detail,
                     admin,
                 })
             },

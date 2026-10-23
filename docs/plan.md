@@ -567,6 +567,8 @@ flowchart TD
 
 *Arrows carry each phase's exit gate. Dashed phases come later.*
 
+Each phase is split into sub-phases, one pull request each, tracked in the [roadmap](roadmap.md).
+
 ### Testing layers
 
 - **Unit and property tests** (`proptest`) for tag normalization, filter queries, HLC ordering and envelope parsing.

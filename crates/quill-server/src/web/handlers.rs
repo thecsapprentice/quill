@@ -6,6 +6,7 @@ use std::str::FromStr;
 
 use axum::{
     Form,
+    body::Bytes,
     extract::{Path, Query, State},
     http::{StatusCode, header},
     response::{IntoResponse, Redirect, Response},
@@ -27,7 +28,9 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use super::{
-    chrome, csrf_failed, error_page, html, message, redirect,
+    chrome, csrf_failed, error_page, html, message,
+    picker::{self, PromptPost},
+    redirect,
     session::{self, MaybeSession, Session},
 };
 use crate::{AppState, error::ApiError, prompts, reports, routes};
@@ -35,7 +38,7 @@ use crate::{AppState, error::ApiError, prompts, reports, routes};
 // ---- Small helpers -------------------------------------------------------
 
 /// A trimmed, non-empty form value.
-fn opt(value: &Option<String>) -> Option<&str> {
+pub(super) fn opt(value: &Option<String>) -> Option<&str> {
     value.as_deref().map(str::trim).filter(|v| !v.is_empty())
 }
 
@@ -43,16 +46,8 @@ fn parse_opt<T: FromStr>(value: &Option<String>) -> Option<T> {
     opt(value).and_then(|v| v.parse().ok())
 }
 
-fn split_tags(raw: &str) -> Vec<String> {
-    raw.split(',')
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .map(str::to_owned)
-        .collect()
-}
-
 /// Errors the visitor can fix by changing the form.
-fn form_error(err: &ApiError) -> Option<String> {
+pub(super) fn form_error(err: &ApiError) -> Option<String> {
     match err {
         ApiError::BadRequest(m) | ApiError::Conflict(m) | ApiError::Forbidden(m) => Some(m.clone()),
         _ => None,
@@ -205,36 +200,36 @@ pub async fn prompt(
 
 // ---- Posting and editing -------------------------------------------------
 
-#[derive(Debug, Default, Deserialize)]
-pub struct PromptForm {
-    csrf: Option<String>,
-    persona: Option<String>,
-    title: Option<String>,
-    body: Option<String>,
-    maturity: Option<String>,
-    state: Option<String>,
-    tags: Option<String>,
+/// What the prompt form shows besides the prompt's own fields.
+struct FormTags {
+    chips: Vec<quill_board_ui::TagChip>,
+    add_text: String,
+    errors: Vec<String>,
 }
 
 async fn prompt_form_view(
     state: &AppState,
     session: &Session,
     editing: Option<Uuid>,
-    form: &PromptForm,
+    post: &PromptPost,
+    tags: FormTags,
     error: Option<String>,
 ) -> Result<PromptFormView, ApiError> {
     Ok(PromptFormView {
         editing,
         personas: routes::personas(state, session.account_id).await?,
-        persona: parse_opt(&form.persona),
-        title: form.title.clone().unwrap_or_default(),
-        body: form.body.clone().unwrap_or_default(),
-        maturity: parse_opt(&form.maturity).unwrap_or(Maturity::General),
-        tags: form.tags.clone().unwrap_or_default(),
-        state: parse_opt(&form.state).unwrap_or(PromptState::Open),
+        persona: parse_opt(&post.persona),
+        title: post.title.clone().unwrap_or_default(),
+        body: post.body.clone().unwrap_or_default(),
+        maturity: parse_opt(&post.maturity).unwrap_or(Maturity::General),
+        chips: tags.chips,
+        add_text: tags.add_text,
+        tag_errors: tags.errors,
+        state: parse_opt(&post.state).unwrap_or(PromptState::Open),
         error,
         tag_options: tag_options(state).await,
-        tag_policy: state.config.tag_policy,
+        tag_policy: crate::server_settings::settings(state).await?.new_tags,
+        namespaces: prompts::namespaces(state).await?,
     })
 }
 
@@ -242,7 +237,8 @@ async fn render_prompt_form(
     state: &AppState,
     session: &Session,
     editing: Option<Uuid>,
-    form: &PromptForm,
+    post: &PromptPost,
+    tags: FormTags,
     error: Option<String>,
 ) -> Response {
     let nav = if editing.is_some() {
@@ -251,15 +247,43 @@ async fn render_prompt_form(
         Nav::Post
     };
     let c = chrome(state, Some(session), nav, None);
-    let status = if error.is_some() {
+    let status = if error.is_some() || !tags.errors.is_empty() {
         StatusCode::BAD_REQUEST
     } else {
         StatusCode::OK
     };
-    match prompt_form_view(state, session, editing, form, error).await {
+    match prompt_form_view(state, session, editing, post, tags, error).await {
         Ok(view) => html(status, quill_board_ui::prompt_form_page(&c, view)),
         Err(e) => error_page(&c, e),
     }
+}
+
+/// Reads the picker. Returns the form to show again unless the visitor is
+/// posting and every tag could be added; otherwise the chosen tag values.
+async fn read_picker(
+    state: &AppState,
+    session: &Session,
+    editing: Option<Uuid>,
+    post: &PromptPost,
+) -> Result<Vec<String>, Response> {
+    let picked = match picker::preview(state, &post.tag_values()).await {
+        Ok(p) => p,
+        Err(e) => {
+            return Err(error_page(
+                &chrome(state, Some(session), Nav::Other, None),
+                e,
+            ));
+        }
+    };
+    if post.saving() && picked.errors.is_empty() {
+        return Ok(picked.chips.into_iter().map(|c| c.value).collect());
+    }
+    let tags = FormTags {
+        chips: picked.chips,
+        add_text: picked.unadded.join(", "),
+        errors: picked.errors,
+    };
+    Err(render_prompt_form(state, session, editing, post, tags, None).await)
 }
 
 pub async fn new_form(
@@ -269,40 +293,64 @@ pub async fn new_form(
     let Some(s) = session else {
         return redirect("/login");
     };
-    render_prompt_form(&state, &s, None, &PromptForm::default(), None).await
+    let tags = FormTags {
+        chips: Vec::new(),
+        add_text: String::new(),
+        errors: Vec::new(),
+    };
+    render_prompt_form(&state, &s, None, &PromptPost::default(), tags, None).await
 }
 
 pub async fn new_submit(
     State(state): State<AppState>,
     MaybeSession(session): MaybeSession,
-    Form(form): Form<PromptForm>,
+    body: Bytes,
 ) -> Response {
     let Some(s) = session else {
         return redirect("/login");
     };
-    if !s.csrf_matches(form.csrf.as_deref()) {
+    let post = PromptPost::parse(&body);
+    if !s.csrf_matches(post.csrf.as_deref()) {
         return csrf_failed(&chrome(&state, Some(&s), Nav::Post, None));
     }
-    let Some(persona) = parse_opt::<Uuid>(&form.persona) else {
-        let e = Some("Choose a persona to post as.".to_owned());
-        return render_prompt_form(&state, &s, None, &form, e).await;
+    let tag_values = match read_picker(&state, &s, None, &post).await {
+        Ok(v) => v,
+        Err(form) => return form,
     };
-    let Some(maturity) = parse_opt::<Maturity>(&form.maturity) else {
-        let e = Some("Choose a maturity rating.".to_owned());
-        return render_prompt_form(&state, &s, None, &form, e).await;
+    let again = |error: String| {
+        let tag_values = tag_values.clone();
+        let (state, s, post) = (&state, &s, &post);
+        async move {
+            let chips = picker::preview(state, &tag_values)
+                .await
+                .map(|p| p.chips)
+                .unwrap_or_default();
+            let tags = FormTags {
+                chips,
+                add_text: String::new(),
+                errors: Vec::new(),
+            };
+            render_prompt_form(state, s, None, post, tags, Some(error)).await
+        }
     };
-    let body = CreatePrompt {
+    let Some(persona) = parse_opt::<Uuid>(&post.persona) else {
+        return again("Choose a persona to post as.".to_owned()).await;
+    };
+    let Some(maturity) = parse_opt::<Maturity>(&post.maturity) else {
+        return again("Choose a maturity rating.".to_owned()).await;
+    };
+    let create = CreatePrompt {
         persona,
-        title: form.title.clone().unwrap_or_default(),
-        body: form.body.clone().unwrap_or_default(),
+        title: post.title.clone().unwrap_or_default(),
+        body: post.body.clone().unwrap_or_default(),
         maturity,
-        tags: split_tags(form.tags.as_deref().unwrap_or_default()),
-        state: parse_opt(&form.state),
+        tags: tag_values.clone(),
+        state: parse_opt(&post.state),
     };
-    match prompts::post_prompt(&state, s.account_id, &body).await {
+    match prompts::post_prompt(&state, s.account_id, &create).await {
         Ok(p) => redirect(&format!("/p/{}?notice=posted", p.id)),
         Err(e) => match form_error(&e) {
-            Some(m) => render_prompt_form(&state, &s, None, &form, Some(m)).await,
+            Some(m) => again(m).await,
             None => error_page(&chrome(&state, Some(&s), Nav::Post, None), e),
         },
     }
@@ -341,52 +389,66 @@ pub async fn edit_form(
         Ok(p) => p,
         Err(e) => return error_page(&chrome(&state, Some(&s), Nav::Other, None), e),
     };
-    let form = PromptForm {
-        csrf: None,
+    let post = PromptPost {
         persona: Some(p.author.id.to_string()),
         title: Some(p.title.clone()),
         body: Some(p.body.clone()),
         maturity: Some(p.maturity.to_string()),
         state: Some(p.state.to_string()),
-        tags: Some(
-            p.tags
-                .iter()
-                .map(|t| format!("{}:{}", t.namespace, t.display))
-                .collect::<Vec<_>>()
-                .join(", "),
-        ),
+        ..PromptPost::default()
     };
-    render_prompt_form(&state, &s, Some(p.id), &form, None).await
+    let tags = FormTags {
+        chips: picker::chips_for(&p.tags),
+        add_text: String::new(),
+        errors: Vec::new(),
+    };
+    render_prompt_form(&state, &s, Some(p.id), &post, tags, None).await
 }
 
 pub async fn edit_submit(
     State(state): State<AppState>,
     MaybeSession(session): MaybeSession,
     Path(id): Path<String>,
-    Form(form): Form<PromptForm>,
+    body: Bytes,
 ) -> Response {
     let Some(s) = session else {
         return redirect("/login");
     };
     let c = chrome(&state, Some(&s), Nav::Other, None);
-    if !s.csrf_matches(form.csrf.as_deref()) {
+    let post = PromptPost::parse(&body);
+    if !s.csrf_matches(post.csrf.as_deref()) {
         return csrf_failed(&c);
     }
     let p = match own_prompt(&state, &s, &id).await {
         Ok(p) => p,
         Err(e) => return error_page(&c, e),
     };
+    let tag_values = match read_picker(&state, &s, Some(p.id), &post).await {
+        Ok(v) => v,
+        Err(form) => return form,
+    };
     let update = UpdatePrompt {
-        title: form.title.clone(),
-        body: form.body.clone(),
-        maturity: parse_opt(&form.maturity),
-        tags: Some(split_tags(form.tags.as_deref().unwrap_or_default())),
-        state: parse_opt(&form.state),
+        title: post.title.clone(),
+        body: post.body.clone(),
+        maturity: parse_opt(&post.maturity),
+        tags: Some(tag_values.clone()),
+        state: parse_opt(&post.state),
     };
     match prompts::edit_prompt(&state, s.account_id, p.id, &update).await {
         Ok(_) => redirect(&format!("/p/{}?notice=saved", p.id)),
         Err(e) => match form_error(&e) {
-            Some(m) => render_prompt_form(&state, &s, Some(p.id), &form, Some(m)).await,
+            Some(m) => {
+                let chips = picker::preview(&state, &tag_values)
+                    .await
+                    .map(|p| p.chips)
+                    .unwrap_or_default();
+                let tags = FormTags {
+                    chips,
+                    add_text: String::new(),
+                    errors: Vec::new(),
+                };
+                render_prompt_form(&state, &s, Some(p.id), &post, tags, Some(m)).await
+            }
             None => error_page(&c, e),
         },
     }
@@ -859,7 +921,7 @@ pub async fn logout(
 
 // ---- Administration ------------------------------------------------------
 
-fn not_admin(state: &AppState, s: &Session) -> Response {
+pub(super) fn not_admin(state: &AppState, s: &Session) -> Response {
     message(
         &chrome(state, Some(s), Nav::Admin, None),
         StatusCode::FORBIDDEN,
