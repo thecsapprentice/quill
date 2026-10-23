@@ -90,6 +90,49 @@ impl TagPolicy {
 }
 
 string_enum! {
+    /// A chip colour from the board's fixed palette. `none` is no colour,
+    /// or for a tag, "use its type's colour".
+    TagColor {
+        None => "none",
+        Red => "red",
+        Orange => "orange",
+        Amber => "amber",
+        Green => "green",
+        Teal => "teal",
+        Blue => "blue",
+        Indigo => "indigo",
+        Purple => "purple",
+        Pink => "pink",
+        Slate => "slate",
+    }
+}
+
+// `string_enum!` writes the derives, so the default is implemented by hand.
+#[allow(clippy::derivable_impls)]
+impl Default for TagColor {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl TagColor {
+    /// The stored form: `None` for no colour.
+    pub fn to_db(self) -> Option<&'static str> {
+        (self != Self::None).then(|| self.as_str())
+    }
+
+    /// Reads the stored form; unknown values count as no colour.
+    pub fn from_db(value: Option<&str>) -> Self {
+        value.and_then(|v| v.parse().ok()).unwrap_or_default()
+    }
+
+    /// `self`, or `fallback` when `self` is no colour.
+    pub fn or(self, fallback: Self) -> Self {
+        if self == Self::None { fallback } else { self }
+    }
+}
+
+string_enum! {
     /// Who can see a tag.
     TagStatus {
         /// Everyone.
@@ -153,6 +196,7 @@ string_enum! {
         HideTag => "hide_tag",
         ShowTag => "show_tag",
         ChangeSetting => "change_setting",
+        RecolorTag => "recolor_tag",
     }
 }
 
@@ -168,6 +212,9 @@ pub struct TagNamespace {
     /// Every prompt saved must carry at least one tag of this type.
     #[serde(default)]
     pub required: bool,
+    /// Colour for this type's tags, unless a tag has its own.
+    #[serde(default)]
+    pub color: TagColor,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,6 +227,9 @@ pub struct Tag {
     /// Anything but `visible` is only ever sent to someone allowed to see it.
     #[serde(default)]
     pub status: TagStatus,
+    /// The colour to show: the tag's own, else its type's.
+    #[serde(default)]
+    pub color: TagColor,
 }
 
 impl Tag {
@@ -220,6 +270,8 @@ pub struct CreateNamespace {
     pub locked: bool,
     #[serde(default)]
     pub required: bool,
+    #[serde(default)]
+    pub color: TagColor,
 }
 
 /// `PATCH /admin/tag-namespaces/{name}`. Absent fields are unchanged.
@@ -232,6 +284,8 @@ pub struct UpdateNamespace {
     pub locked: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub required: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<TagColor>,
 }
 
 /// `GET /admin/tags` query. Unlike `GET /tags`, aliases are included.
@@ -261,6 +315,10 @@ pub struct AdminTag {
     /// `namespace:slug` of the tag this one is an alias of.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alias_of: Option<String>,
+    /// The tag's own colour; `none` means it uses its type's (shown in
+    /// `tag.color`).
+    #[serde(default)]
+    pub own_color: TagColor,
 }
 
 /// Response to `DELETE /admin/tags/{namespace}/{slug}`.
@@ -285,6 +343,9 @@ pub struct UpdateTag {
     /// it. `pending` can't be set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<TagStatus>,
+    /// The tag's own colour; `none` goes back to its type's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<TagColor>,
 }
 
 /// `GET /admin/settings`: settings administrators change while the server runs.

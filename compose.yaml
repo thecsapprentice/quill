@@ -40,7 +40,7 @@ services:
       QUILL_DATABASE_URL: postgres://quill:${QUILL_DB_PASSWORD:-quill-local-dev}@db/quill
       QUILL_DOMAIN: ${QUILL_DOMAIN:-localhost}
       QUILL_REGISTRATION_OPEN: ${QUILL_REGISTRATION_OPEN:-true}
-      QUILL_TAG_POLICY: ${QUILL_TAG_POLICY:-both}
+      QUILL_TAG_POLICY: ${QUILL_TAG_POLICY:-open}
     ports:
       # Bound to this machine only; change QUILL_PORT if 8080 is taken.
       - "127.0.0.1:${QUILL_PORT:-8080}:8080"
@@ -59,7 +59,7 @@ services:
         condition: service_healthy
     environment:
       QUILL_DATABASE_URL: postgres://quill:${QUILL_DB_PASSWORD:-quill-local-dev}@db/quill
-      QUILL_TAG_POLICY: ${QUILL_TAG_POLICY:-both}
+      QUILL_TAG_POLICY: ${QUILL_TAG_POLICY:-open}
 
 volumes:
   db-data:
