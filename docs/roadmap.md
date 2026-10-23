@@ -13,7 +13,7 @@ Status: **done** (merged or in review), **next**, **planned**.
 Workspace, CI with cargo-deny, audit and vet, Postgres schema, accounts and
 personas, CLI skeleton, the server dependency ban.
 
-## Phase 1: Prompt board
+## Phase 1: Prompt board (done)
 
 | Sub-phase | Scope | Status |
 | --- | --- | --- |
@@ -23,7 +23,7 @@ personas, CLI skeleton, the server dependency ban.
 | 1d | Admin settings: tag management and required tag types | done |
 | 1e | Tag moderation: new-tag switch, hidden tags, tag requests | done |
 | 1f | Tag picker and tag colours | done |
-| 1g | Persona handle rules | next |
+| 1g | Persona handle rules | done |
 
 ### 1c: Docker setup and demo data
 
@@ -140,16 +140,34 @@ back correctly from tag to type to none.
 
 ### 1g: Persona handle rules
 
-- Handles are already unique across the server, case-insensitive and ASCII
-  only (enforced by the database and tested).
-- Add a reserved list (`admin`, `administrator`, `moderator`, `support`,
-  `staff`, `system`, `root`, `quill`, the server's own name, and similar)
-  that only `quill-server` admin commands can grant.
-- Retire deleted handles permanently, so nobody can take over a deleted
-  persona's name. Once federation exists, other servers will have cached
-  that name.
+- Handles are unique across the server, case-insensitive and ASCII only
+  (enforced by the database and tested since Phase 0). They can't be
+  renamed.
+- **Reserved handles.** Refused for writers, with "reserved for this
+  server's staff":
+  - staff words anywhere in the handle as a `_`-separated part, or as the
+    whole handle with underscores removed: `admin`, `administrator`,
+    `moderator`, `mod`, `staff`, `support`, `official`, `sysadmin`, `root`,
+    `quill`, `security`, `abuse` and the like (so `site_admin` and `ad_min`
+    are reserved, `badminton` is not);
+  - the server's own name (the first label of its domain), the same way;
+  - a list of exact names that could pass for the system or a page, such as
+    `all`, `everyone`, `nobody`, `anonymous`, `api`, `system`, `help`,
+    `inbox`;
+  - with digits read as letters (`adm1n`, `m0derator`).
+  Only `quill-server grant-handle <login> <handle>` on the server can create
+  a persona with a reserved handle.
+- **Retired handles.** Deleting a persona retires its handle for good, for
+  everyone including its old owner and administrators, because other servers
+  will have cached the name once federation exists. A database trigger
+  records it, so every way a persona can be deleted is covered. Only the
+  handle is kept, not who had it.
+- A taken or retired handle gets the same reply, "That handle isn't
+  available", so the reply doesn't reveal which.
 
-Done when: tests cover reserved names, retired handles and case variants.
+Done when: tests cover reserved names (including case and digit variants and
+the server's name), retired handles (same and other accounts, case variants,
+cascading deletes) and granting.
 
 ## Phase 2: Encrypted sessions on one server
 

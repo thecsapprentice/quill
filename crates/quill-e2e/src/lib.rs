@@ -107,6 +107,13 @@ impl TestServer {
         Ok(client)
     }
 
+    /// Server state on this server's database, for calling server functions
+    /// directly, as the `quill-server` admin commands do.
+    pub async fn state(&self) -> Result<AppState> {
+        let pool = sqlx::PgPool::connect(&self.db_url).await?;
+        AppState::new(pool, Config::for_tests(self.db_url.clone())).await
+    }
+
     /// Runs SQL against this server's database (for inspecting state).
     pub async fn db(&self) -> Result<sqlx::PgPool> {
         Ok(sqlx::PgPool::connect(&self.db_url).await?)

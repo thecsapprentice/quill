@@ -85,6 +85,8 @@ cargo run -p quill -- tags list --namespace genre
 # Make an account a server administrator, then work the report inbox and tags.
 # (On the board: the Reports and Server settings links.)
 QUILL_DATABASE_URL=... cargo run -p quill-server -- make-admin yourname
+# Reserved handles (admin, support, the server's name...) only come from the server:
+QUILL_DATABASE_URL=... cargo run -p quill-server -- grant-handle yourname support "Support desk"
 cargo run -p quill -- admin reports
 cargo run -p quill -- admin namespace-set genre --required true   # every prompt needs a genre
 cargo run -p quill -- admin tags --namespace theme                  # tags with usage counts

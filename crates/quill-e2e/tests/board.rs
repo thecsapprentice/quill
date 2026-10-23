@@ -472,7 +472,7 @@ async fn maturity_warning_reports_and_admin_inbox() {
 
     // An administrator removes the prompt from the board.
     let mut admin = Browser::new(&server);
-    let admin_csrf = admin.register("moderator", "mod_desk").await;
+    let admin_csrf = admin.register("moderator", "night_desk").await;
     let pool = server.db().await.unwrap();
     sqlx::query("UPDATE accounts SET is_admin = true WHERE login_name = 'moderator'")
         .execute(&pool)
@@ -538,7 +538,7 @@ async fn server_settings_manage_tag_types_and_tags() {
     assert_eq!(forged.status, StatusCode::FORBIDDEN);
 
     let mut admin = Browser::new(&server);
-    let csrf = admin.register("moderator", "mod_desk").await;
+    let csrf = admin.register("moderator", "night_desk").await;
     let pool = server.db().await.unwrap();
     sqlx::query("UPDATE accounts SET is_admin = true WHERE login_name = 'moderator'")
         .execute(&pool)
@@ -714,7 +714,7 @@ async fn server_settings_manage_tag_types_and_tags() {
 async fn tag_requests_through_the_board() {
     let server = server!();
     let mut admin = Browser::new(&server);
-    let csrf = admin.register("moderator", "mod_desk").await;
+    let csrf = admin.register("moderator", "night_desk").await;
     let pool = server.db().await.unwrap();
     sqlx::query("UPDATE accounts SET is_admin = true WHERE login_name = 'moderator'")
         .execute(&pool)
@@ -844,7 +844,7 @@ async fn tag_requests_through_the_board() {
 
 /// Signs up `login` and makes it an administrator; returns its CSRF token.
 async fn admin_browser(server: &TestServer, b: &mut Browser, login: &str) -> String {
-    let csrf = b.register(login, &format!("{login}_desk")).await;
+    let csrf = b.register(login, "night_desk").await;
     let pool = server.db().await.unwrap();
     sqlx::query("UPDATE accounts SET is_admin = true WHERE login_name = $1")
         .bind(login)
@@ -1134,5 +1134,27 @@ async fn chip_colours_come_from_a_generated_stylesheet() {
     let log = admin.get("/admin/log").await;
     assert!(log.body.contains("Tag colour changed"));
     assert!(log.body.contains("colour: automatic text on #7f1d1d"));
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn persona_form_explains_unavailable_handles() {
+    let server = server!();
+    let mut b = Browser::new(&server);
+    let csrf = b.register("alice", "ink_fox").await;
+    let reserved = b
+        .post("/personas", &[("csrf", &csrf), ("handle", "Site_Admin")])
+        .await;
+    assert_eq!(reserved.status, StatusCode::BAD_REQUEST);
+    assert!(
+        reserved
+            .body
+            .contains("That handle is reserved for this server&#39;s staff.")
+    );
+    assert!(reserved.body.contains(r#"value="Site_Admin""#));
+    let taken = b
+        .post("/personas", &[("csrf", &csrf), ("handle", "INK_FOX")])
+        .await;
+    assert!(taken.body.contains("That handle isn&#39;t available."));
     server.stop().await.unwrap();
 }

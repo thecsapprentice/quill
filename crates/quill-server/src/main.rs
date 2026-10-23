@@ -1,11 +1,17 @@
 use anyhow::{Context, Result, bail};
-use quill_server::{AppState, Config, connect_and_migrate, router, set_admin};
+use quill_proto::api::CreatePersona;
+use quill_server::{
+    AppState, Config, connect_and_migrate, error::ApiError, router, routes::grant_persona,
+    set_admin,
+};
 use tracing_subscriber::EnvFilter;
 
 const USAGE: &str = "usage:
   quill-server                     run the server (configured by QUILL_* variables)
   quill-server make-admin <login>  give an account administrator rights
-  quill-server revoke-admin <login>";
+  quill-server revoke-admin <login>
+  quill-server grant-handle <login> <handle> [display name]
+                                   give an account a persona with a reserved handle";
 
 #[tokio::main]
 async fn main() {
@@ -44,6 +50,24 @@ async fn run() -> Result<()> {
                 if grant { "now" } else { "no longer" }
             );
             Ok(())
+        }
+        ["grant-handle", login, handle, rest @ ..] => {
+            let pool = connect_and_migrate(&config.database_url).await?;
+            let state = AppState::new(pool, config).await?;
+            let display_name = (!rest.is_empty()).then(|| rest.join(" "));
+            let body = CreatePersona {
+                handle: (*handle).to_owned(),
+                display_name,
+                summary: None,
+            };
+            match grant_persona(&state, login, &body).await {
+                Ok(p) => {
+                    println!("{login} now has the persona @{}", p.handle);
+                    Ok(())
+                }
+                Err(ApiError::NotFound) => bail!("no account with login name {login:?}"),
+                Err(e) => bail!("{e}"),
+            }
         }
         _ => bail!("{USAGE}"),
     }
