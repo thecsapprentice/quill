@@ -222,6 +222,9 @@ pub enum AdminCommand {
         /// Whether writers may create new tags: open, approval or curated.
         #[arg(long)]
         new_tags: Option<TagPolicy>,
+        /// Whether sessions take attachments: on or off.
+        #[arg(long, value_parser = clap::builder::BoolishValueParser::new())]
+        attachments: Option<bool>,
     },
     /// List tags with how many prompts use them, aliases included.
     Tags {
@@ -731,16 +734,30 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                 );
             })
         }
-        AdminCommand::Settings { new_tags } => {
-            let settings = if new_tags.is_some() {
+        AdminCommand::Settings {
+            new_tags,
+            attachments,
+        } => {
+            let settings = if new_tags.is_some() || attachments.is_some() {
                 client
-                    .admin_update_settings(&UpdateServerSettings { new_tags })
+                    .admin_update_settings(&UpdateServerSettings {
+                        new_tags,
+                        attachments,
+                    })
                     .await?
             } else {
                 client.admin_settings().await?
             };
             ctx.print(&settings, |s| {
-                println!("new tags from writers: {}", s.new_tags)
+                println!("new tags from writers: {}", s.new_tags);
+                println!(
+                    "attachments in sessions: {}",
+                    if s.attachments {
+                        "allowed"
+                    } else {
+                        "not allowed"
+                    }
+                );
             })
         }
         AdminCommand::Reserved { search } => {

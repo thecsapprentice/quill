@@ -169,6 +169,7 @@ pub async fn new_tags_save(
     };
     let body = UpdateServerSettings {
         new_tags: Some(new_tags),
+        ..UpdateServerSettings::default()
     };
     match server_settings::update(&state, s.account_id, &body).await {
         Ok(_) => redirect("/admin/settings/tag-types?notice=new-tags-saved"),

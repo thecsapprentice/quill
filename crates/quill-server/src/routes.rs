@@ -65,6 +65,7 @@ async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, A
         tag_policy: settings.new_tags,
         default_maturity_max: quill_proto::board::Maturity::DEFAULT_MAX,
         limits: state.config.limits,
+        attachments: settings.attachments,
     }))
 }
 

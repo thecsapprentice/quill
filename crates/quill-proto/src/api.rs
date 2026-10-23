@@ -19,6 +19,13 @@ pub struct InstanceInfo {
     /// Maturity cap for anonymous visitors and new accounts.
     pub default_maturity_max: crate::board::Maturity,
     pub limits: Limits,
+    /// Whether sessions here take attachments: the administrators' choice.
+    #[serde(default = "default_attachments")]
+    pub attachments: bool,
+}
+
+fn default_attachments() -> bool {
+    true
 }
 
 /// Limits a client must respect. In a cross-server session a client uses the
@@ -177,6 +184,7 @@ mod tests {
             tag_policy: crate::board::TagPolicy::Open,
             default_maturity_max: crate::board::Maturity::Teen,
             limits: Limits::default(),
+            attachments: true,
         };
         let json = serde_json::to_value(&info).unwrap();
         assert_eq!(json["limits"]["maxMessageBytes"], 65536);

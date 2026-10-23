@@ -124,6 +124,7 @@ async fn tag_actions_tell_each_affected_account_about_its_own_prompts() {
     admin
         .admin_update_settings(&UpdateServerSettings {
             new_tags: Some(TagPolicy::Approval),
+            ..UpdateServerSettings::default()
         })
         .await
         .unwrap();

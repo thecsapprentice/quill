@@ -1235,7 +1235,13 @@ pub async fn post(
     let mut attachments = Vec::new();
     let mut blobs = Vec::new();
     if !draft.files.is_empty() {
-        let max = client.instance().await?.limits.max_attachment_bytes;
+        let instance = client.instance().await?;
+        if !instance.attachments {
+            return Err(err(
+                "this server doesn't take attachments: its administrators keep sessions to writing",
+            ));
+        }
+        let max = instance.limits.max_attachment_bytes;
         for (name, contents) in &draft.files {
             let sealed = attachments::seal(contents, max)?;
             let up = client

@@ -101,6 +101,7 @@ async fn every_entry_names_who_acted_and_against_whom() {
     boss.admin_delete_tag("genre", "horror").await.unwrap();
     boss.admin_update_settings(&UpdateServerSettings {
         new_tags: Some(TagPolicy::Curated),
+        ..UpdateServerSettings::default()
     })
     .await
     .unwrap();

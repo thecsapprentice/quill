@@ -94,6 +94,7 @@ async fn set_new_tags(admin: &Client, policy: TagPolicy) {
     let s = admin
         .admin_update_settings(&UpdateServerSettings {
             new_tags: Some(policy),
+            ..UpdateServerSettings::default()
         })
         .await
         .unwrap();
@@ -122,7 +123,8 @@ async fn the_new_tags_switch() {
         status(
             &alice
                 .admin_update_settings(&UpdateServerSettings {
-                    new_tags: Some(TagPolicy::Curated)
+                    new_tags: Some(TagPolicy::Curated),
+                    ..UpdateServerSettings::default()
                 })
                 .await
                 .unwrap_err()

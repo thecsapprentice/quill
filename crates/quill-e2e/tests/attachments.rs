@@ -292,3 +292,54 @@ async fn blobs_go_with_their_messages() {
     pool.close().await;
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn administrators_can_turn_attachments_off() {
+    use quill_proto::board::UpdateServerSettings;
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let (id, (alice, alice_c, _), _) = pair(&server).await;
+    let boss = server.admin_account("boss").await.unwrap();
+    let off = boss
+        .admin_update_settings(&UpdateServerSettings {
+            attachments: Some(false),
+            ..UpdateServerSettings::default()
+        })
+        .await
+        .unwrap();
+    assert!(!off.attachments);
+    assert!(!alice_c.instance().await.unwrap().attachments);
+    let e = alice_c.upload_blob(&id, vec![0; 4096]).await.unwrap_err();
+    assert_eq!(e.status(), Some(403));
+    let e = sessions::post(
+        &alice,
+        &alice_c,
+        &id,
+        sessions::Draft {
+            files: vec![("a.bin".into(), bytes(10))],
+            ..sessions::Draft::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(e.to_string().contains("doesn't take attachments"), "{e}");
+    // Writing goes on as before.
+    sessions::write(&alice, &alice_c, &id, "Words only.", None)
+        .await
+        .unwrap();
+    let log = boss.admin_log(None, None).await.unwrap();
+    assert!(
+        log.iter()
+            .any(|e| e.detail.as_deref() == Some("attachments in sessions: allowed → not allowed")),
+        "{log:?}"
+    );
+    boss.admin_update_settings(&UpdateServerSettings {
+        attachments: Some(true),
+        ..UpdateServerSettings::default()
+    })
+    .await
+    .unwrap();
+    attach(&alice, &alice_c, &id, vec![("a.bin".into(), bytes(10))]).await;
+    server.stop().await.unwrap();
+}

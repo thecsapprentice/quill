@@ -70,6 +70,12 @@ async fn upload(
     }
 
     let mut tx = state.pool.begin().await?;
+    if !crate::server_settings::attachments(&mut tx).await? {
+        return Err(ApiError::Forbidden(
+            "This server doesn't take attachments: its administrators keep sessions to writing."
+                .into(),
+        ));
+    }
     let open: Option<bool> = sqlx::query_scalar(
         "SELECT s.ended_at IS NULL FROM sessions s
          WHERE s.group_id = $1 AND EXISTS (
