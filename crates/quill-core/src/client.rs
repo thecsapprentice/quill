@@ -492,6 +492,24 @@ impl Client {
         Self::empty(builder).await
     }
 
+    /// What the login's sessions take on the server.
+    pub async fn storage(&self) -> Result<quill_proto::sessions::AccountStorage, CoreError> {
+        Self::json(self.authed(Method::GET, "/account/storage")?).await
+    }
+
+    /// Administrators: every login's storage.
+    pub async fn admin_storage(&self) -> Result<quill_proto::sessions::ServerStorage, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/storage")?).await
+    }
+
+    /// Administrators: one login's storage, without persona handles.
+    pub async fn admin_account_storage(
+        &self,
+        account: Uuid,
+    ) -> Result<quill_proto::sessions::AccountStorage, CoreError> {
+        Self::json(self.authed(Method::GET, &format!("/admin/storage/{account}"))?).await
+    }
+
     /// Uploads a padded, encrypted blob to a session.
     pub async fn upload_blob(
         &self,

@@ -343,3 +343,48 @@ async fn administrators_can_turn_attachments_off() {
     attach(&alice, &alice_c, &id, vec![("a.bin".into(), bytes(10))]).await;
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn logins_and_administrators_see_storage_but_no_content() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let (id, (alice, alice_c, _), (bob, bob_c, _)) = pair(&server).await;
+    attach(&alice, &alice_c, &id, vec![("a.bin".into(), bytes(5000))]).await;
+    sessions::read(&bob, &bob_c, &id).await.unwrap();
+
+    let mine = alice_c.storage().await.unwrap();
+    assert_eq!(mine.sessions.len(), 1);
+    let s = &mine.sessions[0];
+    assert_eq!(s.id, id);
+    assert_eq!(
+        (s.persona.as_deref(), s.partner.as_deref()),
+        (Some("ink_fox"), Some("quiet_wren"))
+    );
+    assert_eq!((s.files, s.file_bytes, s.own_file_bytes), (1, 8192, 8192));
+    assert!(s.messages >= 2 && s.message_bytes > 0);
+    assert_eq!(mine.quota_used_bytes, 8192);
+    assert_eq!(
+        mine.total_bytes,
+        s.message_bytes + s.file_bytes + mine.device_sync_bytes
+    );
+    let bobs = bob_c.storage().await.unwrap();
+    assert_eq!(bobs.sessions[0].own_file_bytes, 0);
+    assert_eq!(bobs.quota_used_bytes, 0);
+
+    // Administrators see sizes per login, and per session without names.
+    assert_eq!(
+        alice_c.admin_storage().await.unwrap_err().status(),
+        Some(403)
+    );
+    let boss = server.admin_account("boss").await.unwrap();
+    let all = boss.admin_storage().await.unwrap();
+    let row = all.accounts.iter().find(|a| a.login == "alice").unwrap();
+    assert_eq!((row.sessions, row.file_bytes), (1, 8192));
+    assert!(all.accounts.iter().any(|a| a.login == "bob"));
+    assert!(all.total_bytes >= all.file_bytes + row.message_bytes);
+    let one = boss.admin_account_storage(row.account).await.unwrap();
+    assert_eq!(one.sessions[0].file_bytes, 8192);
+    assert!(one.sessions[0].persona.is_none() && one.sessions[0].partner.is_none());
+    server.stop().await.unwrap();
+}

@@ -85,3 +85,70 @@ pub struct BlobUploaded {
 
 /// The header carrying a blob's capability token on `GET /blobs/{id}`.
 pub const BLOB_TOKEN_HEADER: &str = "blob-token";
+
+/// One session's share of the server's storage (2i). Sizes are of
+/// ciphertext: nothing here says what was written.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStorage {
+    /// The session id (group id, base64url).
+    pub id: String,
+    /// The caller's persona and the other writer's, in a login's own view;
+    /// absent in an administrator's, which doesn't link personas to logins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partner: Option<String>,
+    pub ended: bool,
+    /// Messages still stored, and their bytes.
+    pub messages: u64,
+    pub message_bytes: u64,
+    /// Attachments still stored, and their (padded) bytes.
+    pub files: u64,
+    pub file_bytes: u64,
+    /// The part of `file_bytes` this login uploaded (it counts against its
+    /// quota).
+    pub own_file_bytes: u64,
+}
+
+/// `GET /account/storage`, and an administrator's view of one login
+/// (`GET /admin/storage/{account}`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountStorage {
+    /// Everything stored for the login's sessions and device group.
+    pub total_bytes: u64,
+    /// Attachments the login uploaded, against its quota.
+    pub quota_used_bytes: u64,
+    pub quota_bytes: u64,
+    /// The personal device group's log.
+    pub device_sync_bytes: u64,
+    pub sessions: Vec<SessionStorage>,
+}
+
+/// One login in `GET /admin/storage`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountStorageSummary {
+    pub account: Uuid,
+    /// The private login name, as administrators see it elsewhere.
+    pub login: String,
+    pub sessions: u64,
+    /// Messages in its sessions (shared sessions count for both logins).
+    pub message_bytes: u64,
+    /// Attachments it uploaded.
+    pub file_bytes: u64,
+    pub device_sync_bytes: u64,
+    pub quota_bytes: u64,
+}
+
+/// `GET /admin/storage`: every login with anything stored, largest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerStorage {
+    /// Everything stored, counted once.
+    pub total_bytes: u64,
+    pub message_bytes: u64,
+    pub file_bytes: u64,
+    pub accounts: Vec<AccountStorageSummary>,
+}

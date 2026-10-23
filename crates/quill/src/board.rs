@@ -150,6 +150,9 @@ pub enum TagCommand {
 
 #[derive(Subcommand)]
 pub enum AdminCommand {
+    /// Storage used by each login's sessions (sizes only), or one login's
+    /// sessions.
+    Storage { account: Option<Uuid> },
     /// Show open reports (or all with --all).
     Reports {
         #[arg(long)]
@@ -733,6 +736,35 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     n.name, n.display, n.locked, n.required
                 );
             })
+        }
+        AdminCommand::Storage { account: None } => {
+            let s = client.admin_storage().await?;
+            ctx.print(&s, |s| {
+                println!(
+                    "{} stored: {} in messages, {} in attachments",
+                    crate::size(s.total_bytes),
+                    crate::size(s.message_bytes),
+                    crate::size(s.file_bytes)
+                );
+                for a in &s.accounts {
+                    println!(
+                        "{}  {}  {} sessions, {} in messages, {} attachments (of {}), {} device sync",
+                        a.account,
+                        a.login,
+                        a.sessions,
+                        crate::size(a.message_bytes),
+                        crate::size(a.file_bytes),
+                        crate::size(a.quota_bytes),
+                        crate::size(a.device_sync_bytes)
+                    );
+                }
+            })
+        }
+        AdminCommand::Storage {
+            account: Some(account),
+        } => {
+            let s = client.admin_account_storage(account).await?;
+            ctx.print(&s, crate::print_storage)
         }
         AdminCommand::Settings {
             new_tags,
