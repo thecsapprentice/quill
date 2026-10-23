@@ -5,6 +5,7 @@ pub mod auth;
 pub mod config;
 pub mod error;
 mod markdown;
+pub mod notices;
 pub mod prompts;
 mod ratelimit;
 pub mod reports;

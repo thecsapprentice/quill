@@ -9,10 +9,10 @@ use axum::{
     routing::{get, post},
 };
 use quill_proto::board::{
-    AdminAction, AdminLogEntry, CreateReport, Report, ReportQuery, ReportReason, Resolution,
-    ResolveReport,
+    AdminAction, AdminLogDetail, AdminLogEntry, AdminLogPrompt, AdminLogQuery, AdminLogTarget,
+    AdminLogTargetQuery, CreateReport, LOG_TARGET_PREVIEW, Report, ReportQuery, ReportReason,
+    Resolution, ResolveReport,
 };
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use sqlx::{AssertSqlSafe, PgConnection};
 use time::OffsetDateTime;
@@ -22,9 +22,11 @@ use crate::{
     AppState,
     auth::{Admin, MaybeAuthed},
     error::ApiError,
+    notices,
     prompts::load_prompt,
     routes::ApiJson,
 };
+use quill_proto::notices::{NoticeFields, NoticeKind, NoticePrompt};
 
 /// Reports one signed-in account may file per hour.
 const ACCOUNT_REPORTS_PER_HOUR: usize = 20;
@@ -38,6 +40,7 @@ pub fn router() -> Router<AppState> {
         .route("/admin/reports", get(list_reports))
         .route("/admin/reports/{id}/resolve", post(resolve_report))
         .route("/admin/log", get(read_log))
+        .route("/admin/log/{id}", get(read_log_entry))
 }
 
 /// SHA-256 of the prompt's title and body, recorded instead of its text.
@@ -109,16 +112,18 @@ pub async fn file_report(
     .bind(&hash)
     .execute(&mut *tx)
     .await?;
-    sqlx::query(
-        "INSERT INTO admin_log (action, report_id, prompt_id, prompt_hash, reason)
-         VALUES ('report_received', $1, $2, $3, $4::report_reason)",
+    let log_id: i64 = sqlx::query_scalar(
+        "INSERT INTO admin_log (action, report_id, prompt_id, prompt_hash, reason, actor)
+         VALUES ('report_received', $1, $2, $3, $4::report_reason, 'reporter') RETURNING id",
     )
     .bind(report_id)
     .bind(body.prompt)
     .bind(&hash)
     .bind(body.reason.as_str())
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
     .await?;
+    let author = notices::affected_by_prompt(&mut tx, body.prompt).await?;
+    log_targets(&mut tx, log_id, &author).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -244,9 +249,12 @@ pub async fn resolve(
     .bind(admin)
     .execute(&mut *tx)
     .await?;
-    sqlx::query(
-        "INSERT INTO admin_log (action, report_id, prompt_id, prompt_hash, reason, admin_id)
-         VALUES ($1, $2, $3, $4, $5::report_reason, $6)",
+    let log_id: i64 = sqlx::query_scalar(
+        "INSERT INTO admin_log
+             (action, report_id, prompt_id, prompt_hash, reason, admin_id, actor, admin_login)
+         VALUES ($1, $2, $3, $4, $5::report_reason, $6, 'admin',
+                 (SELECT login_name FROM accounts WHERE id = $6))
+         RETURNING id",
     )
     .bind(logged)
     .bind(id)
@@ -254,21 +262,37 @@ pub async fn resolve(
     .bind(&hash)
     .bind(&reason)
     .bind(admin)
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
     .await?;
+    // The author is told their prompt was removed and the report's category,
+    // never who reported it. A discarded report tells nobody anything.
+    let affected = match prompt_id {
+        Some(prompt) => notices::affected_by_prompt(&mut tx, prompt).await?,
+        None => Vec::new(),
+    };
+    // The decision was about the author's prompt either way, so the log
+    // names them; only a removal tells them.
+    log_targets(&mut tx, log_id, &affected).await?;
+    if action == Resolution::Delete && prompt_id.is_some() {
+        let fields = NoticeFields {
+            reason: Some(parse_reason(&reason)?),
+            ..NoticeFields::default()
+        };
+        notices::record(
+            &mut tx,
+            log_id,
+            NoticeKind::PromptRemoved,
+            &fields,
+            &affected,
+        )
+        .await?;
+    }
     tx.commit().await?;
 
     // Safe: built only from compile-time constants; values are bound.
     let sql = AssertSqlSafe(format!("{REPORT_SELECT} WHERE id = $1"));
     let row: ReportRow = sqlx::query_as(sql).bind(id).fetch_one(&state.pool).await?;
     to_report(state, row).await
-}
-
-#[derive(Debug, Deserialize)]
-struct LogQuery {
-    /// Return entries older than this id.
-    before: Option<i64>,
-    limit: Option<u32>,
 }
 
 /// Records an administrator's change to something other than a report.
@@ -278,17 +302,18 @@ pub(crate) async fn log_action(
     action: AdminAction,
     subject: &str,
     detail: Option<&str>,
-) -> Result<(), ApiError> {
-    sqlx::query(
-        "INSERT INTO admin_log (action, subject, detail, admin_id) VALUES ($1, $2, $3, $4)",
+) -> Result<i64, ApiError> {
+    Ok(sqlx::query_scalar(
+        "INSERT INTO admin_log (action, subject, detail, admin_id, actor, admin_login)
+         VALUES ($1, $2, $3, $4, 'admin', (SELECT login_name FROM accounts WHERE id = $4))
+         RETURNING id",
     )
     .bind(action.as_str())
     .bind(subject)
     .bind(detail)
     .bind(admin)
-    .execute(&mut *conn)
-    .await?;
-    Ok(())
+    .fetch_one(&mut *conn)
+    .await?)
 }
 
 /// Records a change made by the server itself, such as syncing the
@@ -299,74 +324,225 @@ pub(crate) async fn log_system(
     subject: &str,
     detail: Option<&str>,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO admin_log (action, subject, detail) VALUES ($1, $2, $3)")
-        .bind(action.as_str())
-        .bind(subject)
-        .bind(detail)
-        .execute(&mut *conn)
-        .await?;
+    sqlx::query(
+        "INSERT INTO admin_log (action, subject, detail, actor) VALUES ($1, $2, $3, 'server')",
+    )
+    .bind(action.as_str())
+    .bind(subject)
+    .bind(detail)
+    .execute(&mut *conn)
+    .await?;
     Ok(())
 }
 
-type LogRow = (
-    i64,
-    OffsetDateTime,
-    String,
-    Option<Uuid>,
-    Option<Uuid>,
-    Option<Vec<u8>>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<Uuid>,
-);
+#[derive(sqlx::FromRow)]
+struct LogRow {
+    id: i64,
+    at: OffsetDateTime,
+    action: String,
+    report_id: Option<Uuid>,
+    prompt_id: Option<Uuid>,
+    prompt_hash: Option<Vec<u8>>,
+    reason: Option<String>,
+    subject: Option<String>,
+    detail: Option<String>,
+    admin_id: Option<Uuid>,
+    actor: String,
+    admin_login: Option<String>,
+    targets: Vec<String>,
+    target_count: i64,
+}
+
+impl LogRow {
+    fn into_entry(self) -> Result<AdminLogEntry, ApiError> {
+        Ok(AdminLogEntry {
+            id: self.id,
+            at: self.at,
+            action: self.action.parse().map_err(|_| {
+                ApiError::Internal(anyhow::anyhow!("unexpected log action {:?}", self.action))
+            })?,
+            report_id: self.report_id,
+            prompt_id: self.prompt_id,
+            prompt_hash: self.prompt_hash.as_deref().map(hex),
+            reason: self.reason.as_deref().map(parse_reason).transpose()?,
+            subject: self.subject,
+            detail: self.detail,
+            admin: self.admin_id,
+            actor: crate::prompts::parse_enum(&self.actor)?,
+            admin_login: self.admin_login,
+            targets: self.targets,
+            target_count: u64::try_from(self.target_count).unwrap_or(0),
+        })
+    }
+}
 
 /// `GET /admin/log`, newest first.
 async fn read_log(
     State(state): State<AppState>,
     _admin: Admin,
-    Query(q): Query<LogQuery>,
+    Query(q): Query<AdminLogQuery>,
 ) -> Result<Json<Vec<AdminLogEntry>>, ApiError> {
-    admin_log(&state, q.before, q.limit).await.map(Json)
+    admin_log(&state, &q).await.map(Json)
+}
+
+/// `GET /admin/log/{id}`: one entry and a page of the accounts it was against.
+async fn read_log_entry(
+    State(state): State<AppState>,
+    _admin: Admin,
+    Path(id): Path<i64>,
+    Query(q): Query<AdminLogTargetQuery>,
+) -> Result<Json<AdminLogDetail>, ApiError> {
+    admin_log_entry(&state, id, &q).await.map(Json)
+}
+
+/// Entries matching the filters, newest first. Each names only the first
+/// few accounts it was against (an account filtered for comes first), and
+/// counts them all: one decision can reach thousands.
+async fn fetch_log(
+    state: &AppState,
+    q: &AdminLogQuery,
+    only: Option<i64>,
+) -> Result<Vec<AdminLogEntry>, ApiError> {
+    let limit = i64::from(q.limit.unwrap_or(50).clamp(1, 200));
+    let admin = q.admin.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let account = q
+        .account
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let rows: Vec<LogRow> = sqlx::query_as(
+        "SELECT l.id, l.at, l.action, l.report_id, l.prompt_id, l.prompt_hash,
+                l.reason::text AS reason, l.subject, l.detail, l.admin_id, l.actor, l.admin_login,
+                ARRAY(SELECT t.login FROM admin_log_targets t WHERE t.log_id = l.id
+                      ORDER BY t.login = lower($4) DESC, t.login LIMIT $6) AS targets,
+                (SELECT count(*) FROM admin_log_targets t WHERE t.log_id = l.id) AS target_count
+         FROM admin_log l
+         WHERE ($1::bigint IS NULL OR l.id < $1)
+           AND ($5::bigint IS NULL OR l.id = $5)
+           AND ($3::text IS NULL OR l.admin_login = lower($3))
+           AND ($4::text IS NULL OR EXISTS (
+                   SELECT 1 FROM admin_log_targets t
+                   WHERE t.log_id = l.id AND t.login = lower($4)))
+         ORDER BY l.id DESC LIMIT $2",
+    )
+    .bind(q.before)
+    .bind(limit)
+    .bind(admin)
+    .bind(account)
+    .bind(only)
+    .bind(i64::try_from(LOG_TARGET_PREVIEW).unwrap_or(5))
+    .fetch_all(&state.pool)
+    .await?;
+    rows.into_iter().map(LogRow::into_entry).collect()
 }
 
 /// The admin log, newest first, optionally before entry `before`.
 pub async fn admin_log(
     state: &AppState,
-    before: Option<i64>,
-    limit: Option<u32>,
+    q: &AdminLogQuery,
 ) -> Result<Vec<AdminLogEntry>, ApiError> {
-    let limit = i64::from(limit.unwrap_or(50).clamp(1, 200));
-    let rows: Vec<LogRow> = sqlx::query_as(
-        "SELECT id, at, action, report_id, prompt_id, prompt_hash, reason::text, subject, detail,
-                admin_id
-         FROM admin_log WHERE ($1::bigint IS NULL OR id < $1)
-         ORDER BY id DESC LIMIT $2",
+    fetch_log(state, q, None).await
+}
+
+/// `(login, account deleted, the prompts its notice recorded)`.
+type TargetRow = (String, bool, Option<sqlx::types::Json<Vec<NoticePrompt>>>);
+
+/// One entry, with a page of the accounts it was against (alphabetical,
+/// after `q.after`) and each one's prompts as the decision found them.
+pub async fn admin_log_entry(
+    state: &AppState,
+    id: i64,
+    q: &AdminLogTargetQuery,
+) -> Result<AdminLogDetail, ApiError> {
+    let entry = fetch_log(state, &AdminLogQuery::default(), Some(id))
+        .await?
+        .pop()
+        .ok_or(ApiError::NotFound)?;
+    let limit = i64::from(q.limit.unwrap_or(100).clamp(1, 500));
+    let after = q.after.as_deref().filter(|s| !s.is_empty());
+    // One extra row says whether there's another page.
+    let mut rows: Vec<TargetRow> = sqlx::query_as(
+        "SELECT t.login, t.account_id IS NULL,
+                    (SELECT n.prompts FROM account_notices n
+                     WHERE n.log_id = t.log_id AND n.account_id = t.account_id
+                     ORDER BY n.id LIMIT 1)
+             FROM admin_log_targets t
+             WHERE t.log_id = $1 AND ($2::text IS NULL OR t.login > $2)
+             ORDER BY t.login LIMIT $3",
     )
-    .bind(before)
-    .bind(limit)
+    .bind(id)
+    .bind(after)
+    .bind(limit + 1)
     .fetch_all(&state.pool)
     .await?;
-    rows.into_iter()
-        .map(
-            |(id, at, action, report_id, prompt_id, hash, reason, subject, detail, admin)| {
-                Ok(AdminLogEntry {
-                    id,
-                    at,
-                    action: action.parse().map_err(|_| {
-                        ApiError::Internal(anyhow::anyhow!("unexpected log action {action:?}"))
-                    })?,
-                    report_id,
-                    prompt_id,
-                    prompt_hash: hash.as_deref().map(hex),
-                    reason: reason.as_deref().map(parse_reason).transpose()?,
-                    subject,
-                    detail,
-                    admin,
+    let next = if rows.len() > usize::try_from(limit).unwrap_or(usize::MAX) {
+        rows.pop();
+        rows.last().map(|r| r.0.clone())
+    } else {
+        None
+    };
+    // Which of the page's prompts are still on the server.
+    let ids: Vec<Uuid> = rows
+        .iter()
+        .filter_map(|r| r.2.as_ref())
+        .flat_map(|p| p.0.iter().map(|p| p.id))
+        .collect();
+    let existing: std::collections::HashSet<Uuid> = if ids.is_empty() {
+        Default::default()
+    } else {
+        sqlx::query_scalar("SELECT id FROM prompts WHERE id = ANY($1)")
+            .bind(&ids)
+            .fetch_all(&state.pool)
+            .await?
+            .into_iter()
+            .collect()
+    };
+    let targets = rows
+        .into_iter()
+        .map(|(login, account_deleted, prompts)| AdminLogTarget {
+            login,
+            account_deleted,
+            prompts: prompts
+                .map(|p| p.0)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| AdminLogPrompt {
+                    exists: existing.contains(&p.id),
+                    id: p.id,
+                    title: p.title,
+                    handle: p.handle,
                 })
-            },
-        )
-        .collect()
+                .collect(),
+        })
+        .collect();
+    Ok(AdminLogDetail {
+        entry,
+        targets,
+        next,
+    })
+}
+
+/// Records which accounts an entry's decision was against, by login name as
+/// it is now (kept if the account is later deleted).
+pub(crate) async fn log_targets(
+    conn: &mut PgConnection,
+    log_id: i64,
+    affected: &[notices::Affected],
+) -> Result<(), ApiError> {
+    let accounts: Vec<Uuid> = affected.iter().map(|a| a.account).collect();
+    if accounts.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "INSERT INTO admin_log_targets (log_id, account_id, login)
+         SELECT $1, id, login_name FROM accounts WHERE id = ANY($2)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(log_id)
+    .bind(&accounts)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]

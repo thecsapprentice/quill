@@ -240,6 +240,23 @@ impl Client {
 
     // ---- Account settings -----------------------------------------------
 
+    /// The account's notices: administrators' actions against its prompts
+    /// and tags, newest first.
+    pub async fn notices(
+        &self,
+        before: Option<i64>,
+    ) -> Result<Vec<quill_proto::notices::AccountNotice>, CoreError> {
+        let mut query: Vec<(&str, String)> = Vec::new();
+        if let Some(b) = before {
+            query.push(("before", b.to_string()));
+        }
+        Self::json(self.authed(Method::GET, "/account/notices")?.query(&query)).await
+    }
+
+    pub async fn mark_notices_read(&self) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::POST, "/account/notices/read")?).await
+    }
+
     pub async fn account(&self) -> Result<AccountSettings, CoreError> {
         Self::json(self.authed(Method::GET, "/account")?).await
     }
@@ -318,14 +335,34 @@ impl Client {
         before: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<AdminLogEntry>, CoreError> {
-        let mut query: Vec<(&str, String)> = Vec::new();
-        if let Some(b) = before {
-            query.push(("before", b.to_string()));
-        }
-        if let Some(l) = limit {
-            query.push(("limit", l.to_string()));
-        }
-        Self::json(self.authed(Method::GET, "/admin/log")?.query(&query)).await
+        self.admin_log_filtered(&quill_proto::board::AdminLogQuery {
+            before,
+            limit,
+            ..Default::default()
+        })
+        .await
+    }
+
+    /// The admin log, optionally only one administrator's entries or only
+    /// those against one account.
+    pub async fn admin_log_filtered(
+        &self,
+        query: &quill_proto::board::AdminLogQuery,
+    ) -> Result<Vec<AdminLogEntry>, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/log")?.query(query)).await
+    }
+
+    /// One admin-log entry and a page of the accounts it was against.
+    pub async fn admin_log_entry(
+        &self,
+        id: i64,
+        query: &quill_proto::board::AdminLogTargetQuery,
+    ) -> Result<quill_proto::board::AdminLogDetail, CoreError> {
+        Self::json(
+            self.authed(Method::GET, &format!("/admin/log/{id}"))?
+                .query(query),
+        )
+        .await
     }
 
     pub async fn admin_create_namespace(

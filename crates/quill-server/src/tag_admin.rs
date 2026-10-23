@@ -8,6 +8,7 @@ use axum::{
     response::IntoResponse,
     routing::{get, patch},
 };
+use quill_proto::notices::{NoticeFields, NoticeKind};
 use quill_proto::{
     board::{
         AdminAction, AdminTag, AdminTagQuery, ChipColor, CreateNamespace, CreateTag, DeletedTag,
@@ -23,6 +24,7 @@ use crate::{
     AppState,
     auth::Admin,
     error::{ApiError, is_unique_violation},
+    notices,
     prompts::{TagRow, escape_like, load_namespace, load_tag, parse_enum, resolve_tags},
     reports::log_action,
     routes::ApiJson,
@@ -45,6 +47,15 @@ pub fn router() -> Router<AppState> {
                 .patch(api_update_tag)
                 .delete(api_delete_tag),
         )
+}
+
+/// Notice fields naming a tag.
+fn tag_fields(key: &str, display: &str) -> NoticeFields {
+    NoticeFields {
+        tag: Some(key.to_owned()),
+        tag_name: Some(display.to_owned()),
+        ..NoticeFields::default()
+    }
 }
 
 fn on_off(value: bool) -> &'static str {
@@ -396,7 +407,21 @@ pub async fn update_tag(
             .await?;
         let detail = (status == TagStatus::Pending && new_status == TagStatus::Hidden)
             .then_some("was awaiting approval; kept hidden");
-        log_action(&mut tx, admin, action, &key, detail).await?;
+        let log_id = log_action(&mut tx, admin, action, &key, detail).await?;
+        let kind = match action {
+            AdminAction::ApproveTag => NoticeKind::TagApproved,
+            AdminAction::ShowTag => NoticeKind::TagShown,
+            _ => NoticeKind::TagHidden,
+        };
+        let affected = notices::affected_by_tag(&mut tx, id).await?;
+        notices::record(
+            &mut tx,
+            log_id,
+            kind,
+            &tag_fields(&key, &old_display),
+            &affected,
+        )
+        .await?;
     }
 
     if let Some(display) = body.display.as_deref() {
@@ -408,7 +433,15 @@ pub async fn update_tag(
                 .execute(&mut *tx)
                 .await?;
             let detail = format!("renamed from {old_display} to {display}");
-            log_action(&mut tx, admin, AdminAction::RenameTag, &key, Some(&detail)).await?;
+            let log_id =
+                log_action(&mut tx, admin, AdminAction::RenameTag, &key, Some(&detail)).await?;
+            let fields = NoticeFields {
+                from: Some(old_display.clone()),
+                to: Some(display.clone()),
+                ..tag_fields(&key, &old_display)
+            };
+            let affected = notices::affected_by_tag(&mut tx, id).await?;
+            notices::record(&mut tx, log_id, NoticeKind::TagRenamed, &fields, &affected).await?;
         }
     }
 
@@ -450,6 +483,8 @@ pub async fn update_tag(
                 "a tag can't be an alias of itself".into(),
             ));
         }
+        // Who is told: the authors of prompts carrying it, before they move.
+        let affected = notices::affected_by_tag(&mut tx, id).await?;
         // This tag and every alias of it now point at the target.
         sqlx::query("UPDATE tags SET canonical_id = $2 WHERE id = $1 OR canonical_id = $1")
             .bind(id)
@@ -483,7 +518,12 @@ pub async fn update_tag(
             "{request}now an alias of {}:{}; {moved} prompt(s) moved",
             target_key.0, target_key.1
         );
-        log_action(&mut tx, admin, AdminAction::AliasTag, &key, Some(&detail)).await?;
+        let log_id = log_action(&mut tx, admin, AdminAction::AliasTag, &key, Some(&detail)).await?;
+        let fields = NoticeFields {
+            into: Some(format!("{}:{}", target_key.0, target_key.1)),
+            ..tag_fields(&key, &old_display)
+        };
+        notices::record(&mut tx, log_id, NoticeKind::TagMerged, &fields, &affected).await?;
     }
     let tag = load_tag(&mut tx, namespace, slug).await?;
     tx.commit().await?;
@@ -503,6 +543,7 @@ pub async fn delete_tag(
         display,
         status,
     } = lock_tag(&mut tx, namespace, slug).await?;
+    let affected = notices::affected_by_tag(&mut tx, id).await?;
     let prompts_updated = sqlx::query(
         "UPDATE prompts SET tag_ids = array_remove(tag_ids, $1) WHERE tag_ids @> ARRAY[$1::bigint]",
     )
@@ -530,7 +571,20 @@ pub async fn delete_tag(
     } else {
         AdminAction::DeleteTag
     };
-    log_action(&mut tx, admin, action, &key, Some(&detail)).await?;
+    let log_id = log_action(&mut tx, admin, action, &key, Some(&detail)).await?;
+    let kind = if status == TagStatus::Pending {
+        NoticeKind::TagRejected
+    } else {
+        NoticeKind::TagDeleted
+    };
+    notices::record(
+        &mut tx,
+        log_id,
+        kind,
+        &tag_fields(&key, &display),
+        &affected,
+    )
+    .await?;
     tx.commit().await?;
     Ok(DeletedTag { prompts_updated })
 }

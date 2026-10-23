@@ -24,6 +24,7 @@ personas, CLI skeleton, the server dependency ban.
 | 1e | Tag moderation: new-tag switch, hidden tags, tag requests | done |
 | 1f | Tag picker and tag colours | done |
 | 1g | Persona handle rules | done |
+| 1h | Account moderation notices | done |
 
 ### 1c: Docker setup and demo data
 
@@ -177,6 +178,55 @@ back correctly from tag to type to none.
 Done when: tests cover reserved names (including case and digit variants and
 the server's name), retired handles (same and other accounts, case variants,
 cascading deletes) and granting.
+
+### 1h: Account moderation notices
+
+The foundation for moderation that people can see. Each account gets
+**notices**: a record of every action an administrator took against its
+prompts and tags, readable only by that account.
+
+- What creates a notice today: a prompt removed after a report (with the
+  report's category); a tag on the account's prompts deleted, rejected,
+  merged into another, hidden, shown again or renamed; a tag the account's
+  prompts carry approved. For tag actions, each affected account gets one
+  notice listing only its own prompts.
+- What doesn't: a discarded report (no action was taken, and telling people
+  they were reported would chill writing and could expose reporters); colour
+  changes (cosmetic).
+- A notice names the action, the affected prompts (titles are kept, so the
+  notice still reads after a prompt is deleted) and the persona each was
+  posted as. It never names the reporter or the administrator.
+- Each notice links to the admin-log entry it came from, so the public-facing
+  record and the internal one can't drift apart.
+- Unread notices are counted in the header ("Notices"); viewing them marks
+  them read. They can't be deleted by the account; they go with the account.
+- Notices are typed records with structured fields, not stored sentences, so
+  later moderation (warnings, messages from administrators, suspensions,
+  appeals) adds new kinds rather than reworking this. Clients render the
+  text.
+- API `GET /account/notices`, `POST /account/notices/read`; the unread count
+  in `GET /account`. CLI `quill account notices`.
+- **Accountability in the admin log** (administrators only). Every entry
+  records who acted (an administrator, by login name as it was; the server
+  itself; or a writer's report, whose writer stays unnamed) and which
+  accounts the decision was against, by login name as it was (none for
+  server-wide changes). Administrators filter the log by either, so they
+  can see what each of them is doing and when. Both records stay
+  append-only and survive account deletion. Existing entries were
+  backfilled from notices and reported prompts. API `GET
+  /admin/log?admin=&account=`; CLI `quill admin log --admin --account`.
+- **Long lists of affected accounts.** One decision can reach thousands of
+  accounts (deleting a common tag), so log listings name the first five
+  (an account being filtered for comes first) and link "and N more" to the
+  entry's own page. That page lists every account alphabetically, 100 at a
+  time, each with the prompts the decision touched as they were then, and
+  whether each prompt is still on the server. Notices for such a decision
+  are written in batches. API `GET /admin/log/{id}?after=&limit=`; CLI
+  `quill admin log-entry ID --after`.
+
+Done when: end-to-end tests show each action reaching exactly the affected
+accounts, with nothing about reporters or administrators, and unread counts
+behaving.
 
 ## Phase 2: Encrypted sessions on one server
 

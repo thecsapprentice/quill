@@ -12,8 +12,8 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use quill_board_ui::{
-    AdminLogView, AdminReportsView, AuthMode, AuthView, BoardFilters, BoardView, Nav, PersonasView,
-    PromptFormView, PromptView, ReportView, SettingsView,
+    AdminLogEntryView, AdminLogView, AdminReportsView, AuthMode, AuthView, BoardFilters, BoardView,
+    Nav, PersonasView, PromptFormView, PromptView, ReportView, SettingsView,
 };
 use quill_proto::{
     api::{CreatePersona, Credentials},
@@ -990,6 +990,10 @@ pub async fn admin_resolve(
 #[derive(Debug, Default, Deserialize)]
 pub struct LogParams {
     before: Option<i64>,
+    /// Only this administrator's entries (login name).
+    admin: Option<String>,
+    /// Only entries against this account (login name).
+    account: Option<String>,
 }
 
 pub async fn admin_log(
@@ -1005,20 +1009,118 @@ pub async fn admin_log(
     }
     let c = chrome(&state, Some(&s), Nav::Admin, None);
     const PAGE: u32 = 50;
-    match reports::admin_log(&state, p.before, Some(PAGE)).await {
+    let admin = opt(&p.admin).map(str::to_owned);
+    let account = opt(&p.account).map(str::to_owned);
+    let query = quill_proto::board::AdminLogQuery {
+        before: p.before,
+        limit: Some(PAGE),
+        admin: admin.clone(),
+        account: account.clone(),
+    };
+    match reports::admin_log(&state, &query).await {
         Ok(entries) => {
             let older = (entries.len() == PAGE as usize)
-                .then(|| {
-                    entries
-                        .last()
-                        .map(|e| format!("/admin/log?before={}", e.id))
-                })
-                .flatten();
+                .then(|| entries.last().map(|e| e.id))
+                .flatten()
+                .map(|before| {
+                    quill_board_ui::admin_log_url(
+                        admin.as_deref(),
+                        account.as_deref(),
+                        Some(before),
+                    )
+                });
             html(
                 StatusCode::OK,
-                quill_board_ui::admin_log_page(&c, AdminLogView { entries, older }),
+                quill_board_ui::admin_log_page(
+                    &c,
+                    AdminLogView {
+                        entries,
+                        older,
+                        admin,
+                        account,
+                    },
+                ),
             )
         }
         Err(e) => error_page(&c, e),
     }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct LogEntryParams {
+    after: Option<String>,
+}
+
+pub async fn admin_log_entry(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Path(id): Path<i64>,
+    Query(p): Query<LogEntryParams>,
+) -> Response {
+    let Some(s) = session else {
+        return redirect("/login");
+    };
+    if !s.is_admin {
+        return not_admin(&state, &s);
+    }
+    let c = chrome(&state, Some(&s), Nav::Admin, None);
+    let after = opt(&p.after).map(str::to_owned);
+    let query = quill_proto::board::AdminLogTargetQuery {
+        after: after.clone(),
+        limit: Some(100),
+    };
+    match reports::admin_log_entry(&state, id, &query).await {
+        Ok(detail) => html(
+            StatusCode::OK,
+            quill_board_ui::admin_log_entry_page(
+                &c,
+                AdminLogEntryView {
+                    detail,
+                    paged: after.is_some(),
+                },
+            ),
+        ),
+        Err(e) => error_page(&c, e),
+    }
+}
+
+// ---- Account notices -------------------------------------------------------
+
+#[derive(Debug, Default, Deserialize)]
+pub struct NoticesParams {
+    before: Option<i64>,
+}
+
+/// Shows the account's notices, then marks them read: the page shows which
+/// were new on this visit.
+pub async fn notices(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Query(p): Query<NoticesParams>,
+) -> Response {
+    let Some(s) = session else {
+        return redirect("/login");
+    };
+    const PAGE: u32 = 50;
+    let loaded = crate::notices::list(&state, s.account_id, p.before, Some(PAGE)).await;
+    let notices = match loaded {
+        Ok(n) => n,
+        Err(e) => return error_page(&chrome(&state, Some(&s), Nav::Notices, None), e),
+    };
+    if let Err(e) = crate::notices::mark_read(&state, s.account_id).await {
+        return error_page(&chrome(&state, Some(&s), Nav::Notices, None), e);
+    }
+    // The header counts what's unread after this visit: nothing.
+    let mut seen = s.clone();
+    seen.unread_notices = 0;
+    let older = (notices.len() == PAGE as usize)
+        .then(|| notices.last().map(|n| format!("/notices?before={}", n.id)))
+        .flatten();
+    html(
+        StatusCode::OK,
+        quill_board_ui::notices_page(
+            &chrome(&state, Some(&seen), Nav::Notices, None),
+            quill_board_ui::NoticesView { notices, older },
+        ),
+    )
 }

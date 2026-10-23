@@ -25,6 +25,12 @@ pub enum AccountCommand {
         #[arg(long)]
         maturity: Option<Maturity>,
     },
+    /// Show what administrators have done to your prompts and tags, and mark
+    /// it read.
+    Notices {
+        #[arg(long)]
+        before: Option<i64>,
+    },
 }
 
 #[derive(Args)]
@@ -155,6 +161,22 @@ pub enum AdminCommand {
     Log {
         #[arg(long)]
         before: Option<i64>,
+        #[arg(long)]
+        limit: Option<u32>,
+        /// Only this administrator's entries (login name).
+        #[arg(long)]
+        admin: Option<String>,
+        /// Only entries against this account (login name).
+        #[arg(long)]
+        account: Option<String>,
+    },
+    /// One admin-log entry with every account it was against and the
+    /// prompts it touched, a page at a time.
+    LogEntry {
+        id: i64,
+        /// Accounts after this login name.
+        #[arg(long)]
+        after: Option<String>,
         #[arg(long)]
         limit: Option<u32>,
     },
@@ -299,7 +321,35 @@ fn split_key(key: &str) -> Result<(&str, &str)> {
 
 pub async fn account(ctx: &Ctx, cmd: AccountCommand) -> Result<()> {
     let client = ctx.client()?;
+    if let AccountCommand::Notices { before } = cmd {
+        let notices = client.notices(before).await?;
+        client.mark_notices_read().await?;
+        return ctx.print(&notices, |list| {
+            if list.is_empty() {
+                println!("no notices");
+            }
+            for n in list {
+                let mark = if n.read { " " } else { "*" };
+                let f = &n.fields;
+                let mut what = vec![n.kind.to_string()];
+                what.extend(f.tag.clone());
+                what.extend(f.into.as_ref().map(|i| format!("into {i}")));
+                what.extend(
+                    f.from
+                        .as_ref()
+                        .zip(f.to.as_ref())
+                        .map(|(a, b)| format!("{a} -> {b}")),
+                );
+                what.extend(f.reason.map(|r| format!("reason: {r}")));
+                println!("{mark}{:>6}  {}  {}", n.id, n.at, what.join("  "));
+                for p in &n.prompts {
+                    println!("          {}  {:?} as @{}", p.id, p.title, p.handle);
+                }
+            }
+        });
+    }
     let settings = match cmd {
+        AccountCommand::Notices { .. } => unreachable!("handled above"),
         AccountCommand::Show => client.account().await?,
         AccountCommand::Set { maturity } => {
             client
@@ -312,6 +362,7 @@ pub async fn account(ctx: &Ctx, cmd: AccountCommand) -> Result<()> {
     ctx.print(&settings, |s| {
         println!("maturity cap: {}", s.maturity_max);
         println!("administrator: {}", s.is_admin);
+        println!("unread notices: {}", s.unread_notices);
     })
 }
 
@@ -525,8 +576,20 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                 );
             })
         }
-        AdminCommand::Log { before, limit } => {
-            let entries = client.admin_log(before, limit).await?;
+        AdminCommand::Log {
+            before,
+            limit,
+            admin,
+            account,
+        } => {
+            let entries = client
+                .admin_log_filtered(&quill_proto::board::AdminLogQuery {
+                    before,
+                    limit,
+                    admin,
+                    account,
+                })
+                .await?;
             ctx.print(&entries, |list| {
                 for e in list {
                     let what = match (&e.subject, &e.prompt_hash) {
@@ -543,7 +606,60 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                             )
                         }
                     };
-                    println!("{:>6}  {}  {:<16} {what}", e.id, e.at, e.action);
+                    let who = match (e.actor, &e.admin_login) {
+                        (quill_proto::board::LogActor::Admin, Some(login)) => login.clone(),
+                        (actor, _) => format!("({actor})"),
+                    };
+                    println!("{:>6}  {}  {:<12} {:<16} {what}", e.id, e.at, who, e.action);
+                    if !e.targets.is_empty() {
+                        let more = usize::try_from(e.target_count)
+                            .unwrap_or(usize::MAX)
+                            .saturating_sub(e.targets.len());
+                        let more = if more > 0 {
+                            format!(" and {more} more (quill admin log-entry {})", e.id)
+                        } else {
+                            String::new()
+                        };
+                        println!("{:>8}against: {}{more}", "", e.targets.join(", "));
+                    }
+                }
+            })
+        }
+        AdminCommand::LogEntry { id, after, limit } => {
+            let detail = client
+                .admin_log_entry(
+                    id,
+                    &quill_proto::board::AdminLogTargetQuery { after, limit },
+                )
+                .await?;
+            ctx.print(&detail, |d| {
+                let e = &d.entry;
+                let who = match (e.actor, &e.admin_login) {
+                    (quill_proto::board::LogActor::Admin, Some(login)) => login.clone(),
+                    (actor, _) => format!("({actor})"),
+                };
+                println!("entry {}  {}  {who}  {}", e.id, e.at, e.action);
+                if let Some(subject) = &e.subject {
+                    println!("subject: {subject}");
+                }
+                if let Some(detail) = &e.detail {
+                    println!("detail:  {detail}");
+                }
+                println!("accounts affected: {}", e.target_count);
+                for t in &d.targets {
+                    let gone = if t.account_deleted {
+                        "  (account deleted)"
+                    } else {
+                        ""
+                    };
+                    println!("  {}{gone}", t.login);
+                    for p in &t.prompts {
+                        let gone = if p.exists { "" } else { "  (since removed)" };
+                        println!("      {}  {} by @{}{gone}", p.id, p.title, p.handle);
+                    }
+                }
+                if let Some(next) = &d.next {
+                    println!("more: quill admin log-entry {} --after {next}", e.id);
                 }
             })
         }

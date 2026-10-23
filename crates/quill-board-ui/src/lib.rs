@@ -12,6 +12,7 @@
 mod admin;
 pub mod chips;
 mod layout;
+mod notices;
 mod pages;
 
 use std::rc::Rc;
@@ -20,14 +21,15 @@ use dioxus::prelude::*;
 use quill_proto::{
     api::Persona,
     board::{
-        AccountSettings, AdminLogEntry, AdminTag, ChipColor, Maturity, Prompt, PromptState, Report,
-        ReportReason, Tag, TagNamespace, TagPolicy,
+        AccountSettings, AdminLogDetail, AdminLogEntry, AdminTag, ChipColor, Maturity, Prompt,
+        PromptState, Report, ReportReason, Tag, TagNamespace, TagPolicy,
     },
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 pub use admin::*;
+pub use notices::notices_page;
 pub use pages::*;
 
 /// The board's stylesheet, served at [`STYLESHEET_PATH`].
@@ -45,6 +47,7 @@ pub enum Nav {
     Mine,
     Personas,
     Settings,
+    Notices,
     /// The report inbox and admin log.
     Admin,
     /// Server settings (administrators only).
@@ -62,6 +65,8 @@ pub struct Viewer {
     pub maturity_max: Maturity,
     /// Tag requests waiting for approval (administrators only, else 0).
     pub pending_tags: u64,
+    /// The account's unread notices.
+    pub unread_notices: u64,
 }
 
 /// What every page needs: site identity, the visitor and navigation.
@@ -245,6 +250,55 @@ pub struct AdminLogView {
     pub entries: Vec<AdminLogEntry>,
     /// Link to older entries.
     pub older: Option<String>,
+    /// Filter: entries by this administrator.
+    pub admin: Option<String>,
+    /// Filter: entries against this account.
+    pub account: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminLogEntryView {
+    pub detail: AdminLogDetail,
+    /// Showing a later page of accounts, so link back to the first.
+    pub paged: bool,
+}
+
+/// One admin-log entry in full, its accounts after `after`.
+pub fn admin_log_entry_url(id: i64, after: Option<&str>) -> String {
+    match after {
+        Some(a) => {
+            let q = url::form_urlencoded::Serializer::new(String::new())
+                .append_pair("after", a)
+                .finish();
+            format!("/admin/log/{id}?{q}")
+        }
+        None => format!("/admin/log/{id}"),
+    }
+}
+
+/// The admin log, filtered by administrator and/or affected account.
+pub fn admin_log_url(admin: Option<&str>, account: Option<&str>, before: Option<i64>) -> String {
+    let mut q = url::form_urlencoded::Serializer::new(String::new());
+    if let Some(a) = admin {
+        q.append_pair("admin", a);
+    }
+    if let Some(a) = account {
+        q.append_pair("account", a);
+    }
+    if let Some(b) = before {
+        q.append_pair("before", &b.to_string());
+    }
+    let q = q.finish();
+    if q.is_empty() {
+        "/admin/log".to_owned()
+    } else {
+        format!("/admin/log?{q}")
+    }
+}
+
+/// A date and time in UTC, such as "Oct 22, 2026 21:04 UTC".
+pub fn short_datetime(at: OffsetDateTime) -> String {
+    format!("{} {:02}:{:02} UTC", short_date(at), at.hour(), at.minute())
 }
 
 /// The "add a tag type" form's values, kept when it's sent back with an error.
@@ -305,6 +359,13 @@ pub struct AdminTagView {
 pub struct AdminTagDeleteView {
     pub tag: AdminTag,
     pub namespace: TagNamespace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoticesView {
+    pub notices: Vec<quill_proto::notices::AccountNotice>,
+    /// Link to older notices.
+    pub older: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

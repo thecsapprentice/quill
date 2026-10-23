@@ -15,7 +15,7 @@ const HANDLE_ADJECTIVES: &[&str] = &[
 ];
 
 const HANDLE_NOUNS: &[&str] = &[
-    "fox", "wren", "moth", "heron", "otter", "quill", "hare", "finch", "lark", "pike", "vole",
+    "fox", "wren", "moth", "heron", "otter", "crane", "hare", "finch", "lark", "pike", "vole",
     "badger", "owl", "newt",
 ];
 
@@ -167,7 +167,8 @@ fn cap(s: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Distinct persona handles and display names, as many as asked for.
+/// Distinct persona handles and display names, as many as asked for. None
+/// is reserved by default (see the test below), so seeding never fails on one.
 pub fn handles(rng: &mut Rng, n: usize) -> Vec<(String, String)> {
     let mut all: Vec<(String, String)> = HANDLE_ADJECTIVES
         .iter()
@@ -326,4 +327,26 @@ pub fn tags(rng: &mut Rng, maturity: Maturity, user_tags: bool) -> Vec<String> {
         );
     }
     tags
+}
+
+#[cfg(test)]
+mod tests {
+    use quill_proto::handles::{DEFAULT_EXACT, DEFAULT_WORDS, ReservedKind, is_reserved};
+
+    use super::*;
+
+    #[test]
+    fn no_generated_handle_is_reserved_by_default() {
+        let entries: Vec<(ReservedKind, &str)> = DEFAULT_WORDS
+            .iter()
+            .map(|w| (ReservedKind::Word, *w))
+            .chain(DEFAULT_EXACT.iter().map(|e| (ReservedKind::Exact, *e)))
+            .collect();
+        let every = HANDLE_ADJECTIVES.len() * HANDLE_NOUNS.len();
+        let all = handles(&mut Rng::new(1), every);
+        assert_eq!(all.len(), every);
+        for (handle, _) in all {
+            assert!(!is_reserved(&handle, &entries), "{handle} is reserved");
+        }
+    }
 }

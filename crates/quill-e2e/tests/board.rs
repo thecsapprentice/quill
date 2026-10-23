@@ -1249,3 +1249,84 @@ async fn reserved_handles_through_server_settings() {
     assert!(log.body.contains("Handle no longer reserved"));
     server.stop().await.unwrap();
 }
+
+#[tokio::test]
+async fn notices_through_the_board() {
+    let server = server!();
+    let mut writer = Browser::new(&server);
+    let csrf = writer.register("alice", "ink_fox").await;
+    let path = writer.post_prompt(&csrf, "Lamps", "general").await;
+    assert!(writer.get("/").await.body.contains(r#"href="/notices""#));
+    assert!(!writer.get("/").await.body.contains("Unread notices"));
+
+    let mut admin = Browser::new(&server);
+    let admin_csrf = admin_browser(&server, &mut admin, "boss").await;
+    let deleted = admin
+        .post(
+            "/admin/settings/tags/genre/horror/delete",
+            &[("csrf", &admin_csrf), ("confirm", "yes")],
+        )
+        .await;
+    assert_eq!(deleted.status, StatusCode::SEE_OTHER);
+
+    let home = writer.get("/").await;
+    assert!(home.body.contains(r#"title="Unread notices">1</span>"#));
+    let page = writer.get("/notices").await;
+    assert!(
+        page.body
+            .contains("An administrator deleted the tag genre: Horror.")
+    );
+    assert!(page.body.contains(&format!(r#"href="{path}">Lamps</a>"#)));
+    assert!(page.body.contains(">New<"));
+    // Viewing marks them read.
+    assert!(!page.body.contains("Unread notices"));
+    let again = writer.get("/notices").await;
+    assert!(!again.body.contains(">New<"));
+    assert_eq!(
+        Browser::new(&server).get("/notices").await.location(),
+        "/login"
+    );
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn admin_log_page_shows_who_and_whom() {
+    let server = server!();
+    let mut writer = Browser::new(&server);
+    let csrf = writer.register("alice", "ink_fox").await;
+    writer.post_prompt(&csrf, "Lamps", "general").await;
+    let mut admin = Browser::new(&server);
+    let admin_csrf = admin_browser(&server, &mut admin, "boss").await;
+    admin
+        .post(
+            "/admin/settings/tags/genre/horror/delete",
+            &[("csrf", &admin_csrf), ("confirm", "yes")],
+        )
+        .await;
+
+    let log = admin.get("/admin/log").await;
+    assert!(log.body.contains(r#"href="/admin/log?admin=boss""#));
+    assert!(log.body.contains(r#"href="/admin/log?account=alice""#));
+    assert!(log.body.contains(" UTC</a>"));
+    // Each entry has a page listing every account and the prompts touched.
+    let start = log.body.find(r#"href="/admin/log/"#).unwrap() + r#"href=""#.len();
+    let href = &log.body[start..start + log.body[start..].find('"').unwrap()];
+    let entry = admin.get(href).await;
+    assert_eq!(entry.status, StatusCode::OK);
+    assert!(entry.body.contains("<h1>Tag deleted</h1>"));
+    assert!(entry.body.contains("1 account, alphabetically."));
+    assert!(entry.body.contains(">Lamps</a>"));
+    assert!(entry.body.contains(" by @ink_fox"));
+    assert_eq!(writer.get(href).await.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        admin.get("/admin/log/999999").await.status,
+        StatusCode::NOT_FOUND
+    );
+    let mine = admin.get("/admin/log?admin=nobody").await;
+    assert!(mine.body.contains("No entries match."));
+    assert!(mine.body.contains("Show everything"));
+    // Writers never see the log, and their notices name no administrator.
+    assert_eq!(writer.get("/admin/log").await.status, StatusCode::FORBIDDEN);
+    assert!(!writer.get("/notices").await.body.contains("boss"));
+    server.stop().await.unwrap();
+}

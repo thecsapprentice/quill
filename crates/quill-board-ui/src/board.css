@@ -124,9 +124,13 @@ a {
   text-decoration: underline;
 }
 
-.site-nav form {
-  display: inline;
-  margin: 0;
+.site-header .sign-out {
+  margin: 0 0 0 auto;
+  font-size: 0.925rem;
+}
+
+.site-header.member .site-nav {
+  flex-basis: 100%;
 }
 
 .link-button {
@@ -465,6 +469,16 @@ input[type="color"] {
   border: 1px solid var(--line);
   border-radius: 3px;
   background: var(--card);
+}
+
+.new-notice {
+  color: var(--rule);
+  font-weight: 600;
+}
+
+.notice-prompts {
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 1.25rem;
 }
 
 .contrast-warning {
@@ -819,8 +833,47 @@ textarea.short {
   vertical-align: top;
 }
 
+.log .nowrap {
+  white-space: nowrap;
+}
+
 .log code {
   font-size: 0.8rem;
+}
+
+.log .more {
+  white-space: nowrap;
+}
+
+/* The prompts a logged decision touched, one per line. */
+.touched {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.touched li + li {
+  margin-top: 0.2rem;
+}
+
+.touched .muted {
+  color: var(--muted);
+}
+
+/* One admin-log entry's facts, label beside value. */
+.entry-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0 0 1.5rem;
+}
+
+.entry-facts dt {
+  color: var(--muted);
+}
+
+.entry-facts dd {
+  margin: 0;
 }
 
 .table-scroll {

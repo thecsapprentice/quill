@@ -1,8 +1,9 @@
 use quill_proto::{
     api::Persona,
     board::{
-        AccountSettings, AdminAction, AdminLogEntry, AdminTag, Maturity, Prompt, PromptAuthor,
-        PromptState, Report, ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy, TagStatus,
+        AccountSettings, AdminAction, AdminLogDetail, AdminLogEntry, AdminLogPrompt,
+        AdminLogTarget, AdminTag, LogActor, Maturity, Prompt, PromptAuthor, PromptState, Report,
+        ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy, TagStatus,
     },
 };
 use time::macros::datetime;
@@ -18,6 +19,7 @@ fn chrome(signed_in: bool, admin: bool) -> Chrome {
             is_admin: admin,
             maturity_max: Maturity::Teen,
             pending_tags: if admin { 3 } else { 0 },
+            unread_notices: 2,
         }),
         source_url: "https://github.com/thecsapprentice/quill".into(),
         version: "0.1.0".into(),
@@ -307,6 +309,7 @@ fn other_pages_render() {
             settings: AccountSettings {
                 maturity_max: Maturity::Mature,
                 is_admin: true,
+                unread_notices: 0,
             },
         },
     );
@@ -480,6 +483,19 @@ fn admin_log_shows_tag_and_report_entries() {
         subject: subject.map(str::to_owned),
         detail: detail.map(str::to_owned),
         admin: None,
+        actor: if subject.is_some() {
+            LogActor::Admin
+        } else {
+            LogActor::Reporter
+        },
+        admin_login: subject.is_some().then(|| "boss & co".to_owned()),
+        // The server sends a preview of five and the full count.
+        targets: if subject.is_some() {
+            (1..=5).map(|i| format!("writer{i}")).collect()
+        } else {
+            vec!["alice".into()]
+        },
+        target_count: if subject.is_some() { 1207 } else { 1 },
     };
     let html = admin_log_page(
         &chrome(true, true),
@@ -493,15 +509,95 @@ fn admin_log_shows_tag_and_report_entries() {
                 ),
                 entry(1, AdminAction::ReportReceived, None, None),
             ],
-            older: None,
+            older: Some(admin_log_url(Some("boss & co"), None, Some(1))),
+            admin: Some("boss & co".into()),
+            account: None,
         },
     );
+    // Who acted, as a filter link; reports don't name their writer.
+    assert!(html.contains(r#"href="/admin/log?admin=boss+%26+co""#));
+    assert!(html.contains(">boss &#38; co</a>"));
+    assert!(html.contains("<em>A report</em>"));
+    // Which accounts, five at most, then a count.
+    assert!(html.contains(r#"href="/admin/log?account=writer1""#));
+    assert!(!html.contains("account=writer6"));
+    assert!(html.contains(r#"<a class="more" href="/admin/log/2">and 1202 more</a>"#));
+    assert!(!html.contains("/admin/log/1\">and"));
+    // Every entry links to its full page.
+    assert!(html.contains(r#"href="/admin/log/1""#));
+    assert!(html.contains("Oct 22, 2026 12:00 UTC"));
+    // Filters are kept when paging.
+    assert!(html.contains(r#"href="/admin/log?admin=boss+%26+co&#38;before=1""#));
+    assert!(html.contains("Show everything"));
     assert!(html.contains("Tag deleted"));
     assert!(html.contains("<code>genre:horror</code>"));
     assert!(html.contains("removed from 3 prompt(s)"));
     assert!(html.contains("Report received"));
     assert!(html.contains("<code>00ff00ff00ff</code>"));
     assert!(html.contains("View prompt"));
+}
+
+#[test]
+fn admin_log_entry_lists_accounts_and_their_prompts() {
+    let entry = AdminLogEntry {
+        id: 9,
+        at: datetime!(2026-10-22 12:00 UTC),
+        action: AdminAction::DeleteTag,
+        report_id: None,
+        prompt_id: None,
+        prompt_hash: None,
+        reason: None,
+        subject: Some("genre:horror".into()),
+        detail: Some("removed from 3 prompt(s)".into()),
+        admin: None,
+        actor: LogActor::Admin,
+        admin_login: Some("boss".into()),
+        targets: vec!["alice".into(), "zed".into()],
+        target_count: 250,
+    };
+    let prompt = |n: u128, title: &str, exists| AdminLogPrompt {
+        id: Uuid::from_u128(n),
+        title: title.into(),
+        handle: "ink_fox".into(),
+        exists,
+    };
+    let html = admin_log_entry_page(
+        &chrome(true, true),
+        AdminLogEntryView {
+            detail: AdminLogDetail {
+                entry,
+                targets: vec![
+                    AdminLogTarget {
+                        login: "alice".into(),
+                        account_deleted: false,
+                        prompts: vec![prompt(1, "Lamps", true), prompt(2, "Tides <b>", false)],
+                    },
+                    AdminLogTarget {
+                        login: "zed".into(),
+                        account_deleted: true,
+                        prompts: vec![],
+                    },
+                ],
+                next: Some("zed".into()),
+            },
+            paged: true,
+        },
+    );
+    assert!(html.contains("<h1>Tag deleted</h1>"));
+    assert!(html.contains("250 accounts, alphabetically."));
+    assert!(html.contains(r#"href="/admin/log?admin=boss""#));
+    assert!(html.contains(r#"href="/admin/log?account=alice""#));
+    assert!(html.contains(&format!(
+        r#"href="/p/{}?show=1">Lamps</a>"#,
+        Uuid::from_u128(1)
+    )));
+    // A removed prompt keeps its title, unlinked and escaped.
+    assert!(html.contains("Tides &#60;b&#62; "));
+    assert!(html.contains(" by @ink_fox"));
+    assert!(!html.contains(&format!("/p/{}", Uuid::from_u128(2))));
+    assert!(html.contains("Account deleted"));
+    assert!(html.contains(r#"href="/admin/log/9?after=zed">Next accounts"#));
+    assert!(html.contains(r#"href="/admin/log/9">First accounts"#));
 }
 
 #[test]
@@ -585,4 +681,57 @@ fn tag_requests_and_status_controls() {
     );
     assert!(reject.contains("Reject &#60;Horror&#62;?"));
     assert!(reject.contains(">Reject tag<"));
+}
+
+#[test]
+fn notices_page_explains_actions() {
+    use quill_proto::notices::{AccountNotice, NoticeFields, NoticeKind, NoticePrompt};
+    let prompt = NoticePrompt {
+        id: Uuid::nil(),
+        title: "The <ledger>".into(),
+        handle: "ink_fox".into(),
+    };
+    let notice = |id, kind, fields, read| AccountNotice {
+        id,
+        at: datetime!(2026-10-22 12:00 UTC),
+        kind,
+        fields,
+        prompts: vec![prompt.clone()],
+        read,
+    };
+    let html = notices_page(
+        &chrome(true, false),
+        NoticesView {
+            notices: vec![
+                notice(
+                    3,
+                    NoticeKind::PromptRemoved,
+                    NoticeFields {
+                        reason: Some(ReportReason::Spam),
+                        ..NoticeFields::default()
+                    },
+                    false,
+                ),
+                notice(
+                    2,
+                    NoticeKind::TagMerged,
+                    NoticeFields {
+                        tag: Some("theme:selchies".into()),
+                        tag_name: Some("Selchies".into()),
+                        into: Some("theme:selkies".into()),
+                        ..NoticeFields::default()
+                    },
+                    true,
+                ),
+            ],
+            older: None,
+        },
+    );
+    assert!(html.contains("removed your prompt from the board after a report (Spam)."));
+    assert!(html.contains("merged the tag theme: Selchies into theme:selkies."));
+    assert!(html.contains("The &#60;ledger&#62;"));
+    assert!(html.contains(" as @ink_fox"));
+    assert_eq!(html.matches(">New<").count(), 1);
+    // The header counts unread notices.
+    assert!(html.contains(r#"title="Unread notices">2</span>"#));
 }
