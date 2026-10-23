@@ -244,9 +244,10 @@ before device linking, which needs it.
 | 2f | Sessions after acceptance: the session list, Welcomes for members' other and later devices, writing to the log, Leave | done (#14) |
 | 2g | Messages: ordering (HLC), history that is never lost, live delivery over SSE | done (#15) |
 | 2h | Channels within a session | done (#16) |
-| 2i | Attachments and size limits or quotas | next |
-| 2j | Backup and recovery; safety numbers | planned |
-| 2k | Phase gate: the plaintext-canary test and the database-dump audit | planned |
+| 2i | Attachments and size limits or quotas | done (#17) |
+| 2j | Safety numbers; backup and recovery; rejoining sessions after a restore | next |
+| 2k | History sync for devices added later; deleting messages by age | planned |
+| 2l | Phase gate: the plaintext-canary test and the database-dump audit | planned |
 
 ### 2a: Encrypted local store
 
@@ -751,9 +752,78 @@ sizes; a blob can't be fetched without its token or by a login outside the
 session; quotas and limits refuse what's over them; and a blob is deleted
 with the message that carries it.
 
+### 2j: Safety numbers, backup and recovery
+
+Two protections the plan puts in Phase 2: a way for writers to check that
+nobody else is in their session, and a way back when every device is lost.
+Decided 2026-10-23: history sync for devices added later (and with it,
+deleting messages by age) is split out to 2k; backups use the `age` file
+format through the `age` crate, behind a small interface so our own
+implementation of the format could replace the crate later without the
+rest of the code changing.
+
+- **Safety numbers** (`quill session verify ID`), plan: defending against
+  key substitution.
+  - The **identity number**: 12 words from both personas' identity keys
+    (each with its actor URI, in a fixed order). It changes only if either
+    writer's identity key changes, so adding devices doesn't disturb it.
+    Comparing it with the other writer out of band proves the server hasn't
+    swapped either persona's key.
+  - The **session check**: 6 words from the group's current epoch
+    authenticator, with the epoch number. Two devices at the same epoch
+    show the same words only if they're in the same group, so no hidden
+    member and no man in the middle.
+  - `--confirm` marks the other writer verified on this device, tied to
+    their identity key: if the key changes, the mark goes and the TOFU
+    warning shows. `quill sessions` shows who's verified.
+- **Backup** (`quill backup create`, plan: recovery when no device is
+  left). The client makes a recovery code (128 random bits, shown once as
+  12 BIP-39 words with a checksum) and uploads an encrypted backup:
+  - **Contents:** every persona's identity key, the trust pins and
+    verification marks, and each session's history as this device keeps it
+    (notes with every version, channels, and attachments). Never MLS
+    state: a restored device joins as a new device.
+  - **Format:** an `age` file with the scrypt passphrase recipient, the
+    recovery words as the passphrase, so a backup can be opened with the
+    standard `age` tools even without Quill. Inside, JSON (the draft said
+    CBOR; JSON is what everything else uses).
+  - **Storage:** `PUT /backup/{part}` in parts of up to 8 MiB, replacing
+    the previous backup as a whole; `GET /backup`, `DELETE /backup`. Up to
+    256 MiB per login, counted apart from the attachment quota. The device
+    keeps the code in its encrypted store, so `quill backup create` again
+    refreshes the backup without a new code (`--new-code` makes one).
+- **Restore** (`quill backup restore`, on a new device signed in to the
+  login): enter the 12 words; the device takes the identity keys, pins and
+  history, makes its own device key for each persona and publishes it. It
+  assumes every other device is gone: it revokes the personas' other
+  devices (after asking), and starts a new personal device group in place
+  of the old one.
+- **Rejoining sessions.** A restored device usually has none of its own
+  devices left in its sessions to add it, so it asks the other writer's
+  client: a **rejoin request** (protocol draft, section 6), signed with the
+  persona's identity key, carrying its KeyPackage and certificate and
+  listing the persona's lost devices to remove. The server keeps it with the
+  session until it's used. The other writer's client checks the signature
+  against the pinned identity key and the device against the directory,
+  then commits the add and the removals with the signed request in the
+  commit's authenticated data, so every member can check it; this is the
+  one case where a writer adds a device that isn't their own. It leaves the
+  Welcome for the restored device, which reads on from there; what came
+  before is in the backup.
+
+Not in 2j: incremental backups (each backup replaces the last whole), and
+history for devices added later (2k).
+
+Done when: both writers' devices show the same safety numbers, and a
+server-swapped identity key changes them; a backup restored on a new device
+with only the 12 words brings back the personas and history, a wrong or
+mistyped code is caught, and the backup opens with the `age` tool; and the
+restored device rejoins its sessions through the other writer, who refuses
+a rejoin request that isn't signed by the persona's identity key.
+
 ### Later sub-phases
 
-2j and 2k follow the [plan](plan.md#writing-session-cryptography) and the
+2k and 2l follow the [plan](plan.md#writing-session-cryptography) and the
 [protocol draft](protocol-draft.md), with keys per persona throughout: one
 KeyPackage pool per persona and device, and one personal device group per
 account carrying every persona's identity key. Each gets a detailed section
@@ -847,6 +917,11 @@ done.
   the group, the Welcome and the pitch, and acceptance registers the group
   on the message log. 2f covers sessions from there: the session list,
   Welcomes for members' other and later devices, writing, and Leave.
+- **2j, backups and scope (decided 2026-10-23):** backups use the `age`
+  format through the `age` crate (about 100 more client crates), behind an
+  interface so our own implementation of the format can replace the crate
+  without other changes. History sync for later devices moves to 2k; the
+  phase gate becomes 2l.
 - **2i, attachments (decided 2026-10-23):** any file type, size caps only;
   no type checks, which renaming defeats. Image cleaning (metadata
   stripping, re-encoding) and rendering wait for the GUI. Administrators
