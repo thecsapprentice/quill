@@ -13,7 +13,7 @@ Status: **done** (merged or in review), **next**, **planned**.
 Workspace, CI with cargo-deny, audit and vet, Postgres schema, accounts and
 personas, CLI skeleton, the server dependency ban.
 
-## Phase 1: Prompt board
+## Phase 1: Prompt board (done)
 
 | Sub-phase | Scope | Status |
 | --- | --- | --- |
@@ -23,7 +23,7 @@ personas, CLI skeleton, the server dependency ban.
 | 1d | Admin settings: tag management and required tag types | done |
 | 1e | Tag moderation: new-tag switch, hidden tags, tag requests | done |
 | 1f | Tag picker and tag colours | done |
-| 1g | Persona handle rules | next |
+| 1g | Persona handle rules | done |
 
 ### 1c: Docker setup and demo data
 
@@ -140,16 +140,43 @@ back correctly from tag to type to none.
 
 ### 1g: Persona handle rules
 
-- Handles are already unique across the server, case-insensitive and ASCII
-  only (enforced by the database and tested).
-- Add a reserved list (`admin`, `administrator`, `moderator`, `support`,
-  `staff`, `system`, `root`, `quill`, the server's own name, and similar)
-  that only `quill-server` admin commands can grant.
-- Retire deleted handles permanently, so nobody can take over a deleted
-  persona's name. Once federation exists, other servers will have cached
-  that name.
+- Handles are unique across the server, case-insensitive and ASCII only
+  (enforced by the database and tested since Phase 0). They can't be
+  renamed.
+- **Reserved handles.** Writers can't create personas with them ("reserved
+  for this server's staff"). The list is the administrators' (decided
+  2026-10-22, not hard-coded):
+  - It starts as Quill's defaults, seeded once: staff words (`admin`,
+    `moderator`, `support`, `quill`, …) and exact names that could pass for
+    the system or a page (`everyone`, `api`, `inbox`, …). Administrators may
+    remove any of them.
+  - Administrators add and remove entries in **Server settings → Handles**
+    (one per line, with a tester showing which entry reserves a handle) or
+    the API and CLI.
+  - `QUILL_RESERVED_HANDLES_FILE` names a file synced at every start, for
+    large or automated lists: one per line, a word unless it starts with
+    `=`, `#` comments. Its entries can only change in the file; a bad line
+    stops startup with line numbers. Syncs are logged as the server's.
+  - A **word** reserves the handle that is the word, has it as a
+    `_`-separated part (`site_admin`) or spells it with underscores removed
+    (`ad_min`); `badminton` is fine. An **exact** entry reserves only
+    itself. Digits are read as letters (`adm1n`). The server's own name is
+    always reserved as a word.
+  - Checks look candidates up in an indexed table, so long lists stay fast.
+    Existing personas aren't affected.
+  Only `quill-server grant-handle <login> <handle>` can create a persona
+  with a reserved handle.
+- **Retired handles.** Deleting a persona retires its handle for good, for
+  everyone including its old owner and administrators, because other servers
+  will have cached the name once federation exists. A database trigger
+  records it, so every way a persona can be deleted is covered. Only the
+  handle is kept, not who had it.
+- A taken or retired handle gets the same reply, "That handle isn't
+  available", so the reply doesn't reveal which.
 
-Done when: tests cover reserved names, retired handles and case variants.
+Done when: tests cover reserved names (including case and digit variants and
+the server's name), retired handles (same and other accounts, case variants,
+cascading deletes) and granting.
 
 ## Phase 2: Encrypted sessions on one server
 

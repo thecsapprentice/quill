@@ -24,6 +24,10 @@ pub struct Config {
     /// Where users can download this server's source code. The AGPL requires
     /// offering it to everyone who uses the server over a network.
     pub source_url: String,
+    /// A file of reserved handles synced at startup
+    /// (`QUILL_RESERVED_HANDLES_FILE`): one per line, a word unless it starts
+    /// with `=` (exact handle), `#` comments.
+    pub reserved_handles_file: Option<std::path::PathBuf>,
     pub limits: Limits,
 }
 
@@ -42,6 +46,9 @@ impl Config {
             token_ttl_days: parse_or("QUILL_TOKEN_TTL_DAYS", 30)?,
             tag_policy: tag_policy_from_env()?,
             source_url: var_or("QUILL_SOURCE_URL", DEFAULT_SOURCE_URL),
+            reserved_handles_file: std::env::var_os("QUILL_RESERVED_HANDLES_FILE")
+                .filter(|v| !v.is_empty())
+                .map(Into::into),
             limits: Limits::default(),
         })
     }
@@ -57,6 +64,7 @@ impl Config {
             token_ttl_days: 30,
             tag_policy: TagPolicy::Open,
             source_url: DEFAULT_SOURCE_URL.into(),
+            reserved_handles_file: None,
             limits: Limits::default(),
         }
     }

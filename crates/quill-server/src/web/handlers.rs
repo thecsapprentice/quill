@@ -706,10 +706,8 @@ pub async fn persona_create(
     };
     match routes::add_persona(&state, s.account_id, &body).await {
         Ok(_) => redirect("/personas?notice=persona-created"),
-        Err(ApiError::Conflict(_)) => {
-            let e = "That handle is taken. Try another.".to_owned();
-            render_personas(&state, &s, None, &form, Some(e)).await
-        }
+        // The server's messages say whether a handle is reserved or simply
+        // unavailable (taken and retired look the same on purpose).
         Err(e) => match form_error(&e) {
             Some(m) => render_personas(&state, &s, None, &form, Some(m)).await,
             None => error_page(&chrome(&state, Some(&s), Nav::Personas, None), e),

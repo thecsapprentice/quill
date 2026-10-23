@@ -4,11 +4,12 @@ use dioxus::prelude::*;
 use quill_proto::{
     board::{AdminTag, ChipColor, Tag, TagNamespace, TagOrigin, TagPolicy, TagStatus},
     color::MIN_READABLE_CONTRAST,
+    handles::{ReservedKind, ReservedSource},
 };
 
 use crate::{
-    AdminTagDeleteView, AdminTagRequestsView, AdminTagTypesView, AdminTagView, AdminTagsView,
-    Chrome, admin_tag_url, chips,
+    AdminHandlesView, AdminTagDeleteView, AdminTagRequestsView, AdminTagTypesView, AdminTagView,
+    AdminTagsView, Chrome, admin_tag_url, chips,
     layout::{csrf, error_notice, tag_datalist},
     render, tag_url,
 };
@@ -20,6 +21,7 @@ enum Tab {
     TagTypes,
     Tags,
     Requests,
+    Handles,
 }
 
 fn tabs(chrome: &Chrome, current: Tab) -> Element {
@@ -36,6 +38,7 @@ fn tabs(chrome: &Chrome, current: Tab) -> Element {
                     span { class: "count", "{pending}" }
                 }
             }
+            a { href: "/admin/settings/handles", "aria-current": mark(Tab::Handles), "Handles" }
         }
     }
 }
@@ -601,4 +604,156 @@ fn color_fields(
             }
         }
     }
+}
+
+// ---- Reserved handles ------------------------------------------------------
+
+fn kind_label(k: ReservedKind) -> &'static str {
+    match k {
+        ReservedKind::Word => "Word",
+        ReservedKind::Exact => "Exact handle",
+    }
+}
+
+fn source_label(s: ReservedSource) -> &'static str {
+    match s {
+        ReservedSource::Default => "Default",
+        ReservedSource::Admin => "Added here",
+        ReservedSource::File => "From file",
+        ReservedSource::ServerName => "Server name",
+    }
+}
+
+pub fn admin_handles_page(chrome: &Chrome, view: AdminHandlesView) -> String {
+    let chrome_for_body = chrome.clone();
+    render("Reserved handles", chrome, move || {
+        let v = &view;
+        let shown = v.list.entries.len();
+        rsx! {
+            h1 { "Server settings" }
+            {tabs(&chrome_for_body, Tab::Handles)}
+            p { class: "lede",
+                "Writers can't create personas with these handles. A word also reserves handles that contain it as a part, like site_admin, or spell it with underscores, like ad_min. An exact handle reserves only itself. Digits count as the letters they resemble, so adm1n matches admin. Existing personas aren't affected."
+            }
+            if let Some(name) = &v.list.server_name {
+                p { class: "hint", "Your server's own name, {name}, is always reserved as a word." }
+            }
+            if v.list.file_loaded {
+                p { class: "hint", "Entries marked “From file” come from the reserved-handles file loaded when the server started. Change them in the file and restart." }
+            }
+            {error_notice(v.error.as_ref())}
+            form { class: "form-card", method: "get", action: "/admin/settings/handles",
+                h2 { class: "form-title", "Check a handle" }
+                div { class: "add-row",
+                    input { r#type: "text", name: "test", value: "{v.test_input}", "aria-label": "Handle to check" }
+                    button { class: "btn btn-quiet", r#type: "submit", "Check" }
+                }
+                match &v.test {
+                    Some(Ok(c)) => match &c.reserved_by {
+                        Some(r) => rsx! {
+                            p { class: "notice", role: "status",
+                                "@{c.handle} is reserved by the {kind_label(r.kind).to_lowercase()} “{r.pattern}” ({source_label(r.source).to_lowercase()})."
+                            }
+                        },
+                        None => rsx! {
+                            p { class: "notice", role: "status", "@{c.handle} isn't reserved. (It may still be taken or retired.)" }
+                        },
+                    },
+                    Some(Err(e)) => rsx! { p { class: "notice error", role: "alert", "{e}" } },
+                    None => rsx! {},
+                }
+            }
+            form { class: "form-card", method: "post", action: "/admin/settings/handles",
+                {csrf(&chrome_for_body)}
+                h2 { class: "form-title", "Reserve handles" }
+                div { class: "field",
+                    label { r#for: "reserve", "One per line"
+                        span { class: "hint", "Letters, digits and underscores. For a long list kept elsewhere, use a reserved-handles file instead." }
+                    }
+                    textarea { id: "reserve", class: "short", name: "patterns", "{v.add_text}" }
+                }
+                fieldset { class: "choices",
+                    legend { class: "label", "Reserve as" }
+                    for k in ReservedKind::ALL.iter() {
+                        label { key: "{k}", class: "inline-check",
+                            input { r#type: "radio", name: "kind", value: "{k}", checked: v.add_kind == *k }
+                            match k {
+                                ReservedKind::Word => "Words: also inside handles",
+                                ReservedKind::Exact => "Exact handles only",
+                            }
+                        }
+                    }
+                }
+                div { class: "actions",
+                    button { class: "btn", r#type: "submit", "Reserve" }
+                }
+            }
+            form { class: "form-card", method: "get", action: "/admin/settings/handles", role: "search",
+                h2 { class: "form-title", "Find reserved handles" }
+                div { class: "filter-grid",
+                    div { class: "field",
+                        label { r#for: "h-search", "Contains" }
+                        input { r#type: "search", id: "h-search", name: "search", value: "{v.search}" }
+                    }
+                    div { class: "field",
+                        label { r#for: "h-kind", "Kind" }
+                        select { id: "h-kind", name: "kind",
+                            option { value: "", "Any" }
+                            for k in ReservedKind::ALL.iter() {
+                                option { key: "{k}", value: "{k}", selected: v.kind == Some(*k), "{kind_label(*k)}" }
+                            }
+                        }
+                    }
+                    div { class: "field",
+                        label { r#for: "h-source", "Source" }
+                        select { id: "h-source", name: "source",
+                            option { value: "", "Any" }
+                            for s in [ReservedSource::Default, ReservedSource::Admin, ReservedSource::File] {
+                                option { key: "{s}", value: "{s}", selected: v.source == Some(s), "{source_label(s)}" }
+                            }
+                        }
+                    }
+                }
+                div { class: "actions",
+                    button { class: "btn btn-quiet", r#type: "submit", "Show" }
+                }
+            }
+            if v.list.entries.is_empty() {
+                div { class: "empty", "No reserved handles match." }
+            } else {
+                div { class: "table-scroll",
+                    table { class: "log",
+                        thead {
+                            tr { th { "Handle" } th { "Kind" } th { "Source" } th { span { class: "visually-hidden", "Actions" } } }
+                        }
+                        tbody {
+                            for e in v.list.entries.iter() {
+                                tr { key: "{e.kind}-{e.pattern}",
+                                    td { code { "{e.pattern}" } }
+                                    td { "{kind_label(e.kind)}" }
+                                    td { "{source_label(e.source)}" }
+                                    td {
+                                        if e.source != ReservedSource::File {
+                                            form { method: "post", action: "/admin/settings/handles/{e.kind}/{e.pattern}/remove",
+                                                {csrf(&chrome_for_body)}
+                                                button { class: "link-button", r#type: "submit",
+                                                    "aria-label": "Stop reserving {e.pattern}", "Remove" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if v.list.total > shown as u64 {
+                    p { class: "hint", "Showing {shown} of {v.list.total}. Search to narrow the list." }
+                } else if v.search.is_empty() && v.kind.is_none() && v.source.is_none() {
+                    p { class: "hint", "{v.list.total} reserved in all." }
+                } else {
+                    p { class: "hint", "{v.list.total} match." }
+                }
+            }
+        }
+    })
 }

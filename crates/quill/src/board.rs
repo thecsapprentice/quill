@@ -212,6 +212,27 @@ pub enum AdminCommand {
         #[arg(long)]
         status: Option<TagStatus>,
     },
+    /// List reserved handles.
+    Reserved {
+        /// Text the entry contains.
+        #[arg(long)]
+        search: Option<String>,
+    },
+    /// Reserve handles: words (also inside handles) unless --exact.
+    Reserve {
+        #[arg(required = true)]
+        patterns: Vec<String>,
+        #[arg(long)]
+        exact: bool,
+    },
+    /// Stop reserving a handle.
+    Unreserve {
+        pattern: String,
+        #[arg(long)]
+        exact: bool,
+    },
+    /// Show whether a handle is reserved, and by which entry.
+    CheckHandle { handle: String },
     /// Approve a tag request (namespace:slug).
     ApproveTag { tag: String },
     /// Hide a tag: it stays on prompts, but only administrators see it.
@@ -606,6 +627,48 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                 println!("new tags from writers: {}", s.new_tags)
             })
         }
+        AdminCommand::Reserved { search } => {
+            let list = client
+                .admin_reserved(&quill_proto::handles::ReservedQuery {
+                    search,
+                    ..Default::default()
+                })
+                .await?;
+            ctx.print(&list, |l| {
+                if let Some(name) = &l.server_name {
+                    println!("(always reserved: the server's name, {name})");
+                }
+                for e in &l.entries {
+                    println!("{:<32} {:<6} {}", e.pattern, e.kind, e.source);
+                }
+                println!("{} of {} shown", l.entries.len(), l.total);
+            })
+        }
+        AdminCommand::Reserve { patterns, exact } => {
+            let added = client
+                .admin_reserve(&quill_proto::handles::AddReserved {
+                    kind: reserved_kind(exact),
+                    patterns,
+                })
+                .await?;
+            ctx.print(&added, |a| println!("{} newly reserved", a.added))
+        }
+        AdminCommand::Unreserve { pattern, exact } => {
+            client
+                .admin_unreserve(reserved_kind(exact), &pattern)
+                .await?;
+            ctx.done(&format!("{pattern} is no longer reserved"))
+        }
+        AdminCommand::CheckHandle { handle } => {
+            let check = client.admin_check_handle(&handle).await?;
+            ctx.print(&check, |c| match &c.reserved_by {
+                Some(r) => println!(
+                    "@{} is reserved by {} {:?} ({})",
+                    c.handle, r.kind, r.pattern, r.source
+                ),
+                None => println!("@{} isn't reserved", c.handle),
+            })
+        }
         AdminCommand::ApproveTag { tag } => {
             set_status(ctx, &tag, TagStatus::Visible, "approved").await
         }
@@ -731,5 +794,13 @@ impl ColorArgs {
                 background,
                 text: self.text.clone(),
             })
+    }
+}
+
+fn reserved_kind(exact: bool) -> quill_proto::handles::ReservedKind {
+    if exact {
+        quill_proto::handles::ReservedKind::Exact
+    } else {
+        quill_proto::handles::ReservedKind::Word
     }
 }

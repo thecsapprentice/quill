@@ -391,7 +391,7 @@ async fn hidden_tags_are_for_administrators_only() {
         (),
         admin
             .create_persona(&CreatePersona {
-                handle: "mod_desk".into(),
+                handle: "night_desk".into(),
                 display_name: None,
                 summary: None,
             })

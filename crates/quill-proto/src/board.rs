@@ -1,8 +1,6 @@
 //! Types for the prompt board: prompts, tags, account settings, reports and
 //! the admin inbox.
 
-use std::{fmt, str::FromStr};
-
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -12,7 +10,7 @@ macro_rules! string_enum {
         $($(#[$vmeta:meta])* $variant:ident => $text:literal),+ $(,)?
     }) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize)]
         pub enum $name {
             $($(#[$vmeta])* #[serde(rename = $text)] $variant),+
         }
@@ -25,20 +23,21 @@ macro_rules! string_enum {
             }
         }
 
-        impl fmt::Display for $name {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        impl ::std::fmt::Display for $name {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 f.write_str(self.as_str())
             }
         }
 
-        impl FromStr for $name {
-            type Err = UnknownValue;
+        impl ::std::str::FromStr for $name {
+            type Err = $crate::board::UnknownValue;
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                match s { $($text => Ok(Self::$variant),)+ _ => Err(UnknownValue(s.to_owned())) }
+                match s { $($text => Ok(Self::$variant),)+ _ => Err($crate::board::UnknownValue(s.to_owned())) }
             }
         }
     };
 }
+pub(crate) use string_enum;
 
 /// Returned when parsing an unknown enum value.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -154,6 +153,8 @@ string_enum! {
         ShowTag => "show_tag",
         ChangeSetting => "change_setting",
         RecolorTag => "recolor_tag",
+        ReserveHandles => "reserve_handles",
+        UnreserveHandle => "unreserve_handle",
     }
 }
 

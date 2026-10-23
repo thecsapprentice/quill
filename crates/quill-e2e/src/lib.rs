@@ -107,6 +107,21 @@ impl TestServer {
         Ok(client)
     }
 
+    /// Server state on this server's database, for calling server functions
+    /// directly, as the `quill-server` admin commands do.
+    pub async fn state(&self) -> Result<AppState> {
+        self.state_with(|_| {}).await
+    }
+
+    /// Like [`TestServer::state`], with the config adjusted, as a server
+    /// restarted with different settings would see it.
+    pub async fn state_with(&self, tweak: impl FnOnce(&mut Config)) -> Result<AppState> {
+        let pool = sqlx::PgPool::connect(&self.db_url).await?;
+        let mut config = Config::for_tests(self.db_url.clone());
+        tweak(&mut config);
+        AppState::new(pool, config).await
+    }
+
     /// Runs SQL against this server's database (for inspecting state).
     pub async fn db(&self) -> Result<sqlx::PgPool> {
         Ok(sqlx::PgPool::connect(&self.db_url).await?)

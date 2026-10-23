@@ -7,13 +7,14 @@ use axum::{
     response::Response,
 };
 use quill_board_ui::{
-    AdminTagDeleteView, AdminTagRequestsView, AdminTagTypesView, AdminTagView, AdminTagsView, Nav,
-    NewTagType,
+    AdminHandlesView, AdminTagDeleteView, AdminTagRequestsView, AdminTagTypesView, AdminTagView,
+    AdminTagsView, Nav, NewTagType,
 };
 use quill_proto::board::{
     AdminTagQuery, ChipColor, CreateNamespace, CreateTag, TagPolicy, TagQuery, TagStatus,
     UpdateNamespace, UpdateServerSettings, UpdateTag,
 };
+use quill_proto::handles::{AddReserved, ReservedKind, ReservedQuery};
 use serde::Deserialize;
 
 use super::{
@@ -25,7 +26,7 @@ use super::{
 use crate::{
     AppState,
     error::ApiError,
-    prompts, server_settings,
+    prompts, reserved, server_settings,
     tag_admin::{self, ADMIN_TAG_LIMIT},
 };
 
@@ -695,6 +696,147 @@ pub async fn tag_delete(
         Ok(_) => redirect(&format!(
             "/admin/settings/tags?namespace={namespace}&notice=tag-deleted"
         )),
+        Err(e) => error_page(&c, e),
+    }
+}
+
+// ---- Reserved handles ------------------------------------------------------
+
+#[derive(Debug, Default, Deserialize)]
+pub struct HandlesParams {
+    search: Option<String>,
+    kind: Option<String>,
+    source: Option<String>,
+    test: Option<String>,
+    notice: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ReserveForm {
+    csrf: Option<String>,
+    patterns: Option<String>,
+    kind: Option<String>,
+}
+
+async fn render_handles(
+    state: &AppState,
+    s: &Session,
+    params: &HandlesParams,
+    form: Option<&ReserveForm>,
+    error: Option<String>,
+) -> Response {
+    let c = chrome(state, Some(s), Nav::ServerSettings, opt(&params.notice));
+    let query = ReservedQuery {
+        search: opt(&params.search).map(str::to_owned),
+        kind: opt(&params.kind).and_then(|k| k.parse().ok()),
+        source: opt(&params.source).and_then(|k| k.parse().ok()),
+        limit: None,
+    };
+    let test_input = opt(&params.test).unwrap_or_default().to_owned();
+    let test = match opt(&params.test) {
+        None => None,
+        Some(h) => Some(match reserved::check(state, h).await {
+            Ok(c) => Ok(c),
+            Err(ApiError::BadRequest(m)) => Err(format!("“{h}” can't be a handle: {m}.")),
+            Err(e) => return error_page(&c, e),
+        }),
+    };
+    match reserved::list(state, &query).await {
+        Ok(list) => html(
+            status_for(error.as_ref()),
+            quill_board_ui::admin_handles_page(
+                &c,
+                AdminHandlesView {
+                    list,
+                    search: query.search.clone().unwrap_or_default(),
+                    kind: query.kind,
+                    source: query.source,
+                    test_input,
+                    test,
+                    add_text: form.and_then(|f| f.patterns.clone()).unwrap_or_default(),
+                    add_kind: form
+                        .and_then(|f| opt(&f.kind))
+                        .and_then(|k| k.parse().ok())
+                        .unwrap_or(ReservedKind::Word),
+                    error,
+                },
+            ),
+        ),
+        Err(e) => error_page(&c, e),
+    }
+}
+
+pub async fn handles(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Query(params): Query<HandlesParams>,
+) -> Response {
+    match require_admin(&state, session) {
+        Ok(s) => render_handles(&state, &s, &params, None, None).await,
+        Err(r) => r,
+    }
+}
+
+pub async fn handles_reserve(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Form(form): Form<ReserveForm>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    if !s.csrf_matches(form.csrf.as_deref()) {
+        return csrf_failed(&chrome(&state, Some(&s), Nav::ServerSettings, None));
+    }
+    let body = AddReserved {
+        kind: opt(&form.kind)
+            .and_then(|k| k.parse().ok())
+            .unwrap_or(ReservedKind::Word),
+        patterns: form
+            .patterns
+            .as_deref()
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect(),
+    };
+    match reserved::add(&state, s.account_id, &body).await {
+        Ok(_) => redirect("/admin/settings/handles?notice=handles-reserved"),
+        Err(e) => match form_error(&e) {
+            Some(m) => {
+                let params = HandlesParams::default();
+                render_handles(&state, &s, &params, Some(&form), Some(m)).await
+            }
+            None => error_page(&chrome(&state, Some(&s), Nav::ServerSettings, None), e),
+        },
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct CsrfOnly {
+    csrf: Option<String>,
+}
+
+pub async fn handle_remove(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Path((kind, pattern)): Path<(String, String)>,
+    Form(form): Form<CsrfOnly>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let c = chrome(&state, Some(&s), Nav::ServerSettings, None);
+    if !s.csrf_matches(form.csrf.as_deref()) {
+        return csrf_failed(&c);
+    }
+    let Ok(kind) = kind.parse::<ReservedKind>() else {
+        return error_page(&c, ApiError::NotFound);
+    };
+    match reserved::remove(&state, s.account_id, kind, &pattern).await {
+        Ok(()) => redirect("/admin/settings/handles?notice=handle-removed"),
         Err(e) => error_page(&c, e),
     }
 }

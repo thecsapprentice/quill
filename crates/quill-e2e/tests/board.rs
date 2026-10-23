@@ -472,7 +472,7 @@ async fn maturity_warning_reports_and_admin_inbox() {
 
     // An administrator removes the prompt from the board.
     let mut admin = Browser::new(&server);
-    let admin_csrf = admin.register("moderator", "mod_desk").await;
+    let admin_csrf = admin.register("moderator", "night_desk").await;
     let pool = server.db().await.unwrap();
     sqlx::query("UPDATE accounts SET is_admin = true WHERE login_name = 'moderator'")
         .execute(&pool)
@@ -538,7 +538,7 @@ async fn server_settings_manage_tag_types_and_tags() {
     assert_eq!(forged.status, StatusCode::FORBIDDEN);
 
     let mut admin = Browser::new(&server);
-    let csrf = admin.register("moderator", "mod_desk").await;
+    let csrf = admin.register("moderator", "night_desk").await;
     let pool = server.db().await.unwrap();
     sqlx::query("UPDATE accounts SET is_admin = true WHERE login_name = 'moderator'")
         .execute(&pool)
@@ -714,7 +714,7 @@ async fn server_settings_manage_tag_types_and_tags() {
 async fn tag_requests_through_the_board() {
     let server = server!();
     let mut admin = Browser::new(&server);
-    let csrf = admin.register("moderator", "mod_desk").await;
+    let csrf = admin.register("moderator", "night_desk").await;
     let pool = server.db().await.unwrap();
     sqlx::query("UPDATE accounts SET is_admin = true WHERE login_name = 'moderator'")
         .execute(&pool)
@@ -844,7 +844,7 @@ async fn tag_requests_through_the_board() {
 
 /// Signs up `login` and makes it an administrator; returns its CSRF token.
 async fn admin_browser(server: &TestServer, b: &mut Browser, login: &str) -> String {
-    let csrf = b.register(login, &format!("{login}_desk")).await;
+    let csrf = b.register(login, "night_desk").await;
     let pool = server.db().await.unwrap();
     sqlx::query("UPDATE accounts SET is_admin = true WHERE login_name = $1")
         .bind(login)
@@ -1134,5 +1134,118 @@ async fn chip_colours_come_from_a_generated_stylesheet() {
     let log = admin.get("/admin/log").await;
     assert!(log.body.contains("Tag colour changed"));
     assert!(log.body.contains("colour: automatic text on #7f1d1d"));
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn persona_form_explains_unavailable_handles() {
+    let server = server!();
+    let mut b = Browser::new(&server);
+    let csrf = b.register("alice", "ink_fox").await;
+    let reserved = b
+        .post("/personas", &[("csrf", &csrf), ("handle", "Site_Admin")])
+        .await;
+    assert_eq!(reserved.status, StatusCode::BAD_REQUEST);
+    assert!(
+        reserved
+            .body
+            .contains("That handle is reserved for this server&#39;s staff.")
+    );
+    assert!(reserved.body.contains(r#"value="Site_Admin""#));
+    let taken = b
+        .post("/personas", &[("csrf", &csrf), ("handle", "INK_FOX")])
+        .await;
+    assert!(taken.body.contains("That handle isn&#39;t available."));
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn reserved_handles_through_server_settings() {
+    let server = server!();
+    let mut admin = Browser::new(&server);
+    let csrf = admin_browser(&server, &mut admin, "boss").await;
+    let mut writer = Browser::new(&server);
+    let writer_csrf = writer.register("alice", "ink_fox").await;
+    assert_eq!(
+        writer.get("/admin/settings/handles").await.status,
+        StatusCode::FORBIDDEN
+    );
+
+    let page = admin.get("/admin/settings/handles?search=admin").await;
+    assert!(page.body.contains("<code>admin</code>"));
+    assert!(
+        page.body
+            .contains("Your server&#39;s own name, localhost, is always reserved")
+    );
+
+    // Reserve two brand words from the textarea, then check one.
+    let saved = admin
+        .post(
+            "/admin/settings/handles",
+            &[
+                ("csrf", &csrf),
+                ("patterns", "Acme\r\nGlobex\r\n"),
+                ("kind", "word"),
+            ],
+        )
+        .await;
+    assert_eq!(
+        saved.location(),
+        "/admin/settings/handles?notice=handles-reserved"
+    );
+    let check = admin.get("/admin/settings/handles?test=acme_news").await;
+    assert!(
+        check
+            .body
+            .contains("@acme_news is reserved by the word “acme” (added here).")
+    );
+    let clear = admin.get("/admin/settings/handles?test=river_otter").await;
+    assert!(clear.body.contains("@river_otter isn&#39;t reserved."));
+    let invalid = admin.get("/admin/settings/handles?test=no+spaces").await;
+    assert!(invalid.body.contains("can&#39;t be a handle"));
+
+    let refused = writer
+        .post(
+            "/personas",
+            &[("csrf", &writer_csrf), ("handle", "globex_fan")],
+        )
+        .await;
+    assert!(refused.body.contains("reserved for this server"));
+
+    // A bad line keeps the text so it can be fixed.
+    let bad = admin
+        .post(
+            "/admin/settings/handles",
+            &[
+                ("csrf", &csrf),
+                ("patterns", "good\nnot good"),
+                ("kind", "exact"),
+            ],
+        )
+        .await;
+    assert_eq!(bad.status, StatusCode::BAD_REQUEST);
+    assert!(bad.body.contains("not good"));
+
+    // Remove one.
+    let removed = admin
+        .post(
+            "/admin/settings/handles/word/globex/remove",
+            &[("csrf", &csrf)],
+        )
+        .await;
+    assert_eq!(
+        removed.location(),
+        "/admin/settings/handles?notice=handle-removed"
+    );
+    let ok = writer
+        .post(
+            "/personas",
+            &[("csrf", &writer_csrf), ("handle", "globex_fan")],
+        )
+        .await;
+    assert_eq!(ok.status, StatusCode::SEE_OTHER);
+    let log = admin.get("/admin/log").await;
+    assert!(log.body.contains("Handles reserved"));
+    assert!(log.body.contains("Handle no longer reserved"));
     server.stop().await.unwrap();
 }

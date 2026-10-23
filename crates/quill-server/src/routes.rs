@@ -40,6 +40,7 @@ pub fn api() -> Router<AppState> {
         .merge(crate::reports::router())
         .merge(crate::tag_admin::router())
         .merge(crate::server_settings::router())
+        .merge(crate::reserved::router())
 }
 
 async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, ApiError> {
@@ -216,9 +217,44 @@ pub async fn add_persona(
     account: Uuid,
     body: &CreatePersona,
 ) -> Result<Persona, ApiError> {
+    insert_persona(state, account, body, false).await
+}
+
+/// Creates a persona for the account `login`, allowing reserved handles.
+/// Only the `quill-server grant-handle` command calls this; retired handles
+/// stay retired even here.
+pub async fn grant_persona(
+    state: &AppState,
+    login: &str,
+    body: &CreatePersona,
+) -> Result<Persona, ApiError> {
+    let login = validate::username(login)?;
+    let account: Uuid = sqlx::query_scalar("SELECT id FROM accounts WHERE login_name = $1")
+        .bind(&login)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    insert_persona(state, account, body, true).await
+}
+
+async fn insert_persona(
+    state: &AppState,
+    account: Uuid,
+    body: &CreatePersona,
+    allow_reserved: bool,
+) -> Result<Persona, ApiError> {
     let handle = validate::username(&body.handle)?;
     let display_name = validate::display_name(body.display_name.as_deref())?;
     let summary = validate::summary(body.summary.as_deref())?;
+    if !allow_reserved
+        && crate::reserved::reserved_by(state, &handle)
+            .await?
+            .is_some()
+    {
+        return Err(ApiError::Conflict(
+            "That handle is reserved for this server's staff.".into(),
+        ));
+    }
 
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM actors WHERE account_id = $1")
         .bind(account)
@@ -228,6 +264,8 @@ pub async fn add_persona(
         return Err(ApiError::Forbidden("persona limit reached".into()));
     }
 
+    // A handle in use and a retired one (refused by a trigger) get the same
+    // reply, so it doesn't reveal which.
     let inserted: Result<PersonaRow, sqlx::Error> = sqlx::query_as(
         "INSERT INTO actors (id, account_id, preferred_username, display_name, summary)
          VALUES ($1, $2, $3, $4, $5)
@@ -242,7 +280,9 @@ pub async fn add_persona(
     .await;
     match inserted {
         Ok(row) => Ok(persona_from_row(row)),
-        Err(e) if is_unique_violation(&e) => Err(ApiError::Conflict("handle unavailable".into())),
+        Err(e) if is_unique_violation(&e) => {
+            Err(ApiError::Conflict("That handle isn't available.".into()))
+        }
         Err(e) => Err(e.into()),
     }
 }
