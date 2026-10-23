@@ -15,7 +15,8 @@
 //! - `0x02` + device key: the `authorSeq` values seen from that device;
 //! - `0x03` + channel name: a channel and every description it has had;
 //! - `0x04` + channel name: the last note position this device showed in
-//!   it (unread counts are kept here only, never sent anywhere).
+//!   it (unread counts are kept here only, never sent anywhere);
+//! - `0x05` + blob URL: an attachment still to fetch (2i).
 //!
 //! Channels (2h) live only inside the encrypted activities. `story` and
 //! `planning` always exist; naming a channel (`Create` of a `wr:Channel`)
@@ -29,13 +30,17 @@ use zeroize::Zeroizing;
 
 use quill_proto::validate::{self, DEFAULT_CHANNELS};
 
-use crate::{CoreError, Store, activity::Activity, hlc::Hlc, mls::Provider, store::kv::Table};
+use crate::{
+    CoreError, Store, activity::Activity, attachments::Attachment, hlc::Hlc, mls::Provider,
+    store::kv::Table,
+};
 
 const NOTE: u8 = 0;
 const INDEX: u8 = 1;
 const SEEN: u8 = 2;
 const CHANNEL: u8 = 3;
 const SHOWN: u8 = 4;
+const PENDING: u8 = 5;
 
 fn err(msg: impl Into<String>) -> CoreError {
     CoreError::Keys(msg.into())
@@ -92,6 +97,9 @@ pub struct Message {
     /// The id of the note it answers.
     #[serde(default)]
     pub in_reply_to: Option<String>,
+    /// Files it carries.
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
 }
 
 impl Message {
@@ -175,8 +183,16 @@ pub fn record(p: &Provider<'_>, gid: &[u8], from: From<'_>, a: &Activity) -> Res
                     deleted: false,
                     own: from.own,
                     in_reply_to: note.in_reply_to.clone(),
+                    attachments: note.attachment.clone(),
                 },
             )?;
+            // Others' files are fetched before the message is acknowledged;
+            // this device's own are kept as they're sent.
+            if !from.own {
+                for a in &note.attachment {
+                    put(p, &key(gid, PENDING, a.url.as_bytes()), a)?;
+                }
+            }
             put(p, &index, &from.seq)
         }
         "Update" | "Delete" => {
@@ -337,6 +353,38 @@ pub fn find_note(store: &Store, gid: &[u8], id: &str) -> Result<Option<(u64, Str
         return Ok(None);
     };
     Ok(message(store, gid, seq)?.map(|m| (seq, m.channel)))
+}
+
+/// Attachments still to fetch.
+pub fn pending(store: &Store, gid: &[u8]) -> Result<Vec<Attachment>, CoreError> {
+    store
+        .scan(Table::Messages, &prefix(gid, PENDING))?
+        .into_iter()
+        .map(|(_, v)| serde_json::from_slice(&v).map_err(|_| err("a stored attachment is damaged")))
+        .collect()
+}
+
+/// Keeps an attachment's contents (or notes it can't be had, with `None`),
+/// and stops waiting for it.
+pub fn keep_file(
+    store: &Store,
+    gid: &[u8],
+    url: &str,
+    contents: Option<&[u8]>,
+) -> Result<(), CoreError> {
+    Provider::new(store).atomically(|p| {
+        if let Some(c) = contents {
+            p.set(Table::Files, url.as_bytes(), Some(c.to_vec()))?;
+        }
+        p.set(Table::Messages, &key(gid, PENDING, url.as_bytes()), None)
+    })
+}
+
+/// An attachment's contents, if this device has them.
+pub fn file(store: &Store, url: &str) -> Result<Option<Zeroizing<Vec<u8>>>, CoreError> {
+    Ok(store
+        .get(Table::Files, url.as_bytes())?
+        .map(|v| Zeroizing::new(v.to_vec())))
 }
 
 /// The note created at `seq`.

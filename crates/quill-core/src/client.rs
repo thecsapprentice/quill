@@ -492,6 +492,57 @@ impl Client {
         Self::empty(builder).await
     }
 
+    /// Uploads a padded, encrypted blob to a session.
+    pub async fn upload_blob(
+        &self,
+        session: &str,
+        blob: Vec<u8>,
+    ) -> Result<quill_proto::sessions::BlobUploaded, CoreError> {
+        let builder = self
+            .authed_segments(Method::POST, "/sessions", &[session, "blobs"])?
+            .header(header::CONTENT_TYPE, "application/octet-stream")
+            .body(blob);
+        Self::json(builder).await
+    }
+
+    /// A blob's URL, as attachments carry it.
+    pub fn blob_url(&self, id: Uuid) -> Result<String, CoreError> {
+        Ok(self.url(&format!("/blobs/{id}"))?.to_string())
+    }
+
+    /// Fetches a blob on this client's server, refusing more than `max`
+    /// bytes.
+    pub async fn fetch_blob(&self, url: &str, token: &str, max: u64) -> Result<Vec<u8>, CoreError> {
+        let prefix = self.url("/blobs/")?.to_string();
+        let id = url
+            .strip_prefix(&prefix)
+            .and_then(|id| Uuid::parse_str(id).ok())
+            .ok_or_else(|| {
+                CoreError::Keys(
+                    "the attachment is on another server; fetching it comes with federation".into(),
+                )
+            })?;
+        let builder = self
+            .authed(Method::GET, &format!("/blobs/{id}"))?
+            .header(quill_proto::sessions::BLOB_TOKEN_HEADER, token);
+        let mut response = Self::check(builder.send().await?).await?;
+        let max = usize::try_from(max).unwrap_or(usize::MAX);
+        if response
+            .content_length()
+            .is_some_and(|len| len > max as u64)
+        {
+            return Err(CoreError::ResponseTooLarge);
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if body.len() + chunk.len() > max {
+                return Err(CoreError::ResponseTooLarge);
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(body)
+    }
+
     pub async fn ack_session(
         &self,
         session: &str,
