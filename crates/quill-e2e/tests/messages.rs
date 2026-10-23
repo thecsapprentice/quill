@@ -262,3 +262,98 @@ async fn following_a_session_shows_messages_as_they_arrive() {
     assert_eq!(got, ["Pitch.", "Live.", "Second."]);
     server.stop().await.unwrap();
 }
+
+/// Links a new device from an existing one.
+async fn linked(server: &TestServer, name: &str, existing: (&Store, &Client)) -> (Store, Client) {
+    let store = Store::in_memory();
+    let c = server.client();
+    let token = c
+        .login(&quill_proto::api::Credentials {
+            username: name.into(),
+            password: quill_e2e::TEST_PASSWORD.into(),
+        })
+        .await
+        .unwrap();
+    let client = c.with_token(&token.token);
+    let pending = quill_core::devices::start_link(&store, &client)
+        .await
+        .unwrap();
+    quill_core::devices::approve(existing.0, existing.1, &pending.code.parse().unwrap())
+        .await
+        .unwrap();
+    quill_core::devices::wait_for_link(
+        &store,
+        &client,
+        &pending.link_id,
+        std::time::Duration::from_millis(50),
+        std::time::Duration::from_secs(5),
+    )
+    .await
+    .unwrap();
+    quill_core::devices::finish_link(&store, &client)
+        .await
+        .unwrap();
+    (store, client)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn acknowledged_messages_are_deleted_only_once_every_device_has_them() {
+    let server = server!();
+    let (id, (alice, alice_c, _), (bob, bob_c, _)) = pair(&server).await;
+    // Bob links a phone, which doesn't read the session yet.
+    let (phone, phone_c) = linked(&server, "bob", (&bob, &bob_c)).await;
+    for text in ["One.", "Two.", "Three."] {
+        sessions::write(&alice, &alice_c, &id, text, None)
+            .await
+            .unwrap();
+    }
+    let pool = server.db().await.unwrap();
+    let gid = quill_proto::keys::unb64(&id).unwrap();
+    // Everything so far is older than the grace period.
+    sqlx::query(
+        "UPDATE group_messages SET logged_at = now() - interval '8 days' WHERE group_id = $1",
+    )
+    .bind(&gid)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let old = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM group_messages
+             WHERE group_id = $1 AND logged_at < now() - interval '1 day'",
+        )
+        .bind(&gid)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+    assert_eq!(old().await, 4);
+    // Alice and Bob's laptop have read it all; the phone holds it.
+    sessions::read(&alice, &alice_c, &id).await.unwrap();
+    sessions::read(&bob, &bob_c, &id).await.unwrap();
+    assert_eq!(old().await, 4);
+    // Bob's laptop added the phone; once it has read to the end, the old
+    // messages go.
+    let r = sessions::sync(&phone, &phone_c).await.unwrap();
+    assert_eq!(r.joined, 1, "{r:?}");
+    assert_eq!(old().await, 0);
+    // New ones stay within the grace period, even read by everyone.
+    let last = alice_c.sessions().await.unwrap()[0].last_seq;
+    let next = sessions::write(&bob, &bob_c, &id, "Four.", None)
+        .await
+        .unwrap();
+    // Numbering carries on past what was deleted.
+    assert_eq!(next, last + 1);
+    for (s, c) in [(&alice, &alice_c), (&phone, &phone_c)] {
+        let r = sessions::read(s, c, &id).await.unwrap();
+        assert_eq!(r.messages.last().unwrap().content, "Four.");
+    }
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM group_messages WHERE group_id = $1")
+        .bind(&gid)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(left >= 1);
+    pool.close().await;
+    server.stop().await.unwrap();
+}

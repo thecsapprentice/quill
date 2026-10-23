@@ -11,7 +11,7 @@ use axum::{
 use quill_proto::{
     events::Event,
     keys::{actor_uri, b64, unb64},
-    sessions::{DeviceWelcome, LeaveWelcome, Session, SessionMember},
+    sessions::{Ack, DeviceWelcome, LeaveWelcome, Session, SessionMember},
 };
 use sqlx::PgConnection;
 use uuid::Uuid;
@@ -24,6 +24,7 @@ pub fn router() -> Router<AppState> {
         .route("/sessions/{id}/welcomes", post(leave_welcome))
         .route("/sessions/{id}/welcomes/{device}", delete(take_welcome))
         .route("/sessions/{id}/leave", post(leave))
+        .route("/sessions/{id}/ack", post(ack))
 }
 
 fn decode(field: &str, text: &str) -> Result<Vec<u8>, ApiError> {
@@ -63,8 +64,7 @@ async fn list(
     let mut conn = state.pool.acquire().await?;
     let rows: Vec<SessionRow> = sqlx::query_as(
         "SELECT s.group_id, s.request_id, s.prompt_id, s.welcome, s.ended_at IS NOT NULL,
-                g.epoch, coalesce((SELECT max(seq) FROM group_messages m
-                                   WHERE m.group_id = s.group_id), 0)
+                g.epoch, g.last_seq
          FROM sessions s JOIN mls_groups g ON g.group_id = s.group_id
          WHERE EXISTS (SELECT 1 FROM session_members m JOIN actors a ON a.id = m.actor_id
                        WHERE m.group_id = s.group_id AND a.account_id = $1)
@@ -239,4 +239,85 @@ async fn leave(
         },
     );
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// How long an acknowledged message stays before it's deleted.
+const GRACE_DAYS: i32 = 7;
+
+/// `POST /sessions/{id}/ack`: one of the caller's devices has read the log
+/// this far. Then deletes what every device has.
+async fn ack(
+    State(state): State<AppState>,
+    authed: Authed,
+    Path(id): Path<String>,
+    ApiJson(body): ApiJson<Ack>,
+) -> Result<StatusCode, ApiError> {
+    let group = decode("session id", &id)?;
+    let seq =
+        i64::try_from(body.seq).map_err(|_| ApiError::BadRequest("seq out of range".into()))?;
+    let mut tx = state.pool.begin().await?;
+    member(&mut tx, authed.account_id, &group).await?;
+    let own: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM devices d
+             JOIN session_members m ON m.actor_id = d.actor_id AND m.group_id = $1
+             JOIN actors a ON a.id = d.actor_id
+             WHERE d.id = $2 AND a.account_id = $3)",
+    )
+    .bind(&group)
+    .bind(body.device)
+    .bind(authed.account_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !own {
+        return Err(ApiError::BadRequest(
+            "Acknowledge for your own persona's devices in the session only.".into(),
+        ));
+    }
+    let last: i64 = sqlx::query_scalar("SELECT last_seq FROM mls_groups WHERE group_id = $1")
+        .bind(&group)
+        .fetch_one(&mut *tx)
+        .await?;
+    if seq > last {
+        return Err(ApiError::BadRequest(
+            "That's past the end of the log.".into(),
+        ));
+    }
+    sqlx::query(
+        "INSERT INTO session_acks (group_id, device_id, seq) VALUES ($1, $2, $3)
+         ON CONFLICT (group_id, device_id)
+         DO UPDATE SET seq = GREATEST(session_acks.seq, EXCLUDED.seq)",
+    )
+    .bind(&group)
+    .bind(body.device)
+    .bind(seq)
+    .execute(&mut *tx)
+    .await?;
+    prune(&mut tx, &group).await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Deletes the messages every current device of the session's personas
+/// has acknowledged, once they're older than the grace period. A device
+/// that hasn't acknowledged anything holds everything.
+pub(crate) async fn prune(conn: &mut PgConnection, group: &[u8]) -> Result<u64, ApiError> {
+    let deleted = sqlx::query(
+        "WITH needed AS (
+             SELECT d.id FROM devices d
+             JOIN session_members m ON m.actor_id = d.actor_id AND m.group_id = $1
+             JOIN actors a ON a.id = d.actor_id
+             WHERE d.revocation IS NULL AND d.key_version = a.identity_key_version
+         ), floor AS (
+             SELECT min(coalesce(k.seq, 0)) AS seq FROM needed n
+             LEFT JOIN session_acks k ON k.device_id = n.id AND k.group_id = $1
+         )
+         DELETE FROM group_messages
+         WHERE group_id = $1 AND seq <= (SELECT seq FROM floor)
+           AND logged_at < now() - make_interval(days => $2)",
+    )
+    .bind(group)
+    .bind(GRACE_DAYS)
+    .execute(conn)
+    .await?;
+    Ok(deleted.rows_affected())
 }

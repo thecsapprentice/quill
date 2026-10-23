@@ -492,6 +492,15 @@ impl Client {
         Self::empty(builder).await
     }
 
+    pub async fn ack_session(
+        &self,
+        session: &str,
+        body: &quill_proto::sessions::Ack,
+    ) -> Result<(), CoreError> {
+        let builder = self.authed_segments(Method::POST, "/sessions", &[session, "ack"])?;
+        Self::empty(Self::with_json(builder, body)).await
+    }
+
     pub async fn leave_session(&self, session: &str) -> Result<(), CoreError> {
         let builder = self.authed_segments(Method::POST, "/sessions", &[session, "leave"])?;
         Self::empty(builder).await

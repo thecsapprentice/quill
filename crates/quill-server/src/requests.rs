@@ -468,12 +468,13 @@ async fn accept(
         ("declined", _) => return Err(ApiError::Conflict("It was declined.".into())),
         _ => return Err(ApiError::Conflict("It expired.".into())),
     };
-    let registered =
-        sqlx::query("INSERT INTO mls_groups (group_id, kind, epoch) VALUES ($1, 'session', $2)")
-            .bind(&group)
-            .bind(epoch)
-            .execute(&mut *tx)
-            .await;
+    let registered = sqlx::query(
+        "INSERT INTO mls_groups (group_id, kind, epoch, last_seq) VALUES ($1, 'session', $2, 1)",
+    )
+    .bind(&group)
+    .bind(epoch)
+    .execute(&mut *tx)
+    .await;
     match registered {
         Ok(_) => {}
         Err(e) if crate::error::is_unique_violation(&e) => {

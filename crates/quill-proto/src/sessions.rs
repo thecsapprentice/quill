@@ -63,3 +63,12 @@ pub struct LeaveWelcome {
     pub welcome: String,
     pub from_seq: u64,
 }
+
+/// `POST /sessions/{id}/ack`: how far one of the caller's devices has read
+/// the session's log. Only the server sees it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ack {
+    pub device: Uuid,
+    pub seq: u64,
+}

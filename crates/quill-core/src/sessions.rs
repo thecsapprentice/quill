@@ -99,6 +99,9 @@ struct Note {
     /// The last `authorSeq` this device used.
     #[serde(default)]
     author_seq: u64,
+    /// How far the server was told this device has read.
+    #[serde(default)]
+    acked: u64,
 }
 
 impl Note {
@@ -772,7 +775,7 @@ async fn sync_one(
         return Ok(Standing::Waiting);
     }
     if s.ended {
-        return end_here(store, client, s, &gid, None, Some(&dirs)).await;
+        return end_here(store, client, s, &gid, None, Some((&dirs, &me))).await;
     }
     let (read, removed) = catch_up(store, client, &gid, &dirs).await?;
     report.read += read;
@@ -781,6 +784,7 @@ async fn sync_one(
             "this device was removed from the session".into(),
         ));
     }
+    acknowledge(store, client, s, &gid, &me).await?;
     let due = note(&Provider::new(store), &gid)?.is_some_and(|n| n.update_due);
     if due {
         update_key(store, client, &gid, &dirs, &me).await?;
@@ -820,6 +824,7 @@ async fn start(
         broken: None,
         hlc: String::new(),
         author_seq: 0,
+        acked: 0,
     };
     // From the request: the group is here already, and the pitch (seq 1)
     // was read or sent by this device.
@@ -892,14 +897,15 @@ async fn end_here(
     s: &Session,
     gid: &[u8],
     current: Option<Note>,
-    dirs: Option<&Dirs>,
+    reader: Option<(&Dirs, &Me)>,
 ) -> Result<Standing, CoreError> {
     let joined = current.is_some() || note(&Provider::new(store), gid)?.is_some();
     if !joined {
         return Ok(Standing::Joined);
     }
-    if let Some(dirs) = dirs {
+    if let Some((dirs, me)) = reader {
         catch_up(store, client, gid, dirs).await?;
+        acknowledge(store, client, s, gid, me).await?;
     }
     Provider::new(store).atomically(|p| {
         let mut n = note(p, gid)?.ok_or_else(|| err("session state missing"))?;
@@ -907,7 +913,6 @@ async fn end_here(
         drop_group(p, gid)?;
         set_note(p, gid, &n)
     })?;
-    let _ = s;
     Ok(Standing::Joined)
 }
 
@@ -982,9 +987,6 @@ pub async fn read(store: &Store, client: &Client, id: &str) -> Result<Reading, C
     if messages.is_empty() {
         standing_error(standing)?;
     }
-    if !s.ended {
-        ack(store, client, &s, &gid).await?;
-    }
     Ok(Reading {
         gaps: history::gaps(store, &gid)?,
         messages,
@@ -992,11 +994,32 @@ pub async fn read(store: &Store, client: &Client, id: &str) -> Result<Reading, C
     })
 }
 
-/// Tells the server how far this device has read (for retention only; the
-/// other writer never sees it).
-async fn ack(store: &Store, client: &Client, s: &Session, gid: &[u8]) -> Result<(), CoreError> {
-    let _ = (store, client, s, gid);
-    Ok(())
+/// Tells the server how far this device has read, so it can delete what
+/// every device has. Only the server sees it, never the other writer.
+async fn acknowledge(
+    store: &Store,
+    client: &Client,
+    s: &Session,
+    gid: &[u8],
+    me: &Me,
+) -> Result<(), CoreError> {
+    let Some(n) = note(&Provider::new(store), gid)? else {
+        return Ok(());
+    };
+    let Some(device) = me.device.id else {
+        return Ok(());
+    };
+    if n.seq <= n.acked {
+        return Ok(());
+    }
+    client
+        .ack_session(&s.id, &quill_proto::sessions::Ack { device, seq: n.seq })
+        .await?;
+    Provider::new(store).atomically(|p| {
+        let mut n = note(p, gid)?.ok_or_else(|| err("session state missing"))?;
+        n.acked = n.seq;
+        set_note(p, gid, &n)
+    })
 }
 
 /// A session this device can send to, synced.
