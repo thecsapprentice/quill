@@ -33,13 +33,28 @@ pub struct Activity {
     pub object: Object,
 }
 
-/// A `Note`, or (for `Delete`) the id of one.
+/// A `Note`, a channel, or (for `Delete`) the id of a note.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Object {
     Note(Note),
+    Channel(Channel),
     Id(String),
 }
+
+/// A named channel and what it's for (`wr:Channel`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Channel {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+/// The type of a channel object.
+pub const CHANNEL_TYPE: &str = "wr:Channel";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +65,9 @@ pub struct Note {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
     pub content: String,
+    /// The id of the note it answers, in any channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_reply_to: Option<String>,
 }
 
 fn urn() -> String {
@@ -81,6 +99,7 @@ impl Activity {
                 id: urn(),
                 media_type: Some("text/markdown".into()),
                 content: text.to_owned(),
+                in_reply_to: None,
             }),
         )
     }
@@ -97,6 +116,7 @@ impl Activity {
                 id: note_id.to_owned(),
                 media_type: Some("text/markdown".into()),
                 content: text.to_owned(),
+                in_reply_to: None,
             }),
         )
     }
@@ -112,6 +132,43 @@ impl Activity {
         )
     }
 
+    /// Names a channel (`Create`), or describes it again (`Update`).
+    pub fn channel(
+        kind: &str,
+        name: &str,
+        summary: Option<&str>,
+        hlc: Hlc,
+        author_seq: u64,
+    ) -> Self {
+        Self::new(
+            kind,
+            Some(name),
+            hlc,
+            author_seq,
+            Object::Channel(Channel {
+                kind: CHANNEL_TYPE.into(),
+                name: name.to_owned(),
+                summary: summary.map(str::to_owned),
+            }),
+        )
+    }
+
+    /// The same note, answering the note `id`.
+    pub fn replying_to(mut self, id: &str) -> Self {
+        if let Object::Note(n) = &mut self.object {
+            n.in_reply_to = Some(id.to_owned());
+        }
+        self
+    }
+
+    /// The channel object it carries, if any.
+    pub fn channel_object(&self) -> Option<&Channel> {
+        match &self.object {
+            Object::Channel(c) if c.kind == CHANNEL_TYPE => Some(c),
+            _ => None,
+        }
+    }
+
     /// The note it carries, if any.
     pub fn note(&self) -> Option<&Note> {
         match &self.object {
@@ -124,6 +181,7 @@ impl Activity {
     pub fn target(&self) -> &str {
         match &self.object {
             Object::Note(n) => &n.id,
+            Object::Channel(c) => &c.name,
             Object::Id(id) => id,
         }
     }
@@ -161,6 +219,19 @@ mod tests {
         assert_eq!(v["object"], c.target());
         let back: Activity = serde_json::from_value(v).unwrap();
         assert_eq!(back.target(), c.target());
+        assert!(back.note().is_none());
+
+        let r = Activity::create("See planning.", "story", hlc, 44).replying_to(c.target());
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v["object"]["inReplyTo"], c.target());
+        let ch = Activity::channel("Create", "world", Some("Places"), hlc, 45);
+        let v = serde_json::to_value(&ch).unwrap();
+        assert_eq!(v["object"]["type"], "wr:Channel");
+        let back: Activity = serde_json::from_value(v).unwrap();
+        assert_eq!(
+            back.channel_object().unwrap().summary.as_deref(),
+            Some("Places")
+        );
         assert!(back.note().is_none());
     }
 }
