@@ -37,6 +37,58 @@ fn quill_with(
     )
 }
 
+/// Links the device whose store is in `new` (signed in already) from the
+/// one in `existing`, as a user would: `device link` waits, `device
+/// approve` answers, the words match, the user says yes. Returns what
+/// `device link` printed after that.
+fn link(existing: &Path, new: &Path) -> String {
+    use std::io::{BufRead, BufReader, Write};
+
+    // The new device waits for approval, showing its code.
+    let mut link = std::process::Command::new(env!("CARGO_BIN_EXE_quill"))
+        .args(["device", "link"])
+        .env("QUILL_STORE", new.join("store.quill"))
+        .env("QUILL_PROFILE", new.join("profile.json"))
+        .env("QUILL_STORE_PASSPHRASE", PASSPHRASE)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut out = BufReader::new(link.stdout.take().unwrap());
+    let code = loop {
+        let mut line = String::new();
+        assert!(out.read_line(&mut line).unwrap() > 0, "link exited early");
+        if let Some(code) = line.trim().strip_prefix("quill device approve ") {
+            break code.to_owned();
+        }
+    };
+
+    // The existing device approves and shows the words.
+    let (ok, shown, err) = quill(existing, PASSPHRASE, &["device", "approve", &code]);
+    assert!(ok, "{err}");
+    let existing_words = shown
+        .lines()
+        .find_map(|l| l.strip_prefix("It should now show: "))
+        .unwrap()
+        .to_owned();
+
+    // The new device shows the same words; the user says yes.
+    let new_words = loop {
+        let mut line = String::new();
+        assert!(out.read_line(&mut line).unwrap() > 0, "link exited early");
+        if let Some(w) = line.trim().strip_prefix("Approved. This device shows: ") {
+            break w.to_owned();
+        }
+    };
+    assert_eq!(new_words, existing_words);
+    link.stdin.take().unwrap().write_all(b"y\n").unwrap();
+    let mut rest = String::new();
+    std::io::Read::read_to_string(&mut out, &mut rest).unwrap();
+    assert!(link.wait().unwrap().success(), "{rest}");
+    rest
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_cli_keeps_its_login_in_the_encrypted_store() {
     let Some(server) = TestServer::start().await.unwrap() else {
@@ -192,8 +244,6 @@ async fn the_cli_publishes_and_checks_persona_keys() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_cli_links_a_second_computer() {
-    use std::io::{BufRead, BufReader, Write};
-
     let Some(server) = TestServer::start().await.unwrap() else {
         return;
     };
@@ -209,48 +259,7 @@ async fn the_cli_links_a_second_computer() {
     assert!(on_desktop(&["server", &url]).0);
     assert!(on_desktop(&["login", "cli_alice"]).0);
 
-    // The desktop waits for approval, showing its code.
-    let mut link = std::process::Command::new(env!("CARGO_BIN_EXE_quill"))
-        .args(["device", "link"])
-        .env("QUILL_STORE", desktop.path().join("store.quill"))
-        .env("QUILL_PROFILE", desktop.path().join("profile.json"))
-        .env("QUILL_STORE_PASSPHRASE", PASSPHRASE)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut out = BufReader::new(link.stdout.take().unwrap());
-    let code = loop {
-        let mut line = String::new();
-        assert!(out.read_line(&mut line).unwrap() > 0, "link exited early");
-        if let Some(code) = line.trim().strip_prefix("quill device approve ") {
-            break code.to_owned();
-        }
-    };
-
-    // The laptop approves and shows the words.
-    let (ok, shown, err) = on_laptop(&["device", "approve", &code]);
-    assert!(ok, "{err}");
-    let laptop_words = shown
-        .lines()
-        .find_map(|l| l.strip_prefix("It should now show: "))
-        .unwrap()
-        .to_owned();
-
-    // The desktop shows the same words; the user says yes.
-    let desktop_words = loop {
-        let mut line = String::new();
-        assert!(out.read_line(&mut line).unwrap() > 0, "link exited early");
-        if let Some(w) = line.trim().strip_prefix("Approved. This device shows: ") {
-            break w.to_owned();
-        }
-    };
-    assert_eq!(desktop_words, laptop_words);
-    link.stdin.take().unwrap().write_all(b"y\n").unwrap();
-    let mut rest = String::new();
-    std::io::Read::read_to_string(&mut out, &mut rest).unwrap();
-    assert!(link.wait().unwrap().success(), "{rest}");
+    let rest = link(laptop.path(), desktop.path());
     assert!(rest.contains("@ink_fox"), "{rest}");
 
     // Both computers list both devices.
@@ -475,6 +484,35 @@ async fn the_cli_sends_reads_and_accepts_a_request() {
         out.contains("@quiet_wren with @ink_fox (verified)"),
         "{out}"
     );
+    // Bob links a second computer: his laptop adds it to the session, and
+    // sends it what came before (2k).
+    let desktop = tempfile::tempdir().unwrap();
+    let on_desktop = |args: &[&str]| quill(desktop.path(), PASSPHRASE, args);
+    assert!(on_desktop(&["server", &url]).0);
+    assert!(on_desktop(&["login", "cli_bob"]).0);
+    let rest = link(bob.path(), desktop.path());
+    assert!(rest.contains("@quiet_wren"), "{rest}");
+    assert!(as_bob(&["sessions"]).0);
+    let (ok, out, err) = on_desktop(&["sessions"]);
+    assert!(ok, "{err}");
+    assert!(out.contains("earlier history still to come"), "{out}");
+    let (_, _, err) = on_desktop(&["session", "read", short]);
+    assert!(
+        err.contains("doesn't have all of the session's earlier history"),
+        "{err}"
+    );
+    assert!(as_bob(&["sessions"]).0);
+    let (ok, out, err) = on_desktop(&["session", "read", short]);
+    assert!(ok, "{err}");
+    assert!(out.contains("The lighthouse."), "{out}");
+    assert!(
+        out.contains("you:"),
+        "Bob's own notes are his here too: {out}"
+    );
+    assert!(!err.contains("earlier history"), "{err}");
+    let (_, out, _) = on_desktop(&["sessions"]);
+    assert!(!out.contains("earlier history still to come"), "{out}");
+
     let (ok, out, err) = as_alice(&["--json", "backup", "create"]);
     assert!(ok, "{err}");
     let code = serde_json::from_str::<serde_json::Value>(&out).unwrap()["recoveryCode"]
