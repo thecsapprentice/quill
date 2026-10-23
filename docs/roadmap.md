@@ -19,8 +19,8 @@ personas, CLI skeleton, the server dependency ban.
 | --- | --- | --- |
 | 1a | Prompts, tags, search, reports, admin inbox: API and CLI | done (#1) |
 | 1b | Server-rendered board (`quill-board-ui`), sessions, CSRF | done (#2) |
-| 1c | Docker setup and demo data | next |
-| 1d | Admin settings: tag management and required tag types | planned |
+| 1c | Docker setup and demo data | done |
+| 1d | Admin settings: tag management and required tag types | next |
 | 1e | Tag picker on the prompt form | planned |
 | 1f | Persona handle rules | planned |
 
@@ -30,9 +30,12 @@ personas, CLI skeleton, the server dependency ban.
 - A demo-data seeder, run by `docker compose --profile demo run --rm seed`:
   at least 4 accounts, 1 to 3 personas each, 100+ prompts spread across tags,
   maturity ratings, states and dates, plus a few reports and one admin.
-- The seeder is a separate development binary, not part of `quill-server`, so
-  it can't be run against a production server by accident. It also refuses a
-  database that already has accounts unless given `--force`.
+- The seeder (`quill-seed`, in `quill-devtools`) is a separate development
+  binary with its own image, never part of the server image. It only fills a
+  database with no accounts; to start over, delete the database volume
+  (`docker compose down -v`). There is deliberately no reset option.
+- It calls the server's own service functions, so demo data is validated and
+  sanitized like real input.
 - Seeded accounts share one documented password; the output lists them.
 - Content comes from built-in word lists and is reproducible from a seed
   number. Nothing is downloaded.
@@ -67,7 +70,7 @@ existing prompts left as they were, status changes still allowed).
 - Chosen tags appear as removable chips, each with an × button.
 - Tags are added from a suggestion list or typed as `type:name`.
 - Required tag types (from 1d) are shown as prompts to fill.
-- The approach (with or without JavaScript) is an open question; see below.
+- No JavaScript: "Add" reloads the form; × is a checkbox chip. See Decisions below.
 
 Done when: tags can be added and removed on the new and edit forms with the
 keyboard alone, and the form still works with JavaScript disabled.
@@ -124,16 +127,13 @@ Done when: tests cover reserved names, retired handles and case variants.
 The desktop GUI and the web client get their own sub-phases when Phase 4 is
 done.
 
-## Open questions
+## Decisions
 
-- **1e, JavaScript on the board.** Dioxus rendered on the server outputs
-  plain HTML. Chips that react without reloading need either JavaScript or
-  WebAssembly running in the page, and the board currently runs none. The
-  options:
-  - **No JavaScript.** "Add" and × are ordinary form buttons. Each press
-    reloads the form with the visitor's input kept.
-  - **Small same-origin script.** Chips update instantly with JavaScript
-    on, and the no-JavaScript version above is the fallback. This means
-    loosening the CSP to `script-src 'self'`.
-  - **Dioxus hydration with WebAssembly.** This overlaps the web client
-    proposal (Phase 6) and is heavy for one widget.
+- **1e, JavaScript on the board (decided 2026-10-22): none.** Adding a tag
+  is a form button that reloads the form with the visitor's input kept and
+  jumps back to the tag field. Removing a tag is instant without JavaScript:
+  each chip is a checkbox styled as a badge with an ×. The CSP stays at
+  `default-src 'none'` with no script source. A small same-origin script
+  could be added later as an enhancement on top of this.
+- **1d, required tag types (decided 2026-10-22):** they apply to every save,
+  of new prompts and edits alike.

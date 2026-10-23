@@ -2,6 +2,7 @@
 #
 #   docker compose up --build -d                         # start; board at http://localhost:8080/
 #   docker compose exec server quill-server make-admin NAME
+#   docker compose --profile demo run --rm seed          # fill an empty database with demo data
 #   docker compose logs -f server
 #   docker compose down                                  # stop (add -v to delete the database)
 #
@@ -28,7 +29,9 @@ services:
     restart: unless-stopped
 
   server:
-    build: .
+    build:
+      context: .
+      target: server
     image: quill-server:dev
     depends_on:
       db:
@@ -42,6 +45,21 @@ services:
       # Bound to this machine only; change QUILL_PORT if 8080 is taken.
       - "127.0.0.1:${QUILL_PORT:-8080}:8080"
     restart: unless-stopped
+
+  # Demo data, only when asked for: `docker compose --profile demo run --rm seed`.
+  # Add options after `seed`, e.g. `--prompts 300 --seed 7`; `--help` lists them.
+  seed:
+    profiles: [demo]
+    build:
+      context: .
+      target: seed
+    image: quill-seed:dev
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      QUILL_DATABASE_URL: postgres://quill:${QUILL_DB_PASSWORD:-quill-local-dev}@db/quill
+      QUILL_TAG_POLICY: ${QUILL_TAG_POLICY:-both}
 
 volumes:
   db-data:

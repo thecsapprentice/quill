@@ -5,10 +5,10 @@ pub mod auth;
 pub mod config;
 pub mod error;
 mod markdown;
-mod prompts;
+pub mod prompts;
 mod ratelimit;
-mod reports;
-mod routes;
+pub mod reports;
+pub mod routes;
 mod web;
 
 use std::sync::Arc;

@@ -22,6 +22,7 @@ and servers federate over ActivityPub.
 | `quill-server` | bin | axum server: web board, client API, (later) delivery service and federation. |
 | `quill-core` | lib | Client library: API client, local profile, (later) all MLS state. |
 | `quill` | bin | Minimal CLI client that exercises every server feature. |
+| `quill-devtools` | bin | `quill-seed`, the demo-data seeder. Development only, never in the server image. |
 | `quill-e2e` | tests | End-to-end tests: real server and real Postgres. |
 
 **Core invariant:** `quill-server` never links MLS, HPKE or client crates.
@@ -38,6 +39,18 @@ docker compose up --build -d
 docker compose exec server quill-server make-admin yourname
 docker compose down        # stop; add -v to also delete the database
 ```
+
+For a board full of test data instead, seed the empty database:
+
+```sh
+docker compose --profile demo run --rm seed
+```
+
+This creates 6 accounts (including `admin`), 1 to 3 personas each, 150
+prompts and a few reports, and prints the logins. Every demo account's
+password is `quill demo password`. Options such as `--prompts 300` or
+`--seed 7` go after `seed`. The seeder only fills an empty database: to
+start over, run `docker compose down -v` and start again.
 
 The compose setup is for local testing only: it serves plain HTTP, which
 browsers accept for the board's Secure session cookie only on `localhost`.
