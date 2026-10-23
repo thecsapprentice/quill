@@ -21,8 +21,8 @@ use dioxus::prelude::*;
 use quill_proto::{
     api::Persona,
     board::{
-        AccountSettings, AdminLogEntry, AdminTag, ChipColor, Maturity, Prompt, PromptState, Report,
-        ReportReason, Tag, TagNamespace, TagPolicy,
+        AccountSettings, AdminLogDetail, AdminLogEntry, AdminTag, ChipColor, Maturity, Prompt,
+        PromptState, Report, ReportReason, Tag, TagNamespace, TagPolicy,
     },
 };
 use time::OffsetDateTime;
@@ -254,6 +254,26 @@ pub struct AdminLogView {
     pub admin: Option<String>,
     /// Filter: entries against this account.
     pub account: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminLogEntryView {
+    pub detail: AdminLogDetail,
+    /// Showing a later page of accounts, so link back to the first.
+    pub paged: bool,
+}
+
+/// One admin-log entry in full, its accounts after `after`.
+pub fn admin_log_entry_url(id: i64, after: Option<&str>) -> String {
+    match after {
+        Some(a) => {
+            let q = url::form_urlencoded::Serializer::new(String::new())
+                .append_pair("after", a)
+                .finish();
+            format!("/admin/log/{id}?{q}")
+        }
+        None => format!("/admin/log/{id}"),
+    }
 }
 
 /// The admin log, filtered by administrator and/or affected account.

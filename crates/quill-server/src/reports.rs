@@ -9,7 +9,8 @@ use axum::{
     routing::{get, post},
 };
 use quill_proto::board::{
-    AdminAction, AdminLogEntry, AdminLogQuery, CreateReport, Report, ReportQuery, ReportReason,
+    AdminAction, AdminLogDetail, AdminLogEntry, AdminLogPrompt, AdminLogQuery, AdminLogTarget,
+    AdminLogTargetQuery, CreateReport, LOG_TARGET_PREVIEW, Report, ReportQuery, ReportReason,
     Resolution, ResolveReport,
 };
 use sha2::{Digest, Sha256};
@@ -25,7 +26,7 @@ use crate::{
     prompts::load_prompt,
     routes::ApiJson,
 };
-use quill_proto::notices::{NoticeFields, NoticeKind};
+use quill_proto::notices::{NoticeFields, NoticeKind, NoticePrompt};
 
 /// Reports one signed-in account may file per hour.
 const ACCOUNT_REPORTS_PER_HOUR: usize = 20;
@@ -39,6 +40,7 @@ pub fn router() -> Router<AppState> {
         .route("/admin/reports", get(list_reports))
         .route("/admin/reports/{id}/resolve", post(resolve_report))
         .route("/admin/log", get(read_log))
+        .route("/admin/log/{id}", get(read_log_entry))
 }
 
 /// SHA-256 of the prompt's title and body, recorded instead of its text.
@@ -348,6 +350,30 @@ struct LogRow {
     actor: String,
     admin_login: Option<String>,
     targets: Vec<String>,
+    target_count: i64,
+}
+
+impl LogRow {
+    fn into_entry(self) -> Result<AdminLogEntry, ApiError> {
+        Ok(AdminLogEntry {
+            id: self.id,
+            at: self.at,
+            action: self.action.parse().map_err(|_| {
+                ApiError::Internal(anyhow::anyhow!("unexpected log action {:?}", self.action))
+            })?,
+            report_id: self.report_id,
+            prompt_id: self.prompt_id,
+            prompt_hash: self.prompt_hash.as_deref().map(hex),
+            reason: self.reason.as_deref().map(parse_reason).transpose()?,
+            subject: self.subject,
+            detail: self.detail,
+            admin: self.admin_id,
+            actor: crate::prompts::parse_enum(&self.actor)?,
+            admin_login: self.admin_login,
+            targets: self.targets,
+            target_count: u64::try_from(self.target_count).unwrap_or(0),
+        })
+    }
 }
 
 /// `GET /admin/log`, newest first.
@@ -359,10 +385,23 @@ async fn read_log(
     admin_log(&state, &q).await.map(Json)
 }
 
-/// The admin log, newest first, optionally before entry `before`.
-pub async fn admin_log(
+/// `GET /admin/log/{id}`: one entry and a page of the accounts it was against.
+async fn read_log_entry(
+    State(state): State<AppState>,
+    _admin: Admin,
+    Path(id): Path<i64>,
+    Query(q): Query<AdminLogTargetQuery>,
+) -> Result<Json<AdminLogDetail>, ApiError> {
+    admin_log_entry(&state, id, &q).await.map(Json)
+}
+
+/// Entries matching the filters, newest first. Each names only the first
+/// few accounts it was against (an account filtered for comes first), and
+/// counts them all: one decision can reach thousands.
+async fn fetch_log(
     state: &AppState,
     q: &AdminLogQuery,
+    only: Option<i64>,
 ) -> Result<Vec<AdminLogEntry>, ApiError> {
     let limit = i64::from(q.limit.unwrap_or(50).clamp(1, 200));
     let admin = q.admin.as_deref().map(str::trim).filter(|s| !s.is_empty());
@@ -374,10 +413,12 @@ pub async fn admin_log(
     let rows: Vec<LogRow> = sqlx::query_as(
         "SELECT l.id, l.at, l.action, l.report_id, l.prompt_id, l.prompt_hash,
                 l.reason::text AS reason, l.subject, l.detail, l.admin_id, l.actor, l.admin_login,
-                ARRAY(SELECT t.login FROM admin_log_targets t
-                      WHERE t.log_id = l.id ORDER BY t.login) AS targets
+                ARRAY(SELECT t.login FROM admin_log_targets t WHERE t.log_id = l.id
+                      ORDER BY t.login = lower($4) DESC, t.login LIMIT $6) AS targets,
+                (SELECT count(*) FROM admin_log_targets t WHERE t.log_id = l.id) AS target_count
          FROM admin_log l
          WHERE ($1::bigint IS NULL OR l.id < $1)
+           AND ($5::bigint IS NULL OR l.id = $5)
            AND ($3::text IS NULL OR l.admin_login = lower($3))
            AND ($4::text IS NULL OR EXISTS (
                    SELECT 1 FROM admin_log_targets t
@@ -388,29 +429,97 @@ pub async fn admin_log(
     .bind(limit)
     .bind(admin)
     .bind(account)
+    .bind(only)
+    .bind(i64::try_from(LOG_TARGET_PREVIEW).unwrap_or(5))
     .fetch_all(&state.pool)
     .await?;
-    rows.into_iter()
-        .map(|r| {
-            Ok(AdminLogEntry {
-                id: r.id,
-                at: r.at,
-                action: r.action.parse().map_err(|_| {
-                    ApiError::Internal(anyhow::anyhow!("unexpected log action {:?}", r.action))
-                })?,
-                report_id: r.report_id,
-                prompt_id: r.prompt_id,
-                prompt_hash: r.prompt_hash.as_deref().map(hex),
-                reason: r.reason.as_deref().map(parse_reason).transpose()?,
-                subject: r.subject,
-                detail: r.detail,
-                admin: r.admin_id,
-                actor: crate::prompts::parse_enum(&r.actor)?,
-                admin_login: r.admin_login,
-                targets: r.targets,
-            })
+    rows.into_iter().map(LogRow::into_entry).collect()
+}
+
+/// The admin log, newest first, optionally before entry `before`.
+pub async fn admin_log(
+    state: &AppState,
+    q: &AdminLogQuery,
+) -> Result<Vec<AdminLogEntry>, ApiError> {
+    fetch_log(state, q, None).await
+}
+
+/// `(login, account deleted, the prompts its notice recorded)`.
+type TargetRow = (String, bool, Option<sqlx::types::Json<Vec<NoticePrompt>>>);
+
+/// One entry, with a page of the accounts it was against (alphabetical,
+/// after `q.after`) and each one's prompts as the decision found them.
+pub async fn admin_log_entry(
+    state: &AppState,
+    id: i64,
+    q: &AdminLogTargetQuery,
+) -> Result<AdminLogDetail, ApiError> {
+    let entry = fetch_log(state, &AdminLogQuery::default(), Some(id))
+        .await?
+        .pop()
+        .ok_or(ApiError::NotFound)?;
+    let limit = i64::from(q.limit.unwrap_or(100).clamp(1, 500));
+    let after = q.after.as_deref().filter(|s| !s.is_empty());
+    // One extra row says whether there's another page.
+    let mut rows: Vec<TargetRow> = sqlx::query_as(
+        "SELECT t.login, t.account_id IS NULL,
+                    (SELECT n.prompts FROM account_notices n
+                     WHERE n.log_id = t.log_id AND n.account_id = t.account_id
+                     ORDER BY n.id LIMIT 1)
+             FROM admin_log_targets t
+             WHERE t.log_id = $1 AND ($2::text IS NULL OR t.login > $2)
+             ORDER BY t.login LIMIT $3",
+    )
+    .bind(id)
+    .bind(after)
+    .bind(limit + 1)
+    .fetch_all(&state.pool)
+    .await?;
+    let next = if rows.len() > usize::try_from(limit).unwrap_or(usize::MAX) {
+        rows.pop();
+        rows.last().map(|r| r.0.clone())
+    } else {
+        None
+    };
+    // Which of the page's prompts are still on the server.
+    let ids: Vec<Uuid> = rows
+        .iter()
+        .filter_map(|r| r.2.as_ref())
+        .flat_map(|p| p.0.iter().map(|p| p.id))
+        .collect();
+    let existing: std::collections::HashSet<Uuid> = if ids.is_empty() {
+        Default::default()
+    } else {
+        sqlx::query_scalar("SELECT id FROM prompts WHERE id = ANY($1)")
+            .bind(&ids)
+            .fetch_all(&state.pool)
+            .await?
+            .into_iter()
+            .collect()
+    };
+    let targets = rows
+        .into_iter()
+        .map(|(login, account_deleted, prompts)| AdminLogTarget {
+            login,
+            account_deleted,
+            prompts: prompts
+                .map(|p| p.0)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| AdminLogPrompt {
+                    exists: existing.contains(&p.id),
+                    id: p.id,
+                    title: p.title,
+                    handle: p.handle,
+                })
+                .collect(),
         })
-        .collect()
+        .collect();
+    Ok(AdminLogDetail {
+        entry,
+        targets,
+        next,
+    })
 }
 
 /// Records which accounts an entry's decision was against, by login name as

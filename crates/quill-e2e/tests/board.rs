@@ -1307,7 +1307,21 @@ async fn admin_log_page_shows_who_and_whom() {
     let log = admin.get("/admin/log").await;
     assert!(log.body.contains(r#"href="/admin/log?admin=boss""#));
     assert!(log.body.contains(r#"href="/admin/log?account=alice""#));
-    assert!(log.body.contains(" UTC</td>"));
+    assert!(log.body.contains(" UTC</a>"));
+    // Each entry has a page listing every account and the prompts touched.
+    let start = log.body.find(r#"href="/admin/log/"#).unwrap() + r#"href=""#.len();
+    let href = &log.body[start..start + log.body[start..].find('"').unwrap()];
+    let entry = admin.get(href).await;
+    assert_eq!(entry.status, StatusCode::OK);
+    assert!(entry.body.contains("<h1>Tag deleted</h1>"));
+    assert!(entry.body.contains("1 account, alphabetically."));
+    assert!(entry.body.contains(">Lamps</a>"));
+    assert!(entry.body.contains(" by @ink_fox"));
+    assert_eq!(writer.get(href).await.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        admin.get("/admin/log/999999").await.status,
+        StatusCode::NOT_FOUND
+    );
     let mine = admin.get("/admin/log?admin=nobody").await;
     assert!(mine.body.contains("No entries match."));
     assert!(mine.body.contains("Show everything"));

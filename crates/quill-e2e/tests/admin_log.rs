@@ -9,8 +9,8 @@ use quill_e2e::TestServer;
 use quill_proto::{
     api::CreatePersona,
     board::{
-        AdminAction, AdminLogEntry, AdminLogQuery, CreatePrompt, CreateReport, LogActor, Maturity,
-        ReportReason, Resolution, TagPolicy, UpdateServerSettings,
+        AdminAction, AdminLogEntry, AdminLogQuery, AdminLogTargetQuery, CreatePrompt, CreateReport,
+        LogActor, Maturity, ReportReason, Resolution, TagPolicy, UpdateServerSettings,
     },
 };
 use uuid::Uuid;
@@ -180,5 +180,97 @@ async fn every_entry_names_who_acted_and_against_whom() {
         assert!(sqlx::query(sql).execute(&pool).await.is_err(), "{sql}");
     }
     pool.close().await;
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_decision_against_many_accounts_is_listed_in_full_a_page_at_a_time() {
+    let server = server!();
+    let boss = server.admin_account("boss").await.unwrap();
+    // Eight writers use one tag; the last posts it twice.
+    let names = ["ana", "ben", "cy", "dee", "eli", "fay", "gus", "hal"];
+    let mut writers = Vec::new();
+    for name in names {
+        let (client, persona) = writer(&server, name).await;
+        post(&client, persona, &format!("{name} 1"), &["genre:horror"]).await;
+        writers.push((client, persona));
+    }
+    let (hal, hp) = &writers[7];
+    let hal_2 = post(hal, *hp, "hal 2", &["genre:horror"]).await;
+    boss.admin_delete_tag("genre", "horror").await.unwrap();
+    // One prompt goes after the decision; one writer leaves.
+    hal.delete_prompt(hal_2).await.unwrap();
+    let pool = server.db().await.unwrap();
+    sqlx::query("DELETE FROM accounts WHERE login_name = 'cy'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+
+    // The listing names five and counts all eight.
+    let log = boss.admin_log(None, None).await.unwrap();
+    let entry = &log[0];
+    assert_eq!(entry.action, AdminAction::DeleteTag);
+    assert_eq!(entry.targets, ["ana", "ben", "cy", "dee", "eli"]);
+    assert_eq!(entry.target_count, 8);
+    // Filtering for an account puts it in the preview.
+    let for_hal = boss
+        .admin_log_filtered(&q(None, Some("hal")))
+        .await
+        .unwrap();
+    assert_eq!(for_hal[0].targets[0], "hal");
+    assert_eq!(for_hal[0].target_count, 8);
+
+    // The entry's page lists everyone, three at a time.
+    let mut seen = Vec::new();
+    let mut after = None;
+    loop {
+        let page = boss
+            .admin_log_entry(
+                entry.id,
+                &AdminLogTargetQuery {
+                    after: after.clone(),
+                    limit: Some(3),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.entry, *entry);
+        seen.extend(page.targets);
+        match page.next {
+            Some(next) => after = Some(next),
+            None => break,
+        }
+    }
+    let logins: Vec<_> = seen.iter().map(|t| t.login.as_str()).collect();
+    assert_eq!(logins, names);
+    let cy = &seen[2];
+    assert!(cy.account_deleted && cy.prompts.is_empty());
+    let ana = &seen[0];
+    assert!(!ana.account_deleted);
+    assert_eq!(ana.prompts.len(), 1);
+    assert_eq!(
+        (ana.prompts[0].title.as_str(), ana.prompts[0].exists),
+        ("ana 1", true)
+    );
+    let hal_prompts: Vec<_> = seen[7]
+        .prompts
+        .iter()
+        .map(|p| (p.title.as_str(), p.exists))
+        .collect();
+    assert_eq!(hal_prompts, [("hal 1", true), ("hal 2", false)]);
+
+    // Unknown entries, and writers, get nothing.
+    let none = boss
+        .admin_log_entry(999_999, &AdminLogTargetQuery::default())
+        .await
+        .unwrap_err();
+    assert_eq!(status(&none), 404);
+    let (ana, _) = &writers[0];
+    let denied = ana
+        .admin_log_entry(entry.id, &AdminLogTargetQuery::default())
+        .await
+        .unwrap_err();
+    assert_eq!(status(&denied), 403);
     server.stop().await.unwrap();
 }

@@ -12,8 +12,9 @@ use quill_proto::{
 };
 
 use crate::{
-    AdminLogView, AdminReportsView, AuthMode, AuthView, BoardView, ChipKind, Chrome, MessageView,
-    PersonasView, PromptFormView, PromptView, ReportView, SettingsView, admin_log_url,
+    AdminLogEntryView, AdminLogView, AdminReportsView, AuthMode, AuthView, BoardView, ChipKind,
+    Chrome, MessageView, PersonasView, PromptFormView, PromptView, ReportView, SettingsView,
+    admin_log_entry_url, admin_log_url,
     chips::chip_classes,
     layout::{card_list, csrf, error_notice, prompt_meta, tag_datalist, tag_list},
     maturity_label, prompt_url, reason_label, render, short_date, short_datetime, state_label,
@@ -758,14 +759,16 @@ fn log_actor(e: &AdminLogEntry) -> Element {
     }
 }
 
+/// The first few accounts an entry was against, each a filter link, and
+/// how many more (a link to the entry's full list).
 fn log_targets(e: &AdminLogEntry) -> Element {
-    const SHOWN: usize = 5;
     if e.targets.is_empty() {
         return rsx! { span { class: "hint", "—" } };
     }
-    let more = e.targets.len().saturating_sub(SHOWN);
+    let total = usize::try_from(e.target_count).unwrap_or(usize::MAX);
+    let more = total.saturating_sub(e.targets.len());
     rsx! {
-        for (i, login) in e.targets.iter().take(SHOWN).enumerate() {
+        for (i, login) in e.targets.iter().enumerate() {
             span { key: "{login}",
                 if i > 0 { ", " }
                 a { href: "{admin_log_url(None, Some(login), None)}",
@@ -773,7 +776,9 @@ fn log_targets(e: &AdminLogEntry) -> Element {
             }
         }
         if more > 0 {
-            span { class: "hint", " and {more} more" }
+            " "
+            a { class: "more", href: "{admin_log_entry_url(e.id, None)}",
+                "and {more} more" }
         }
     }
 }
@@ -826,7 +831,10 @@ pub fn admin_log_page(chrome: &Chrome, view: AdminLogView) -> String {
                         tbody {
                             for e in v.entries.iter() {
                                 tr { key: "{e.id}",
-                                    td { class: "nowrap", "{short_datetime(e.at)}" }
+                                    td { class: "nowrap",
+                                        a { href: "{admin_log_entry_url(e.id, None)}",
+                                            title: "Entry {e.id} in full", "{short_datetime(e.at)}" }
+                                    }
                                     td { {log_actor(e)} }
                                     td { "{action_label(e.action)}" }
                                     td { {log_subject(e)} }
@@ -840,6 +848,94 @@ pub fn admin_log_page(chrome: &Chrome, view: AdminLogView) -> String {
             }
             if let Some(older) = &v.older {
                 p { class: "pager", a { class: "btn btn-quiet", href: "{older}", "Older entries" } }
+            }
+        }
+    })
+}
+
+/// One log entry in full: every account it was against, a page at a time,
+/// with the prompts the decision touched.
+pub fn admin_log_entry_page(chrome: &Chrome, view: AdminLogEntryView) -> String {
+    let title = format!("Admin log entry {}", view.detail.entry.id);
+    render(title, chrome, move || {
+        let v = &view;
+        let e = &v.detail.entry;
+        let count = e.target_count;
+        let accounts = if count == 1 { "account" } else { "accounts" };
+        rsx! {
+            h1 { "{action_label(e.action)}" }
+            p { class: "lede",
+                "Entry {e.id} in the admin log. "
+                a { href: "/admin/log", "Back to the log" }
+            }
+            dl { class: "entry-facts",
+                dt { "When" } dd { "{short_datetime(e.at)}" }
+                dt { "Who" } dd { {log_actor(e)} }
+                dt { "Subject" } dd { {log_subject(e)} }
+                dt { "Details" } dd { {log_detail(e)} }
+            }
+            h2 { "Accounts affected" }
+            if count == 0 {
+                p { class: "empty", "None. This was a server-wide change." }
+            } else {
+                p { class: "hint",
+                    "{count} {accounts}, alphabetically. Each name links to everything done to that account."
+                }
+                if v.detail.targets.is_empty() {
+                    div { class: "empty", "No more accounts." }
+                } else {
+                    div { class: "table-scroll",
+                        table { class: "log",
+                            thead { tr { th { "Account" } th { "Prompts affected" } } }
+                            tbody {
+                                for t in v.detail.targets.iter() {
+                                    tr { key: "{t.login}",
+                                        td { class: "nowrap",
+                                            a { href: "{admin_log_url(None, Some(&t.login), None)}", "{t.login}" }
+                                            if t.account_deleted {
+                                                br {}
+                                                span { class: "hint", "Account deleted" }
+                                            }
+                                        }
+                                        td {
+                                            if t.prompts.is_empty() {
+                                                span { class: "hint",
+                                                    if t.account_deleted { "Unknown" } else { "—" }
+                                                }
+                                            }
+                                            if !t.prompts.is_empty() {
+                                                ul { class: "touched",
+                                                    for p in t.prompts.iter() {
+                                                        li { key: "{p.id}",
+                                                            if p.exists {
+                                                                a { href: "{prompt_url(p.id)}?show=1", "{p.title}" }
+                                                            } else {
+                                                                "{p.title} "
+                                                                span { class: "muted", "(since removed)" }
+                                                            }
+                                                            span { class: "muted", " by @{p.handle}" }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if v.detail.next.is_some() || v.paged {
+                    p { class: "pager",
+                        if v.paged {
+                            a { class: "btn btn-quiet", href: "{admin_log_entry_url(e.id, None)}", "First accounts" }
+                            " "
+                        }
+                        if let Some(next) = &v.detail.next {
+                            a { class: "btn btn-quiet", href: "{admin_log_entry_url(e.id, Some(next))}", "Next accounts" }
+                        }
+                    }
+                }
             }
         }
     })

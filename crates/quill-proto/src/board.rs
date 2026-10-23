@@ -567,10 +567,68 @@ pub struct AdminLogEntry {
     /// The acting administrator's login name, as it was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin_login: Option<String>,
-    /// Login names of the accounts the decision was against, as they were.
-    /// Empty for server-wide changes.
+    /// Login names of the accounts the decision was against, as they were:
+    /// the first [`LOG_TARGET_PREVIEW`] alphabetically (an account being
+    /// filtered for comes first). Empty for server-wide changes. The full
+    /// list is at `GET /admin/log/{id}`.
     #[serde(default)]
     pub targets: Vec<String>,
+    /// How many accounts the decision was against in all.
+    #[serde(default)]
+    pub target_count: u64,
+}
+
+/// How many affected accounts a log listing names per entry.
+pub const LOG_TARGET_PREVIEW: usize = 5;
+
+/// `GET /admin/log/{id}` query: a page of the entry's affected accounts.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminLogTargetQuery {
+    /// Accounts after this login name, alphabetically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+    /// Default 100, at most 500.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// One admin-log entry with a page of the accounts it was against.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminLogDetail {
+    pub entry: AdminLogEntry,
+    /// Alphabetical by login name.
+    pub targets: Vec<AdminLogTarget>,
+    /// Pass as `after` for the next page; absent on the last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<String>,
+}
+
+/// An account a decision was against, and its prompts the decision touched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminLogTarget {
+    /// Login name as it was.
+    pub login: String,
+    /// The account has since been deleted (its prompts are then unknown).
+    #[serde(default)]
+    pub account_deleted: bool,
+    /// As they were when the decision was made. Empty for report entries,
+    /// whose one prompt is the entry's own.
+    #[serde(default)]
+    pub prompts: Vec<AdminLogPrompt>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminLogPrompt {
+    pub id: Uuid,
+    pub title: String,
+    /// The persona it was posted as.
+    pub handle: String,
+    /// Still on the server (visible or not).
+    pub exists: bool,
 }
 
 string_enum! {

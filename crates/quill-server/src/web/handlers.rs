@@ -12,8 +12,8 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use quill_board_ui::{
-    AdminLogView, AdminReportsView, AuthMode, AuthView, BoardFilters, BoardView, Nav, PersonasView,
-    PromptFormView, PromptView, ReportView, SettingsView,
+    AdminLogEntryView, AdminLogView, AdminReportsView, AuthMode, AuthView, BoardFilters, BoardView,
+    Nav, PersonasView, PromptFormView, PromptView, ReportView, SettingsView,
 };
 use quill_proto::{
     api::{CreatePersona, Credentials},
@@ -1042,6 +1042,44 @@ pub async fn admin_log(
                 ),
             )
         }
+        Err(e) => error_page(&c, e),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct LogEntryParams {
+    after: Option<String>,
+}
+
+pub async fn admin_log_entry(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Path(id): Path<i64>,
+    Query(p): Query<LogEntryParams>,
+) -> Response {
+    let Some(s) = session else {
+        return redirect("/login");
+    };
+    if !s.is_admin {
+        return not_admin(&state, &s);
+    }
+    let c = chrome(&state, Some(&s), Nav::Admin, None);
+    let after = opt(&p.after).map(str::to_owned);
+    let query = quill_proto::board::AdminLogTargetQuery {
+        after: after.clone(),
+        limit: Some(100),
+    };
+    match reports::admin_log_entry(&state, id, &query).await {
+        Ok(detail) => html(
+            StatusCode::OK,
+            quill_board_ui::admin_log_entry_page(
+                &c,
+                AdminLogEntryView {
+                    detail,
+                    paged: after.is_some(),
+                },
+            ),
+        ),
         Err(e) => error_page(&c, e),
     }
 }

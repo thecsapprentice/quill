@@ -69,6 +69,7 @@ pub fn router() -> Router<AppState> {
         .route("/admin/reports", get(handlers::admin_reports))
         .route("/admin/reports/{id}/resolve", post(handlers::admin_resolve))
         .route("/admin/log", get(handlers::admin_log))
+        .route("/admin/log/{id}", get(handlers::admin_log_entry))
         .route("/admin/settings", get(settings::index))
         .route(
             "/admin/settings/tag-types",

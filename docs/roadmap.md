@@ -215,6 +215,14 @@ prompts and tags, readable only by that account.
   append-only and survive account deletion. Existing entries were
   backfilled from notices and reported prompts. API `GET
   /admin/log?admin=&account=`; CLI `quill admin log --admin --account`.
+- **Long lists of affected accounts.** One decision can reach thousands of
+  accounts (deleting a common tag), so log listings name the first five
+  (an account being filtered for comes first) and link "and N more" to the
+  entry's own page. That page lists every account alphabetically, 100 at a
+  time, each with the prompts the decision touched as they were then, and
+  whether each prompt is still on the server. Notices for such a decision
+  are written in batches. API `GET /admin/log/{id}?after=&limit=`; CLI
+  `quill admin log-entry ID --after`.
 
 Done when: end-to-end tests show each action reaching exactly the affected
 accounts, with nothing about reporters or administrators, and unread counts

@@ -170,6 +170,16 @@ pub enum AdminCommand {
         #[arg(long)]
         account: Option<String>,
     },
+    /// One admin-log entry with every account it was against and the
+    /// prompts it touched, a page at a time.
+    LogEntry {
+        id: i64,
+        /// Accounts after this login name.
+        #[arg(long)]
+        after: Option<String>,
+        #[arg(long)]
+        limit: Option<u32>,
+    },
     /// Create a tag type (namespace).
     Namespace {
         name: String,
@@ -602,8 +612,54 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     };
                     println!("{:>6}  {}  {:<12} {:<16} {what}", e.id, e.at, who, e.action);
                     if !e.targets.is_empty() {
-                        println!("{:>8}against: {}", "", e.targets.join(", "));
+                        let more = usize::try_from(e.target_count)
+                            .unwrap_or(usize::MAX)
+                            .saturating_sub(e.targets.len());
+                        let more = if more > 0 {
+                            format!(" and {more} more (quill admin log-entry {})", e.id)
+                        } else {
+                            String::new()
+                        };
+                        println!("{:>8}against: {}{more}", "", e.targets.join(", "));
                     }
+                }
+            })
+        }
+        AdminCommand::LogEntry { id, after, limit } => {
+            let detail = client
+                .admin_log_entry(
+                    id,
+                    &quill_proto::board::AdminLogTargetQuery { after, limit },
+                )
+                .await?;
+            ctx.print(&detail, |d| {
+                let e = &d.entry;
+                let who = match (e.actor, &e.admin_login) {
+                    (quill_proto::board::LogActor::Admin, Some(login)) => login.clone(),
+                    (actor, _) => format!("({actor})"),
+                };
+                println!("entry {}  {}  {who}  {}", e.id, e.at, e.action);
+                if let Some(subject) = &e.subject {
+                    println!("subject: {subject}");
+                }
+                if let Some(detail) = &e.detail {
+                    println!("detail:  {detail}");
+                }
+                println!("accounts affected: {}", e.target_count);
+                for t in &d.targets {
+                    let gone = if t.account_deleted {
+                        "  (account deleted)"
+                    } else {
+                        ""
+                    };
+                    println!("  {}{gone}", t.login);
+                    for p in &t.prompts {
+                        let gone = if p.exists { "" } else { "  (since removed)" };
+                        println!("      {}  {} by @{}{gone}", p.id, p.title, p.handle);
+                    }
+                }
+                if let Some(next) = &d.next {
+                    println!("more: quill admin log-entry {} --after {next}", e.id);
                 }
             })
         }

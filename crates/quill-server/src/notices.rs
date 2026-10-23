@@ -83,6 +83,7 @@ pub(crate) async fn affected_by_prompt(
 }
 
 /// Records one notice per affected account for admin-log entry `log_id`.
+/// Inserted in batches, since one action can reach thousands of accounts.
 pub(crate) async fn record(
     conn: &mut PgConnection,
     log_id: i64,
@@ -90,17 +91,21 @@ pub(crate) async fn record(
     fields: &NoticeFields,
     affected: &[Affected],
 ) -> Result<(), ApiError> {
+    const BATCH: usize = 1000;
     crate::reports::log_targets(conn, log_id, affected).await?;
-    for a in affected {
+    for chunk in affected.chunks(BATCH) {
+        let accounts: Vec<Uuid> = chunk.iter().map(|a| a.account).collect();
+        let prompts: Vec<DbJson<&Vec<NoticePrompt>>> =
+            chunk.iter().map(|a| DbJson(&a.prompts)).collect();
         sqlx::query(
             "INSERT INTO account_notices (account_id, log_id, kind, fields, prompts)
-             VALUES ($1, $2, $3, $4, $5)",
+             SELECT a, $3, $4, $5, p FROM unnest($1::uuid[], $2::jsonb[]) AS u(a, p)",
         )
-        .bind(a.account)
+        .bind(&accounts)
+        .bind(&prompts)
         .bind(log_id)
         .bind(kind.as_str())
         .bind(DbJson(fields))
-        .bind(DbJson(&a.prompts))
         .execute(&mut *conn)
         .await?;
     }

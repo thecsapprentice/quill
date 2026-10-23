@@ -352,6 +352,19 @@ impl Client {
         Self::json(self.authed(Method::GET, "/admin/log")?.query(query)).await
     }
 
+    /// One admin-log entry and a page of the accounts it was against.
+    pub async fn admin_log_entry(
+        &self,
+        id: i64,
+        query: &quill_proto::board::AdminLogTargetQuery,
+    ) -> Result<quill_proto::board::AdminLogDetail, CoreError> {
+        Self::json(
+            self.authed(Method::GET, &format!("/admin/log/{id}"))?
+                .query(query),
+        )
+        .await
+    }
+
     pub async fn admin_create_namespace(
         &self,
         body: &CreateNamespace,
