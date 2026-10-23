@@ -1,0 +1,29 @@
+{
+  "description": "MLS SignWithLabel (RFC 9420, 5.1.2) with Ed25519: the label is signed as \"MLS 1.0 \" + label. signContent is the TLS-encoded SignContent that is signed. Must reject: verifying any case under a different label.",
+  "valid": [
+    {
+      "content": "64657669636520636572746966696361746520636f6e74656e7473",
+      "label": "wr device cert v1",
+      "privateKeySeed": "0101010101010101010101010101010101010101010101010101010101010101",
+      "publicKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+      "signContent": "194d4c5320312e302077722064657669636520636572742076311b64657669636520636572746966696361746520636f6e74656e7473",
+      "signature": "ea71392eb98b3352aa620f652f7a050c6e4f5407affd15f7a606e683c736563767408ecdb424d1c49a7a8aa39a49576e99b5f950c5c31e1609cf9c315b2e2e03"
+    },
+    {
+      "content": "",
+      "label": "wr device revoke v1",
+      "privateKeySeed": "0101010101010101010101010101010101010101010101010101010101010101",
+      "publicKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+      "signContent": "1b4d4c5320312e3020777220646576696365207265766f6b6520763100",
+      "signature": "96b4d6e62f98ecf82c93ff501240941f439580e0b38d1c5b25d3967840f3e0beb842dbbca095a4e5c1e9f7facc2b84f7d5053068375fd476b69637beb33bbd04"
+    },
+    {
+      "content": "000102ff",
+      "label": "wr rejoin v1",
+      "privateKeySeed": "0101010101010101010101010101010101010101010101010101010101010101",
+      "publicKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+      "signContent": "144d4c5320312e302077722072656a6f696e20763104000102ff",
+      "signature": "3aed14deb8b1e6e6bc5c8155909fefe423006c41ac8eab77dc0002fba01f460eb86e31925ce9174eb9b02b521d94bbc5bf92654017bd0b13c0b45a6a53abca0b"
+    }
+  ]
+}

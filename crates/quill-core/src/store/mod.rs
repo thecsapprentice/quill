@@ -372,6 +372,16 @@ impl Store {
         })
     }
 
+    // ---- Raw access for the other client modules -------------------------
+
+    pub(crate) fn get(&self, table: Table, key: &[u8]) -> Result<Option<kv::Secret>, StoreError> {
+        self.kv.get(table, key)
+    }
+
+    pub(crate) fn apply(&self, ops: &[Op<'_>]) -> Result<(), StoreError> {
+        self.kv.apply(ops)
+    }
+
     // ---- Profile: the server and login token ----------------------------
 
     fn text(&self, table: Table, key: &[u8]) -> Result<Option<Zeroizing<String>>, StoreError> {

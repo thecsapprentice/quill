@@ -90,6 +90,9 @@ impl std::fmt::Debug for TokenResponse {
 pub struct Persona {
     pub id: Uuid,
     pub handle: String,
+    /// Permanent identifier, signed by device certificates.
+    #[serde(default)]
+    pub actor_uri: String,
     pub display_name: Option<String>,
     pub summary: Option<String>,
     #[serde(with = "time::serde::rfc3339")]

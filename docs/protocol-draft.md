@@ -53,6 +53,8 @@ An actor carries two kinds of keys that must never be confused: the **server-hel
 }
 ```
 
+- The actor URI is `https://{domain}/users/{handle}`; device certificates sign it, and handles are never renamed or reused.
+
 - `identityKey` is absent until the user's first client sets it up. A board-only account has none and cannot receive session requests.
 
 - `keyVersion` increases on identity-key rotation. Any change of identity key, at any version, triggers the safety-number warning on peers.
@@ -352,7 +354,8 @@ A JSON-over-HTTPS API under `/api/v1`, authenticated with bearer tokens, used by
 | Tags     | `GET /tags?namespace=&prefix=`, `POST /tags`                                                          | Autocomplete, user tags (policy-dependent)                                               |
 | Requests | `GET /prompts/{id}/requests?state=pending|held`                                                       | Author's queue; reading `held` releases them to `pending`                                |
 | Requests | `POST /requests`, `POST /requests/{id}/accept`, `POST /requests/{id}/reject`, `DELETE /requests/{id}` | Send, accept, decline, withdraw                                                          |
-| Keys     | `PUT /identity-key`, `GET/POST /devices`, `POST /devices/{id}/revoke`                                 | Identity key, device certificates, revocation                                            |
+| Keys     | `PUT /personas/{id}/identity-key`, `GET/POST /personas/{id}/devices`, `POST /personas/{id}/devices/{device}/revoke` | Per-persona identity key, device certificates, revocation (built in 2b)            |
+| Keys     | `GET /actors/{handle}/keys`                                                                           | Public: a persona's identity key, devices, certificates and revocations; no timestamps   |
 | Keys     | `POST /devices/{id}/key-packages`, `GET /key-packages/status`                                         | Upload KeyPackages, check remaining pool                                                 |
 | Keys     | `POST /actors/{actor}/key-packages/claim`                                                             | Local claim (remote claims go server-to-server)                                          |
 | Linking  | `POST /link`, `GET /link/{id}`, `POST /link/{id}/reply`                                               | Short-lived device-linking mailbox                                                       |

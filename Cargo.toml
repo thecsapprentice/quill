@@ -29,6 +29,7 @@ quill-mls-envelope = { path = "crates/quill-mls-envelope" }
 quill-core = { path = "crates/quill-core" }
 quill-server = { path = "crates/quill-server" }
 quill-board-ui = { path = "crates/quill-board-ui" }
+quill-certs = { path = "crates/quill-certs" }
 
 # Shared third-party dependencies
 anyhow = "1"
@@ -40,6 +41,10 @@ chacha20poly1305 = "0.11"
 clap = { version = "4", features = ["derive", "env"] }
 # Server-side rendering only: no web, desktop or fullstack features.
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals"] }
+# Same majors as OpenMLS 0.9 uses, so 2c adds no duplicates.
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize"] }
+# "mls": minimal length encodings only, 30-bit lengths (RFC 9420).
+tls_codec = { version = "0.5", features = ["derive", "std", "mls"] }
 dioxus-ssr = "=0.7.10"
 directories = "6"
 getrandom = "0.4"
@@ -62,7 +67,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 unicode-normalization = "0.1"
 url = { version = "2", features = ["serde"] }
-uuid = { version = "1", features = ["v7", "serde"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 zeroize = { version = "1", features = ["derive", "serde"] }
 
 [profile.release]

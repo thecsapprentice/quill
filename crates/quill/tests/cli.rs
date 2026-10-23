@@ -100,3 +100,68 @@ async fn the_cli_keeps_its_login_in_the_encrypted_store() {
     assert!(!ok && err.contains("at least 12"), "{err}");
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_cli_publishes_and_checks_persona_keys() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let alice = tempfile::tempdir().unwrap();
+    let bob = tempfile::tempdir().unwrap();
+    let url = server.url();
+    let as_alice = |args: &[&str]| quill(alice.path(), PASSPHRASE, args);
+    let as_bob = |args: &[&str]| quill(bob.path(), PASSPHRASE, args);
+    assert!(as_alice(&["server", &url]).0);
+    assert!(as_bob(&["server", &url]).0);
+    assert!(as_alice(&["register", "cli_alice"]).0);
+    assert!(as_alice(&["persona", "new", "ink_fox"]).0);
+
+    let (ok, out, err) = as_alice(&["--json", "keys", "init", "--as", "@ink_fox"]);
+    assert!(ok, "{err}");
+    let init: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(init["identityKeyVersion"], 1);
+    let fingerprint = init["fingerprint"].as_str().unwrap().to_owned();
+    let device = init["device"].as_str().unwrap().to_owned();
+
+    // Bob (not even signed in) checks and pins Alice's persona's key.
+    let (ok, out, err) = as_bob(&["keys", "show", "ink_fox"]);
+    assert!(ok, "{err}");
+    assert!(out.contains(&fingerprint), "{out}");
+    assert!(out.contains("first time seen: pinned"), "{out}");
+    assert!(out.contains(&format!("{device}  valid")), "{out}");
+    let (ok, out, _) = as_bob(&["--json", "keys", "show", "ink_fox"]);
+    assert!(ok);
+    let shown: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(shown["pin"], "matches");
+
+    let (ok, out, _) = as_alice(&["device", "list", "--as", "ink_fox"]);
+    assert!(ok);
+    assert!(out.contains("(this device)"), "{out}");
+
+    // Replacing the key from a new store: refused unless asked for, and
+    // then Bob is warned until he accepts the change.
+    let other = tempfile::tempdir().unwrap();
+    let as_other = |args: &[&str]| quill(other.path(), PASSPHRASE, args);
+    assert!(as_other(&["server", &url]).0);
+    assert!(as_other(&["login", "cli_alice"]).0);
+    let (ok, _, err) = as_other(&["keys", "init", "--as", "ink_fox"]);
+    assert!(!ok && err.contains("--new-identity"), "{err}");
+    assert!(as_other(&["keys", "init", "--as", "ink_fox", "--new-identity"]).0);
+    let (ok, out, err) = as_bob(&["keys", "show", "ink_fox"]);
+    assert!(
+        !ok && out.contains("CHANGED") && err.contains("changed"),
+        "{out}{err}"
+    );
+    assert!(as_bob(&["keys", "show", "ink_fox", "--accept-change"]).0);
+    assert!(as_bob(&["keys", "show", "ink_fox"]).0);
+
+    // The new store revokes the old device.
+    let (ok, out, err) = as_other(&[
+        "device", "revoke", &device, "--as", "ink_fox", "--reason", "lost",
+    ]);
+    assert!(ok, "{err}");
+    assert!(out.contains("revoked"), "{out}");
+    let (_, out, _) = as_bob(&["keys", "show", "ink_fox"]);
+    assert!(out.contains(&format!("{device}  revoked (lost)")), "{out}");
+    server.stop().await.unwrap();
+}

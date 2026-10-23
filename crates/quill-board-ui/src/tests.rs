@@ -153,6 +153,7 @@ fn forms_render_with_values_and_errors() {
     let persona = Persona {
         id: Uuid::nil(),
         handle: "ink_fox".into(),
+        actor_uri: "https://localhost/users/ink_fox".into(),
         display_name: None,
         summary: None,
         created_at: datetime!(2026-10-22 12:00 UTC),

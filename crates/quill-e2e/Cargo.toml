@@ -20,6 +20,8 @@ tokio.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+ed25519-dalek.workspace = true
+quill-certs = { workspace = true, features = ["sign"] }
 reqwest = { workspace = true, features = ["rustls"] }
 url.workspace = true
 serde_json.workspace = true

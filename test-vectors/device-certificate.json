@@ -1,0 +1,210 @@
+{
+  "description": "DeviceCertificate (protocol draft, section 6): TLS encoding, SignWithLabel(identity key, \"wr device cert v1\", DeviceCertificateTBS). Times are milliseconds since the Unix epoch; notAfter 0 means no expiry. A verifier also allows notBefore up to 10 minutes ahead of now for clock skew.",
+  "deviceKeySeed": "0202020202020202020202020202020202020202020202020202020202020202",
+  "identityKeySeed": "0101010101010101010101010101010101010101010101010101010101010101",
+  "invalid": [
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000100000001a1660eac00000000000000000040403a144fc537c27a098baa169257502c2f5a31de4091cfab240cda24272f27bcff2d8212c4e038a365cb8307a2d119e4071d9fbea67262841e33c145242a62fb07",
+      "error": "bad-signature",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "name": "wrong label"
+    },
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000100000001a1660eac00000000000000000040407ea747ca6a76d0a0cfb1a9679b5faad0f007284887877ac6378c6d332684a2c505bd055bddb063781d5eb41bb9c52d7197338c7dd8209c9b73e0d82da1e6580b",
+      "error": "bad-signature",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "name": "signed by another identity key"
+    },
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000100000001a1660eac0000000000000000004040a2f292deab2dc7a420ac446e2690f38d027c8bf3cfa3c5ac5a01af267639c25cb2a0a9a03d9c936d5c805c5bcc96eb7186f20b00bb374a8801232aa84c14c403",
+      "error": "wrong-device-key",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "name": "device key differs from the leaf's key"
+    },
+    {
+      "certificate": "2368747470733a2f2f777269746572732e6578616d706c652f75736572732f6f74686572208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000100000001a1660eac00000000000000000040404b5b360b2b1cb1d14cb63b07b3169ab91adb1c83cdd064c38390d8feb11d422ce0fa766df7dab519a31952c831fd4062f94de357d884b27c1f52ce52850ef909",
+      "error": "wrong-actor",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "name": "for another actor"
+    },
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000100000001a1660eac0000000000000000004040a2f292deab2dc7a420ac446e2690f38d027c8bf3cfa3c5ac5a01af267639c25cb2a0a9a03d9c936d5c805c5bcc96eb7186f20b00bb374a8801232aa84c14c403",
+      "error": "wrong-key-version",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 2,
+        "now": 1792746000000
+      },
+      "name": "wrong identity key version"
+    },
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000100000001a1660eac00000001a2008d740040401308e36a1b925c7d101741d6b538a4e956df58b824db85613170c84ba8648b84ddfc69e2b0ca487abb342d740dd40d35690f46a2640fd8739f4025ba24219f0d",
+      "error": "expired",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1795305600000
+      },
+      "name": "expired"
+    },
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000100000001a16d236a800000000000000000404039028bd8f2ebf549363417202c9ab47c3a9adb27000d0f8aa7a9c2d6eff1385a6200018ac6f78bd119c06e8f83da867b50f2c4b4eaa97d086bbe22f4ae572c0f",
+      "error": "not-yet-valid",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "name": "starts in the future"
+    },
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000102000001a1660eac00000000000000000040404d9d22495afcf3c540f492f745891a3b0eddd109150e3787faaec932efa07912d1e3995c79643599909afb6fe460bb74e17309a7eec5e9c15b896b44d078f50a",
+      "error": "unknown-flags",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "name": "unknown flag bits"
+    },
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000100000001a1660eac0000000000000000004040a2f292deab2dc7a420ac446e2690f38d027c8bf3cfa3c5ac5a01af267639c25cb2a0a9a03d9c936d5c805c5bcc96eb7186f20b00bb374a8801232aa84c14c4",
+      "error": "malformed",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "name": "truncated"
+    },
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000100000001a1660eac0000000000000000004040a2f292deab2dc7a420ac446e2690f38d027c8bf3cfa3c5ac5a01af267639c25cb2a0a9a03d9c936d5c805c5bcc96eb7186f20b00bb374a8801232aa84c14c40300",
+      "error": "malformed",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "name": "trailing bytes"
+    },
+    {
+      "certificate": "402568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000100000001a1660eac0000000000000000004040a2f292deab2dc7a420ac446e2690f38d027c8bf3cfa3c5ac5a01af267639c25cb2a0a9a03d9c936d5c805c5bcc96eb7186f20b00bb374a8801232aa84c14c403",
+      "error": "malformed",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "name": "non-minimal length encoding"
+    },
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f782001000000000000000000000000000000000000000000000000000000000000000000000100000001a1660eac000000000000000000404097f6b23655cdb4117ed6181ab7e0e965f47a96936bf4f8b285e6c15a0f7f8c83a4d8a9f1d807adb27b8967db8b7a36605050bbb577b8c13c45e1bb3d5b3f0904",
+      "error": "bad-key",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "name": "small-order device key"
+    }
+  ],
+  "valid": [
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000100000001a1660eac0000000000000000004040a2f292deab2dc7a420ac446e2690f38d027c8bf3cfa3c5ac5a01af267639c25cb2a0a9a03d9c936d5c805c5bcc96eb7186f20b00bb374a8801232aa84c14c403",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "fields": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKeyVersion": 1,
+        "limited": false,
+        "notAfter": 0,
+        "notBefore": 1792713600000
+      },
+      "name": "full device"
+    },
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000101000001a1660eac000000000000000000404083cf9e8eccffecbf8275170bf5da49d8931c914d4a6120b1bcf2568b63c791560fc97748cc44d00c319ff65e786fb2468a29ff12585129916b26782d16ec9e02",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "fields": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKeyVersion": 1,
+        "limited": true,
+        "notAfter": 0,
+        "notBefore": 1792713600000
+      },
+      "name": "limited device"
+    },
+    {
+      "certificate": "2568747470733a2f2f777269746572732e6578616d706c652f75736572732f696e6b5f666f78208139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000000100000001a1660eac00000001a2008d740040401308e36a1b925c7d101741d6b538a4e956df58b824db85613170c84ba8648b84ddfc69e2b0ca487abb342d740dd40d35690f46a2640fd8739f4025ba24219f0d",
+      "expected": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKey": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "identityKeyVersion": 1,
+        "now": 1792746000000
+      },
+      "fields": {
+        "actorUri": "https://writers.example/users/ink_fox",
+        "deviceKey": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "identityKeyVersion": 1,
+        "limited": false,
+        "notAfter": 1795305600000,
+        "notBefore": 1792713600000
+      },
+      "name": "with an expiry"
+    }
+  ]
+}

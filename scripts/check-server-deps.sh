@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Crates the server binary links.
-SERVER_CRATES=(quill-server quill-proto quill-mls-envelope quill-board-ui)
+SERVER_CRATES=(quill-server quill-proto quill-mls-envelope quill-board-ui quill-certs)
 
 # Banned crate names (exact match, or prefix when ending in '*').
 BANNED=(

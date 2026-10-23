@@ -9,11 +9,13 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+quill-certs = { workspace = true, features = ["sign"] }
 quill-proto.workspace = true
 
 argon2.workspace = true
 chacha20poly1305 = { workspace = true, features = ["zeroize"] }
 directories.workspace = true
+ed25519-dalek.workspace = true
 getrandom.workspace = true
 hkdf.workspace = true
 keyring-core.workspace = true
