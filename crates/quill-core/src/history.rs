@@ -12,18 +12,30 @@
 //! and the group id:
 //! - `0x00` + log position: a note, by the position of its `Create`;
 //! - `0x01` + note id: the position of the note's `Create`;
-//! - `0x02` + device key: the `authorSeq` values seen from that device.
+//! - `0x02` + device key: the `authorSeq` values seen from that device;
+//! - `0x03` + channel name: a channel and every description it has had;
+//! - `0x04` + channel name: the last note position this device showed in
+//!   it (unread counts are kept here only, never sent anywhere).
+//!
+//! Channels (2h) live only inside the encrypted activities. `story` and
+//! `planning` always exist; naming a channel (`Create` of a `wr:Channel`)
+//! or writing in one makes it exist. A malformed channel name files the
+//! note under `story`.
 
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
+use quill_proto::validate::{self, DEFAULT_CHANNELS};
+
 use crate::{CoreError, Store, activity::Activity, hlc::Hlc, mls::Provider, store::kv::Table};
 
 const NOTE: u8 = 0;
 const INDEX: u8 = 1;
 const SEEN: u8 = 2;
+const CHANNEL: u8 = 3;
+const SHOWN: u8 = 4;
 
 fn err(msg: impl Into<String>) -> CoreError {
     CoreError::Keys(msg.into())
@@ -77,6 +89,9 @@ pub struct Message {
     /// Sent from this device.
     #[serde(default)]
     pub own: bool,
+    /// The id of the note it answers.
+    #[serde(default)]
+    pub in_reply_to: Option<String>,
 }
 
 impl Message {
@@ -118,12 +133,22 @@ pub fn record(p: &Provider<'_>, gid: &[u8], from: From<'_>, a: &Activity) -> Res
         seen.insert(n);
         put(p, &k, &seen)?;
     }
-    let channel = a.channel.clone().unwrap_or_else(|| "story".into());
+    // A malformed name can't make a channel: the note goes to `story`.
+    let channel = a
+        .channel
+        .as_deref()
+        .and_then(|c| validate::channel(c).ok())
+        .unwrap_or(DEFAULT_CHANNELS[0])
+        .to_owned();
+    if let Some(c) = a.channel_object() {
+        return describe(p, gid, from, a, c);
+    }
     match a.kind.as_str() {
         "Create" => {
             let Some(note) = a.note() else {
                 return Ok(());
             };
+            name_channel(p, gid, &channel)?;
             let index = key(gid, INDEX, note.id.as_bytes());
             if p.get(Table::Messages, &index)?.is_some() {
                 // A note id seen before: the first one stands.
@@ -149,6 +174,7 @@ pub fn record(p: &Provider<'_>, gid: &[u8], from: From<'_>, a: &Activity) -> Res
                     }],
                     deleted: false,
                     own: from.own,
+                    in_reply_to: note.in_reply_to.clone(),
                 },
             )?;
             put(p, &index, &from.seq)
@@ -187,6 +213,130 @@ pub fn record(p: &Provider<'_>, gid: &[u8], from: From<'_>, a: &Activity) -> Res
         }
         _ => Ok(()),
     }
+}
+
+/// A channel as this device knows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelInfo {
+    pub name: String,
+    /// Its current description.
+    #[serde(default)]
+    pub summary: Option<String>,
+    /// Every description, in log order.
+    #[serde(default)]
+    pub versions: Vec<Version>,
+    /// Notes in it, and how many this device hasn't shown yet (filled in
+    /// by [`channels`]).
+    #[serde(default, skip)]
+    pub notes: usize,
+    #[serde(default, skip)]
+    pub unseen: usize,
+}
+
+/// Notes that a channel exists (writing in it is enough).
+fn name_channel(p: &Provider<'_>, gid: &[u8], name: &str) -> Result<(), CoreError> {
+    let k = key(gid, CHANNEL, name.as_bytes());
+    if p.get(Table::Messages, &k)?.is_none() {
+        put(
+            p,
+            &k,
+            &ChannelInfo {
+                name: name.to_owned(),
+                summary: None,
+                versions: Vec::new(),
+                notes: 0,
+                unseen: 0,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+/// A channel named or described. Either writer may describe any channel;
+/// every description is kept.
+fn describe(
+    p: &Provider<'_>,
+    gid: &[u8],
+    from: From<'_>,
+    a: &Activity,
+    c: &crate::activity::Channel,
+) -> Result<(), CoreError> {
+    if !matches!(a.kind.as_str(), "Create" | "Update") || validate::channel(&c.name).is_err() {
+        return Ok(());
+    }
+    name_channel(p, gid, &c.name)?;
+    let k = key(gid, CHANNEL, c.name.as_bytes());
+    let mut info: ChannelInfo = get(p, &k)?.unwrap_or_else(|| ChannelInfo {
+        name: c.name.clone(),
+        summary: None,
+        versions: Vec::new(),
+        notes: 0,
+        unseen: 0,
+    });
+    info.summary.clone_from(&c.summary);
+    info.versions.push(Version {
+        seq: from.seq,
+        hlc: a.clock().to_string(),
+        content: c.summary.clone(),
+    });
+    put(p, &k, &info)
+}
+
+/// A session's channels: `story` and `planning`, then the rest by name,
+/// with how many notes each has and how many this device hasn't shown.
+pub fn channels(store: &Store, gid: &[u8]) -> Result<Vec<ChannelInfo>, CoreError> {
+    let p = Provider::new(store);
+    let mut out: Vec<ChannelInfo> = Vec::new();
+    for name in DEFAULT_CHANNELS {
+        out.push(
+            get(&p, &key(gid, CHANNEL, name.as_bytes()))?.unwrap_or_else(|| ChannelInfo {
+                name: name.to_owned(),
+                summary: None,
+                versions: Vec::new(),
+                notes: 0,
+                unseen: 0,
+            }),
+        );
+    }
+    for (_, v) in store.scan(Table::Messages, &prefix(gid, CHANNEL))? {
+        let info: ChannelInfo =
+            serde_json::from_slice(&v).map_err(|_| err("a stored channel is damaged"))?;
+        if !DEFAULT_CHANNELS.contains(&info.name.as_str()) {
+            out.push(info);
+        }
+    }
+    let notes = messages(store, gid)?;
+    for c in &mut out {
+        let shown: u64 = get(&p, &key(gid, SHOWN, c.name.as_bytes()))?.unwrap_or(0);
+        let here = notes.iter().filter(|m| m.channel == c.name);
+        c.notes = here.clone().count();
+        c.unseen = here.filter(|m| !m.own && m.seq > shown).count();
+    }
+    Ok(out)
+}
+
+/// Notes that this device has shown `channel`'s notes up to `seq`.
+pub fn mark_shown(store: &Store, gid: &[u8], channel: &str, seq: u64) -> Result<(), CoreError> {
+    let p = Provider::new(store);
+    p.atomically(|p| {
+        let k = key(gid, SHOWN, channel.as_bytes());
+        let shown: u64 = get(p, &k)?.unwrap_or(0);
+        if seq > shown {
+            put(p, &k, &seq)
+        } else {
+            Ok(())
+        }
+    })
+}
+
+/// Where the note `id` is: its position and channel, if this device has it.
+pub fn find_note(store: &Store, gid: &[u8], id: &str) -> Result<Option<(u64, String)>, CoreError> {
+    let p = Provider::new(store);
+    let Some(seq) = get::<u64>(&p, &key(gid, INDEX, id.as_bytes()))? else {
+        return Ok(None);
+    };
+    Ok(message(store, gid, seq)?.map(|m| (seq, m.channel)))
 }
 
 /// The note created at `seq`.
@@ -328,6 +478,70 @@ mod tests {
         copy.object = first.object.clone();
         rec(&store, from(8, "alice", "A"), &copy);
         assert_eq!(count(&store, GID).unwrap(), 2);
+    }
+
+    #[test]
+    fn channels_are_named_described_and_counted() {
+        let store = Store::in_memory();
+        let names = |store: &Store| -> Vec<String> {
+            channels(store, GID)
+                .unwrap()
+                .into_iter()
+                .map(|c| c.name)
+                .collect()
+        };
+        assert_eq!(names(&store), ["story", "planning"]);
+        rec(
+            &store,
+            from(1, "alice", "A"),
+            &Activity::channel("Create", "world", Some("Places"), h(1), 1),
+        );
+        rec(
+            &store,
+            from(2, "bob", "B"),
+            &Activity::channel("Update", "world", Some("Places and people"), h(2), 1),
+        );
+        let note = Activity::create("The lighthouse.", "world", h(3), 3);
+        rec(&store, from(3, "bob", "B"), &note);
+        // Writing in a channel names it; a malformed name files under story.
+        rec(
+            &store,
+            from(4, "bob", "B"),
+            &Activity::create("Act two.", "act-2", h(4), 4).replying_to(note.target()),
+        );
+        rec(
+            &store,
+            from(5, "bob", "B"),
+            &Activity::create("Bad name.", "Not A Name", h(5), 5),
+        );
+        rec(
+            &store,
+            from(6, "bob", "B"),
+            &Activity::channel("Create", "no good", Some("x"), h(6), 6),
+        );
+        assert_eq!(names(&store), ["story", "planning", "act-2", "world"]);
+        let all = channels(&store, GID).unwrap();
+        let world = all.iter().find(|c| c.name == "world").unwrap();
+        assert_eq!(world.summary.as_deref(), Some("Places and people"));
+        assert_eq!(world.versions.len(), 2);
+        assert_eq!((world.notes, world.unseen), (1, 1));
+        assert_eq!(all[0].notes, 1, "the badly named note is in story");
+
+        // The reply points across channels.
+        let reply = message(&store, GID, 4).unwrap().unwrap();
+        let target = reply.in_reply_to.unwrap();
+        assert_eq!(
+            find_note(&store, GID, &target).unwrap(),
+            Some((3, "world".into()))
+        );
+
+        mark_shown(&store, GID, "world", 3).unwrap();
+        let world = channels(&store, GID)
+            .unwrap()
+            .into_iter()
+            .find(|c| c.name == "world")
+            .unwrap();
+        assert_eq!(world.unseen, 0);
     }
 
     #[test]
