@@ -9,6 +9,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+thiserror.workspace = true
+tls_codec.workspace = true
 
 [lints]
 workspace = true

@@ -121,6 +121,9 @@ async fn the_cli_publishes_and_checks_persona_keys() {
     let init: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(init["identityKeyVersion"], 1);
     let fingerprint = init["fingerprint"].as_str().unwrap().to_owned();
+    assert_eq!(init["keyPackages"], 20);
+    let (ok, out, _) = as_alice(&["keys", "status", "--as", "ink_fox"]);
+    assert!(ok && out.contains("KeyPackages waiting: 20"), "{out}");
     let device = init["device"].as_str().unwrap().to_owned();
 
     // Bob (not even signed in) checks and pins Alice's persona's key.
@@ -133,6 +136,17 @@ async fn the_cli_publishes_and_checks_persona_keys() {
     assert!(ok);
     let shown: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(shown["pin"], "matches");
+
+    // Bob signs up and claims one of Alice's packages, checking it.
+    assert!(as_bob(&["register", "cli_bob"]).0);
+    let (ok, out, err) = as_bob(&["keys", "claim", "ink_fox"]);
+    assert!(ok, "{err}");
+    assert!(
+        out.contains(&format!("{device}  KeyPackage checks out")),
+        "{out}"
+    );
+    let (_, out, _) = as_alice(&["keys", "status", "--as", "ink_fox"]);
+    assert!(out.contains("KeyPackages waiting: 19"), "{out}");
 
     let (ok, out, _) = as_alice(&["device", "list", "--as", "ink_fox"]);
     assert!(ok);

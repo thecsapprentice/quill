@@ -22,6 +22,23 @@ pub enum KeysCommand {
         #[arg(long)]
         new_identity: bool,
     },
+    /// Top up this device's pool of KeyPackages on the server, so others
+    /// can add it to sessions while it's offline.
+    Publish {
+        #[arg(long = "as", value_name = "HANDLE")]
+        persona: String,
+        /// One-time packages to keep waiting.
+        #[arg(long, default_value_t = keys::POOL_TARGET)]
+        count: u32,
+    },
+    /// How many KeyPackages this device has waiting.
+    Status {
+        #[arg(long = "as", value_name = "HANDLE")]
+        persona: String,
+    },
+    /// For testing: claim and check one KeyPackage per device of a persona.
+    /// Uses up one of each device's packages.
+    Claim { handle: String },
     /// Fetch and check any persona's published keys.
     Show {
         handle: String,
@@ -48,6 +65,13 @@ pub enum DeviceCommand {
         #[arg(long, default_value = "unspecified")]
         reason: RevocationReason,
     },
+}
+
+/// A date for display, from seconds since the Unix epoch.
+fn date(secs: u64) -> String {
+    time::OffsetDateTime::from_unix_timestamp(i64::try_from(secs).unwrap_or(0))
+        .map(|t| t.date().to_string())
+        .unwrap_or_else(|_| secs.to_string())
 }
 
 fn bare(handle: &str) -> &str {
@@ -121,6 +145,7 @@ pub async fn keys(ctx: &Ctx, cmd: KeysCommand) -> Result<()> {
             let p = own_persona(ctx, &persona).await?;
             let client = ctx.client()?;
             let out = keys::init(&ctx.store, &client, &p, new_identity).await?;
+            let pool = keys::publish(&ctx.store, &client, &p, keys::POOL_TARGET).await?;
             let body = json!({
                 "persona": p.handle,
                 "fingerprint": out.fingerprint,
@@ -128,6 +153,7 @@ pub async fn keys(ctx: &Ctx, cmd: KeysCommand) -> Result<()> {
                 "newIdentity": out.new_identity,
                 "device": out.device,
                 "newDevice": out.new_device,
+                "keyPackages": pool.available,
             });
             ctx.print(&body, |_| {
                 println!("@{}", p.handle);
@@ -142,12 +168,84 @@ pub async fn keys(ctx: &Ctx, cmd: KeysCommand) -> Result<()> {
                     out.device,
                     if out.new_device { ", certified now" } else { "" }
                 );
+                println!("KeyPackages waiting: {}", pool.available);
                 if out.new_identity && out.identity_version > 1 {
                     println!(
                         "The identity key changed: this persona's other devices need linking again, and other writers will see a warning."
                     );
                 }
             })
+        }
+        KeysCommand::Publish { persona, count } => {
+            let p = own_persona(ctx, &persona).await?;
+            let out = keys::publish(&ctx.store, &ctx.client()?, &p, count).await?;
+            let body = json!({
+                "uploaded": out.uploaded,
+                "lastResortRenewed": out.last_resort_renewed,
+                "available": out.available,
+                "lastResortUntil": out.last_resort_until,
+            });
+            ctx.print(&body, |_| {
+                println!(
+                    "published {} KeyPackage(s){}; {} waiting",
+                    out.uploaded,
+                    if out.last_resort_renewed {
+                        " and a new last-resort one"
+                    } else {
+                        ""
+                    },
+                    out.available
+                );
+            })
+        }
+        KeysCommand::Status { persona } => {
+            let p = own_persona(ctx, &persona).await?;
+            let device = keys::load_device(&ctx.store, p.id)?
+                .and_then(|d| d.id)
+                .with_context(|| format!("this device has no keys for @{}", p.handle))?;
+            let status = ctx.client()?.key_package_status(p.id, device).await?;
+            ctx.print(&status, |s| {
+                println!("KeyPackages waiting: {}", s.available);
+                match s.last_resort_until {
+                    Some(t) => println!("last-resort package until {}", date(t)),
+                    None => println!(
+                        "no last-resort package: run `quill keys publish --as {}`",
+                        p.handle
+                    ),
+                }
+            })
+        }
+        KeysCommand::Claim { handle } => {
+            let handle = bare(&handle).to_owned();
+            let client = ctx.client()?;
+            let domain = client.instance().await?.domain;
+            let uri = actor_uri(&domain, &handle);
+            let claim = keys::claim(&ctx.store, &client, &handle, &uri).await?;
+            let body = json!({
+                "accepted": claim.packages.iter().map(|p| json!({
+                    "device": p.device, "lastResort": p.last_resort,
+                })).collect::<Vec<_>>(),
+                "refused": claim.refused.iter().map(|(d, why)| json!({
+                    "device": d, "reason": why,
+                })).collect::<Vec<_>>(),
+                "missing": claim.missing,
+            });
+            ctx.print(&body, |_| {
+                for p in &claim.packages {
+                    let lr = if p.last_resort { " (last resort)" } else { "" };
+                    println!("  {}  KeyPackage checks out{lr}", p.device);
+                }
+                for (d, why) in &claim.refused {
+                    println!("  {d}  REFUSED: {why}");
+                }
+                for d in &claim.missing {
+                    println!("  {d}  no KeyPackage available");
+                }
+            })?;
+            if !claim.refused.is_empty() {
+                bail!("some KeyPackages failed their checks");
+            }
+            Ok(())
         }
         KeysCommand::Show {
             handle,

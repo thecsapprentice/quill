@@ -19,12 +19,16 @@ ed25519-dalek.workspace = true
 getrandom.workspace = true
 hkdf.workspace = true
 keyring-core.workspace = true
+openmls.workspace = true
+openmls_rust_crypto.workspace = true
+openmls_traits.workspace = true
 redb.workspace = true
 sha2.workspace = true
 reqwest = { workspace = true, features = ["rustls"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tls_codec.workspace = true
 url.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
@@ -42,6 +46,8 @@ apple-native-keyring-store = { version = "1", features = ["keychain"] }
 zbus-secret-service-keyring-store = { version = "1", features = ["rt-async-io-crypto-rust"] }
 
 [dev-dependencies]
+# Cross-checks the server's KeyPackage parser against real packages.
+quill-mls-envelope.workspace = true
 tempfile = "3"
 
 [lints]

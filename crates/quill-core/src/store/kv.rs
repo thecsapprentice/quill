@@ -29,15 +29,18 @@ pub enum Table {
     Devices,
     /// Identity keys first seen for other personas, by actor URI.
     Pins,
+    /// OpenMLS's state (key material, groups), by its own keys.
+    Mls,
 }
 
 impl Table {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Meta,
         Self::Profile,
         Self::Identities,
         Self::Devices,
         Self::Pins,
+        Self::Mls,
     ];
 
     pub fn name(self) -> &'static str {
@@ -47,6 +50,7 @@ impl Table {
             Self::Identities => "identities",
             Self::Devices => "devices",
             Self::Pins => "pins",
+            Self::Mls => "mls",
         }
     }
 }

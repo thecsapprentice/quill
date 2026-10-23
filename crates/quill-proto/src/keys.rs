@@ -83,3 +83,49 @@ pub struct PersonaKeys {
     #[serde(default)]
     pub devices: Vec<DeviceInfo>,
 }
+
+/// `POST /personas/{id}/devices/{device}/key-packages`: KeyPackages as
+/// `MLSMessage`s, base64url.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadKeyPackages {
+    /// One-time packages, added to the pool.
+    #[serde(default)]
+    pub key_packages: Vec<String>,
+    /// A last-resort package, replacing the device's current one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_resort: Option<String>,
+}
+
+/// What's left in a device's pool.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyPackageStatus {
+    /// Unexpired one-time packages.
+    pub available: u32,
+    /// When the last-resort package expires (seconds since the Unix epoch),
+    /// if there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_resort_until: Option<u64>,
+}
+
+/// One device's package in a claim.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimedKeyPackage {
+    pub device: Uuid,
+    /// `MLSMessage` holding a KeyPackage, base64url.
+    pub key_package: String,
+    /// The device's last-resort package (its one-time ones ran out).
+    pub last_resort: bool,
+}
+
+/// `POST /actors/{handle}/key-packages/claim`: one package per current
+/// device of the persona.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyPackageClaim {
+    pub actor_uri: String,
+    pub handle: String,
+    pub packages: Vec<ClaimedKeyPackage>,
+}
