@@ -228,6 +228,7 @@ async fn a_request_reaches_the_author_who_accepts_it() {
             &group,
             &PostMessage {
                 message: message(&gid, 1, 1),
+                blobs: Vec::new(),
             },
         )
         .await
@@ -756,6 +757,7 @@ async fn removing_a_reported_prompt_expires_its_requests() {
             &group,
             &PostMessage {
                 message: message(&gid, 1, 1),
+                blobs: Vec::new(),
             },
         )
         .await

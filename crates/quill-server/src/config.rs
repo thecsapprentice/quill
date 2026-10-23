@@ -29,6 +29,9 @@ pub struct Config {
     /// with `=` (exact handle), `#` comments.
     pub reserved_handles_file: Option<std::path::PathBuf>,
     pub limits: Limits,
+    /// Starting value of the "attachments" server setting
+    /// (`QUILL_ATTACHMENTS`); the live value is in the database.
+    pub attachments: bool,
 }
 
 impl Config {
@@ -50,6 +53,7 @@ impl Config {
                 .filter(|v| !v.is_empty())
                 .map(Into::into),
             limits: Limits::default(),
+            attachments: parse_or("QUILL_ATTACHMENTS", true)?,
         })
     }
 
@@ -66,6 +70,7 @@ impl Config {
             source_url: DEFAULT_SOURCE_URL.into(),
             reserved_handles_file: None,
             limits: Limits::default(),
+            attachments: true,
         }
     }
 }

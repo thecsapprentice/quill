@@ -31,6 +31,9 @@ pub struct GroupState {
 pub struct PostMessage {
     /// An `MLSMessage` holding a `PrivateMessage`, base64url.
     pub message: String,
+    /// Blobs the message carries (2i): they're kept as long as it is.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blobs: Vec<uuid::Uuid>,
 }
 
 /// Where the server put a message.

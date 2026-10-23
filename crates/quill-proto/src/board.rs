@@ -345,6 +345,13 @@ pub struct UpdateTag {
 pub struct ServerSettings {
     /// Whether writers may create new tags.
     pub new_tags: TagPolicy,
+    /// Whether sessions on this server take attachments (2i).
+    #[serde(default = "yes")]
+    pub attachments: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// `PATCH /admin/settings`. Absent fields are unchanged.
@@ -353,6 +360,8 @@ pub struct ServerSettings {
 pub struct UpdateServerSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_tags: Option<TagPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<bool>,
 }
 
 // ---- Prompts -------------------------------------------------------------

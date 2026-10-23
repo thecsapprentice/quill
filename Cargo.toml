@@ -33,6 +33,7 @@ quill-certs = { path = "crates/quill-certs" }
 
 # Shared third-party dependencies
 anyhow = "1"
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
 argon2 = { version = "0.6", features = ["zeroize"] }
 ammonia = "4"
 axum = "0.8"

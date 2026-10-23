@@ -150,6 +150,9 @@ pub enum TagCommand {
 
 #[derive(Subcommand)]
 pub enum AdminCommand {
+    /// Storage used by each login's sessions (sizes only), or one login's
+    /// sessions.
+    Storage { account: Option<Uuid> },
     /// Show open reports (or all with --all).
     Reports {
         #[arg(long)]
@@ -222,6 +225,9 @@ pub enum AdminCommand {
         /// Whether writers may create new tags: open, approval or curated.
         #[arg(long)]
         new_tags: Option<TagPolicy>,
+        /// Whether sessions take attachments: on or off.
+        #[arg(long, value_parser = clap::builder::BoolishValueParser::new())]
+        attachments: Option<bool>,
     },
     /// List tags with how many prompts use them, aliases included.
     Tags {
@@ -731,16 +737,59 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                 );
             })
         }
-        AdminCommand::Settings { new_tags } => {
-            let settings = if new_tags.is_some() {
+        AdminCommand::Storage { account: None } => {
+            let s = client.admin_storage().await?;
+            ctx.print(&s, |s| {
+                println!(
+                    "{} stored: {} in messages, {} in attachments",
+                    crate::size(s.total_bytes),
+                    crate::size(s.message_bytes),
+                    crate::size(s.file_bytes)
+                );
+                for a in &s.accounts {
+                    println!(
+                        "{}  {}  {} sessions, {} in messages, {} attachments (of {}), {} device sync",
+                        a.account,
+                        a.login,
+                        a.sessions,
+                        crate::size(a.message_bytes),
+                        crate::size(a.file_bytes),
+                        crate::size(a.quota_bytes),
+                        crate::size(a.device_sync_bytes)
+                    );
+                }
+            })
+        }
+        AdminCommand::Storage {
+            account: Some(account),
+        } => {
+            let s = client.admin_account_storage(account).await?;
+            ctx.print(&s, crate::print_storage)
+        }
+        AdminCommand::Settings {
+            new_tags,
+            attachments,
+        } => {
+            let settings = if new_tags.is_some() || attachments.is_some() {
                 client
-                    .admin_update_settings(&UpdateServerSettings { new_tags })
+                    .admin_update_settings(&UpdateServerSettings {
+                        new_tags,
+                        attachments,
+                    })
                     .await?
             } else {
                 client.admin_settings().await?
             };
             ctx.print(&settings, |s| {
-                println!("new tags from writers: {}", s.new_tags)
+                println!("new tags from writers: {}", s.new_tags);
+                println!(
+                    "attachments in sessions: {}",
+                    if s.attachments {
+                        "allowed"
+                    } else {
+                        "not allowed"
+                    }
+                );
             })
         }
         AdminCommand::Reserved { search } => {

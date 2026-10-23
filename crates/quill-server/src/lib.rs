@@ -2,6 +2,7 @@
 //! end-to-end tests share one code path.
 
 pub mod auth;
+pub mod blobs;
 pub mod config;
 pub mod error;
 pub mod events;
@@ -17,6 +18,7 @@ pub mod reserved;
 pub mod routes;
 pub mod server_settings;
 pub mod sessions;
+pub mod storage;
 pub mod tag_admin;
 mod web;
 

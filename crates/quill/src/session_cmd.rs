@@ -40,6 +40,17 @@ pub enum SessionCommand {
         /// The number of the message this answers, in any channel.
         #[arg(long, value_name = "N")]
         reply_to: Option<u64>,
+        /// Attach a file (any kind; repeat for more).
+        #[arg(long = "attach", value_name = "FILE")]
+        attach: Vec<PathBuf>,
+    },
+    /// Save a message's attachments into a folder.
+    Save {
+        id: String,
+        /// The message's number, as `read` shows it.
+        message: u64,
+        #[arg(long, value_name = "DIR")]
+        to: PathBuf,
     },
     /// A session's channels: what each is for, and what you haven't seen.
     Channels { id: String },
@@ -113,6 +124,18 @@ fn print_messages(store: &Store, reading: &Reading, messages: &[&Message]) {
         }
         for line in m.content.lines() {
             println!("    {line}");
+        }
+        for a in &m.attachments {
+            let have = matches!(sessions::file(store, &a.url), Ok(Some(_)));
+            let note = if have {
+                ""
+            } else {
+                ", not available on this device"
+            };
+            println!(
+                "    [attachment] {} ({} bytes, {}{note})",
+                a.name, a.size, a.media_type
+            );
         }
     }
 }
@@ -224,22 +247,68 @@ pub async fn session(ctx: &Ctx, cmd: SessionCommand) -> Result<()> {
             file,
             channel,
             reply_to,
+            attach,
         } => {
             let text = match (text, file) {
                 (Some(t), _) => t,
                 (None, Some(path)) => std::fs::read_to_string(&path)
                     .with_context(|| format!("reading {}", path.display()))?,
+                (None, None) if !attach.is_empty() => String::new(),
                 (None, None) => bail!("give the message with --text or --file"),
             };
-            let seq = match reply_to {
-                Some(to) => {
-                    sessions::reply(&ctx.store, &client, &id, &text, channel.as_deref(), to).await?
-                }
-                None => {
-                    sessions::write(&ctx.store, &client, &id, &text, channel.as_deref()).await?
-                }
-            };
+            let mut files = Vec::new();
+            for path in &attach {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "attachment".into());
+                let contents =
+                    std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+                files.push((name, contents));
+            }
+            let seq = sessions::post(
+                &ctx.store,
+                &client,
+                &id,
+                sessions::Draft {
+                    text: &text,
+                    channel: channel.as_deref(),
+                    reply_to,
+                    files,
+                },
+            )
+            .await?;
             ctx.print(&json!({ "seq": seq }), |_| println!("sent (#{seq})"))
+        }
+        SessionCommand::Save { id, message, to } => {
+            let m = sessions::versions(&ctx.store, &client, &id, message).await?;
+            if m.attachments.is_empty() {
+                bail!("message #{message} has no attachments");
+            }
+            std::fs::create_dir_all(&to).with_context(|| format!("creating {}", to.display()))?;
+            let mut saved = Vec::new();
+            for a in &m.attachments {
+                let Some(contents) = sessions::file(&ctx.store, &a.url)? else {
+                    eprintln!("{}: not available on this device", a.name);
+                    continue;
+                };
+                // Never overwrite: add a number until the name is free.
+                let name = quill_core::attachments::safe_name(&a.name);
+                let mut path = to.join(&name);
+                let mut n = 1;
+                while path.exists() {
+                    path = to.join(format!("{n}-{name}"));
+                    n += 1;
+                }
+                std::fs::write(&path, contents.as_slice())
+                    .with_context(|| format!("writing {}", path.display()))?;
+                saved.push(path.display().to_string());
+            }
+            ctx.print(&saved, |saved| {
+                for p in saved {
+                    println!("saved {p}");
+                }
+            })
         }
         SessionCommand::Channels { id } => {
             let list = sessions::channels(&ctx.store, &client, &id).await?;

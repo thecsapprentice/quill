@@ -375,6 +375,7 @@ async fn leaving_ends_the_session_for_both() {
             &id,
             &quill_proto::groups::PostMessage {
                 message: quill_proto::keys::b64(&m),
+                blobs: Vec::new(),
             },
         )
         .await

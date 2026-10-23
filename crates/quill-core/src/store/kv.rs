@@ -43,10 +43,12 @@ pub enum Table {
     /// Session messages this device has read or sent, by group id and
     /// sequence number.
     Messages,
+    /// Attachments' contents, decrypted, by blob URL.
+    Files,
 }
 
 impl Table {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Meta,
         Self::Profile,
         Self::Identities,
@@ -58,6 +60,7 @@ impl Table {
         Self::Requests,
         Self::Sessions,
         Self::Messages,
+        Self::Files,
     ];
 
     pub fn name(self) -> &'static str {
@@ -73,6 +76,7 @@ impl Table {
             Self::Requests => "requests",
             Self::Sessions => "sessions",
             Self::Messages => "messages",
+            Self::Files => "files",
         }
     }
 }

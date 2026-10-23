@@ -40,7 +40,10 @@ fn message(group: &[u8], epoch: u64, content_type: u8) -> String {
 }
 
 fn post(m: String) -> PostMessage {
-    PostMessage { message: m }
+    PostMessage {
+        message: m,
+        blobs: Vec::new(),
+    }
 }
 
 #[tokio::test]

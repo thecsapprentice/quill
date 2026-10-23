@@ -364,6 +364,48 @@ async fn the_cli_sends_reads_and_accepts_a_request() {
         out.contains("[story] @quiet_wren:\n    The tide came in early."),
         "{out}"
     );
+    // Attachments and storage (2i).
+    let file = bob.path().join("map.txt");
+    std::fs::write(&file, b"North is up.").unwrap();
+    let (ok, out, err) = as_bob(&[
+        "--json",
+        "session",
+        "write",
+        short,
+        "--text",
+        "A map.",
+        "--attach",
+        file.to_str().unwrap(),
+    ]);
+    assert!(ok, "{err}");
+    let map_seq = serde_json::from_str::<serde_json::Value>(&out).unwrap()["seq"].to_string();
+    let (_, out, _) = as_alice(&["session", "read", short]);
+    assert!(
+        out.contains("[attachment] map.txt (12 bytes, text/plain)"),
+        "{out}"
+    );
+    let saved = alice.path().join("saved");
+    let (ok, _, err) = as_alice(&[
+        "session",
+        "save",
+        short,
+        &map_seq,
+        "--to",
+        saved.to_str().unwrap(),
+    ]);
+    assert!(ok, "{err}");
+    assert_eq!(
+        std::fs::read(saved.join("map.txt")).unwrap(),
+        b"North is up."
+    );
+    let (ok, out, err) = as_bob(&["storage"]);
+    assert!(ok, "{err}");
+    assert!(out.contains("@quiet_wren with @ink_fox"), "{out}");
+    assert!(
+        out.contains("1 attachments (4.0 KiB, 4.0 KiB yours)"),
+        "{out}"
+    );
+
     // Channels (2h).
     let (ok, _, err) = as_alice(&[
         "session",

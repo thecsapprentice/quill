@@ -31,6 +31,8 @@ use crate::{
     routes::ApiJson,
 };
 
+/// Blobs one message can carry.
+const MAX_BLOBS_PER_MESSAGE: usize = 10;
 /// How long a link mailbox lives.
 const LINK_SECS: u64 = 10 * 60;
 /// New link mailboxes per login per hour.
@@ -170,6 +172,18 @@ async fn post_message(
     if u64::try_from(raw.len()).unwrap_or(u64::MAX) > state.config.limits.max_message_bytes {
         return Err(ApiError::PayloadTooLarge);
     }
+    if body.blobs.len() > MAX_BLOBS_PER_MESSAGE {
+        return Err(ApiError::BadRequest(format!(
+            "at most {MAX_BLOBS_PER_MESSAGE} attachments per message"
+        )));
+    }
+    if !state.limiter.allow(
+        &format!("post:{}", authed.account_id),
+        usize::try_from(state.config.limits.messages_per_minute).unwrap_or(usize::MAX),
+        std::time::Duration::from_secs(60),
+    ) {
+        return Err(ApiError::TooManyRequests);
+    }
     let header = private_message::parse(&raw)
         .map_err(|e| ApiError::BadRequest(format!("message refused: {e}")))?;
     if header.group_id != group {
@@ -222,6 +236,25 @@ async fn post_message(
     } else {
         epoch
     };
+    if !body.blobs.is_empty() {
+        // The blobs it carries: the caller's own, in this group, not yet
+        // carried by another message. They now last as long as it does.
+        let bound = sqlx::query(
+            "UPDATE blobs SET seq = $1
+             WHERE id = ANY($2) AND group_id = $3 AND account_id = $4 AND seq IS NULL",
+        )
+        .bind(seq)
+        .bind(&body.blobs)
+        .bind(&group)
+        .bind(authed.account_id)
+        .execute(&mut *tx)
+        .await?;
+        if usize::try_from(bound.rows_affected()).unwrap_or(0) != body.blobs.len() {
+            return Err(ApiError::BadRequest(
+                "message refused: it names blobs that aren't yours to attach here".into(),
+            ));
+        }
+    }
     let readers = crate::events::group_accounts(&mut tx, &group).await?;
     tx.commit().await?;
     state.events.send(

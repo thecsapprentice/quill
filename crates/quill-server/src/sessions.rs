@@ -317,7 +317,18 @@ pub(crate) async fn prune(conn: &mut PgConnection, group: &[u8]) -> Result<u64, 
     )
     .bind(group)
     .bind(GRACE_DAYS)
-    .execute(conn)
+    .execute(&mut *conn)
+    .await?;
+    // Blobs go with the messages that carry them; ones no message ever
+    // named go after a day.
+    sqlx::query(
+        "DELETE FROM blobs b WHERE b.group_id = $1 AND (
+             (b.seq IS NOT NULL AND NOT EXISTS (
+                 SELECT 1 FROM group_messages m WHERE m.group_id = b.group_id AND m.seq = b.seq))
+             OR (b.seq IS NULL AND b.uploaded_at < now() - interval '1 day'))",
+    )
+    .bind(group)
+    .execute(&mut *conn)
     .await?;
     Ok(deleted.rows_affected())
 }

@@ -19,6 +19,13 @@ pub struct InstanceInfo {
     /// Maturity cap for anonymous visitors and new accounts.
     pub default_maturity_max: crate::board::Maturity,
     pub limits: Limits,
+    /// Whether sessions here take attachments: the administrators' choice.
+    #[serde(default = "default_attachments")]
+    pub attachments: bool,
+}
+
+fn default_attachments() -> bool {
+    true
 }
 
 /// Limits a client must respect. In a cross-server session a client uses the
@@ -31,6 +38,19 @@ pub struct Limits {
     pub max_envelope_bytes: u64,
     pub request_expiry_days: u32,
     pub retention_days: u32,
+    /// Blobs a login may store at once, in bytes.
+    #[serde(default = "default_quota")]
+    pub account_quota_bytes: u64,
+    #[serde(default = "default_rate")]
+    pub messages_per_minute: u32,
+}
+
+fn default_quota() -> u64 {
+    crate::limits::DEFAULT_ACCOUNT_QUOTA_BYTES
+}
+
+fn default_rate() -> u32 {
+    crate::limits::DEFAULT_MESSAGES_PER_MINUTE
 }
 
 impl Default for Limits {
@@ -42,6 +62,8 @@ impl Default for Limits {
             max_envelope_bytes: DEFAULT_MAX_ENVELOPE_BYTES,
             request_expiry_days: DEFAULT_REQUEST_EXPIRY_DAYS,
             retention_days: DEFAULT_RETENTION_DAYS,
+            account_quota_bytes: DEFAULT_ACCOUNT_QUOTA_BYTES,
+            messages_per_minute: DEFAULT_MESSAGES_PER_MINUTE,
         }
     }
 }
@@ -162,6 +184,7 @@ mod tests {
             tag_policy: crate::board::TagPolicy::Open,
             default_maturity_max: crate::board::Maturity::Teen,
             limits: Limits::default(),
+            attachments: true,
         };
         let json = serde_json::to_value(&info).unwrap();
         assert_eq!(json["limits"]["maxMessageBytes"], 65536);

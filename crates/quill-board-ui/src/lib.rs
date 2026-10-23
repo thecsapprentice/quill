@@ -504,3 +504,13 @@ pub fn short_date(at: OffsetDateTime) -> String {
 
 #[cfg(test)]
 mod tests;
+
+/// The admin "Sessions" settings tab.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminSessionsView {
+    pub attachments: bool,
+    pub max_attachment_bytes: u64,
+    pub quota_bytes: u64,
+    pub storage: quill_proto::sessions::ServerStorage,
+    pub error: Option<String>,
+}

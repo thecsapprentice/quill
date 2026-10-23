@@ -47,6 +47,8 @@ pub fn api() -> Router<AppState> {
         .merge(crate::requests::router())
         .merge(crate::sessions::router())
         .merge(crate::events::router())
+        .merge(crate::blobs::router())
+        .merge(crate::storage::router())
 }
 
 async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, ApiError> {
@@ -64,6 +66,7 @@ async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, A
         tag_policy: settings.new_tags,
         default_maturity_max: quill_proto::board::Maturity::DEFAULT_MAX,
         limits: state.config.limits,
+        attachments: settings.attachments,
     }))
 }
 

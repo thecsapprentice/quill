@@ -13,6 +13,8 @@ use crate::{
 
 /// Whether writers may create new tags.
 const NEW_TAGS: &str = "new_tags";
+/// Whether sessions take attachments.
+const ATTACHMENTS: &str = "attachments";
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/admin/settings", get(api_get).patch(api_update))
@@ -23,6 +25,11 @@ pub(crate) async fn init(pool: &PgPool, config: &Config) -> Result<(), sqlx::Err
     sqlx::query("INSERT INTO server_settings (key, value) VALUES ($1, $2) ON CONFLICT DO NOTHING")
         .bind(NEW_TAGS)
         .bind(config.tag_policy.as_str())
+        .execute(pool)
+        .await?;
+    sqlx::query("INSERT INTO server_settings (key, value) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(ATTACHMENTS)
+        .bind(if config.attachments { "on" } else { "off" })
         .execute(pool)
         .await?;
     Ok(())
@@ -39,10 +46,21 @@ pub async fn tag_policy(conn: &mut PgConnection) -> Result<TagPolicy, ApiError> 
     raw.map_or(Ok(TagPolicy::Curated), |r| parse_enum(&r))
 }
 
+/// Whether sessions take attachments.
+pub async fn attachments(conn: &mut PgConnection) -> Result<bool, ApiError> {
+    let raw: Option<String> =
+        sqlx::query_scalar("SELECT value FROM server_settings WHERE key = $1")
+            .bind(ATTACHMENTS)
+            .fetch_optional(&mut *conn)
+            .await?;
+    Ok(raw.as_deref() != Some("off"))
+}
+
 pub async fn settings(state: &AppState) -> Result<ServerSettings, ApiError> {
     let mut conn = state.pool.acquire().await?;
     Ok(ServerSettings {
         new_tags: tag_policy(&mut conn).await?,
+        attachments: attachments(&mut conn).await?,
     })
 }
 
@@ -86,6 +104,27 @@ pub async fn update(
             admin,
             AdminAction::ChangeSetting,
             NEW_TAGS,
+            Some(&detail),
+        )
+        .await?;
+    }
+    let had = attachments(&mut tx).await?;
+    if let Some(on) = body.attachments.filter(|on| *on != had) {
+        sqlx::query(
+            "INSERT INTO server_settings (key, value) VALUES ($1, $2)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+        )
+        .bind(ATTACHMENTS)
+        .bind(if on { "on" } else { "off" })
+        .execute(&mut *tx)
+        .await?;
+        let label = |on: bool| if on { "allowed" } else { "not allowed" };
+        let detail = format!("attachments in sessions: {} → {}", label(had), label(on));
+        log_action(
+            &mut tx,
+            admin,
+            AdminAction::ChangeSetting,
+            ATTACHMENTS,
             Some(&detail),
         )
         .await?;

@@ -487,6 +487,7 @@ async fn commit<T>(
         let (message, extra) = provider.atomically(|p| make(p, &mut group, &me))?;
         let body = PostMessage {
             message: b64(&encode(&message)?),
+            blobs: Vec::new(),
         };
         match client.post_group_message(&b64(gid), &body).await {
             Ok(posted) => {
@@ -538,6 +539,7 @@ async fn send(
         })?;
         let body = PostMessage {
             message: b64(&encode(&message)?),
+            blobs: Vec::new(),
         };
         match client.post_group_message(&b64(gid), &body).await {
             Ok(posted) => return record_own(store, posted.seq),

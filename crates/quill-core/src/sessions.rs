@@ -38,6 +38,7 @@ use zeroize::Zeroizing;
 use crate::{
     Client, CoreError, Store,
     activity::Activity,
+    attachments,
     devices::join_config,
     history::{self, Gap},
     hlc::Hlc,
@@ -513,6 +514,7 @@ async fn commit<T>(
         };
         let body = quill_proto::groups::PostMessage {
             message: b64(&encode(&message)?),
+            blobs: Vec::new(),
         };
         let clear = |provider: &Provider<'_>, group: &mut MlsGroup| {
             provider.atomically(|p| {
@@ -785,7 +787,11 @@ async fn sync_one(
             "this device was removed from the session".into(),
         ));
     }
-    acknowledge(store, client, s, &gid, &me).await?;
+    // Acknowledge only once the files are here: the server may then delete
+    // them with their messages.
+    if fetch_files(store, client, &gid).await? {
+        acknowledge(store, client, s, &gid, &me).await?;
+    }
     let due = note(&Provider::new(store), &gid)?.is_some_and(|n| n.update_due);
     if due {
         update_key(store, client, &gid, &dirs, &me).await?;
@@ -906,7 +912,9 @@ async fn end_here(
     }
     if let Some((dirs, me)) = reader {
         catch_up(store, client, gid, dirs).await?;
-        acknowledge(store, client, s, gid, me).await?;
+        if fetch_files(store, client, gid).await? {
+            acknowledge(store, client, s, gid, me).await?;
+        }
     }
     Provider::new(store).atomically(|p| {
         let mut n = note(p, gid)?.ok_or_else(|| err("session state missing"))?;
@@ -1063,6 +1071,7 @@ async fn send(
     store: &Store,
     client: &Client,
     r: &Ready,
+    blobs: &[Uuid],
     make: impl Fn(Hlc, u64) -> Activity,
 ) -> Result<u64, CoreError> {
     let (hlc, author_seq) = {
@@ -1084,6 +1093,11 @@ async fn send(
         })?;
         let body = quill_proto::groups::PostMessage {
             message: b64(&encode(&message)?),
+            blobs: Vec::new(),
+        };
+        let body = quill_proto::groups::PostMessage {
+            blobs: blobs.to_vec(),
+            ..body
         };
         match client.post_group_message(&r.session.id, &body).await {
             Ok(posted) => {
@@ -1161,11 +1175,56 @@ async fn write_note(
     channel: Option<&str>,
     to: Option<u64>,
 ) -> Result<u64, CoreError> {
-    let text = check_text(text)?;
-    let channel = channel.unwrap_or(STORY);
+    post(
+        store,
+        client,
+        id,
+        Draft {
+            text,
+            channel,
+            reply_to: to,
+            files: Vec::new(),
+        },
+    )
+    .await
+}
+
+/// A message to send.
+#[derive(Debug, Clone, Default)]
+pub struct Draft<'a> {
+    /// Markdown; may be empty when files are attached.
+    pub text: &'a str,
+    /// `story` when `None`.
+    pub channel: Option<&'a str>,
+    /// The number of the message it answers.
+    pub reply_to: Option<u64>,
+    /// Files to attach: a name and the contents. Any kind of file.
+    pub files: Vec<(String, Vec<u8>)>,
+}
+
+/// Most files one message can carry.
+pub const MAX_FILES: usize = 10;
+
+/// Sends a message: each file is encrypted and uploaded first, then the
+/// note carrying their keys. Returns its place in the log.
+pub async fn post(
+    store: &Store,
+    client: &Client,
+    id: &str,
+    draft: Draft<'_>,
+) -> Result<u64, CoreError> {
+    let text = if draft.files.is_empty() {
+        check_text(draft.text)?
+    } else {
+        draft.text.trim()
+    };
+    if draft.files.len() > MAX_FILES {
+        return Err(err(format!("at most {MAX_FILES} files per message")));
+    }
+    let channel = draft.channel.unwrap_or(STORY);
     validate::channel(channel).map_err(|e| err(e.to_string()))?;
     let r = ready(store, client, id).await?;
-    let answers = match to {
+    let answers = match draft.reply_to {
         Some(at) => Some(
             history::message(store, &r.gid, at)?
                 .ok_or_else(|| err(format!("no message #{at} on this device")))?
@@ -1173,14 +1232,70 @@ async fn write_note(
         ),
         None => None,
     };
-    send(store, client, &r, |hlc, n| {
-        let note = Activity::create(text, channel, hlc, n);
+    let mut attachments = Vec::new();
+    let mut blobs = Vec::new();
+    if !draft.files.is_empty() {
+        let instance = client.instance().await?;
+        if !instance.attachments {
+            return Err(err(
+                "this server doesn't take attachments: its administrators keep sessions to writing",
+            ));
+        }
+        let max = instance.limits.max_attachment_bytes;
+        for (name, contents) in &draft.files {
+            let sealed = attachments::seal(contents, max)?;
+            let up = client
+                .upload_blob(&r.session.id, sealed.blob.clone())
+                .await?;
+            attachments.push(sealed.attachment(
+                &attachments::safe_name(name),
+                client.blob_url(up.id)?,
+                up.token,
+            ));
+            blobs.push(up.id);
+        }
+    }
+    let seq = send(store, client, &r, &blobs, |hlc, n| {
+        let note = Activity::create(text, channel, hlc, n).with_attachments(attachments.clone());
         match &answers {
             Some(id) => note.replying_to(id),
             None => note,
         }
     })
-    .await
+    .await?;
+    // This device keeps its own files as sent.
+    for ((_, contents), a) in draft.files.iter().zip(&attachments) {
+        history::keep_file(store, &r.gid, &a.url, Some(contents))?;
+    }
+    Ok(seq)
+}
+
+/// Fetches, opens and keeps the attachments of messages read. Returns
+/// whether none is left waiting (a missing blob counts as done: it's noted
+/// as unavailable).
+async fn fetch_files(store: &Store, client: &Client, gid: &[u8]) -> Result<bool, CoreError> {
+    let waiting = history::pending(store, gid)?;
+    if waiting.is_empty() {
+        return Ok(true);
+    }
+    let max = client.instance().await?.limits.max_attachment_bytes;
+    let mut done = true;
+    for a in waiting {
+        match client.fetch_blob(&a.url, &a.blob_token, max).await {
+            Ok(blob) => {
+                let contents = attachments::open(&blob, &a, max).ok();
+                history::keep_file(store, gid, &a.url, contents.as_deref().map(Vec::as_slice))?;
+            }
+            Err(e) if e.status() == Some(404) => history::keep_file(store, gid, &a.url, None)?,
+            Err(_) => done = false,
+        }
+    }
+    Ok(done)
+}
+
+/// An attachment's contents, if this device has them.
+pub fn file(store: &Store, url: &str) -> Result<Option<Zeroizing<Vec<u8>>>, CoreError> {
+    history::file(store, url)
 }
 
 /// A session's channels, after syncing it.
@@ -1212,7 +1327,7 @@ pub async fn name_channel(
         .iter()
         .any(|c| c.name == name && !c.versions.is_empty());
     let kind = if known { "Update" } else { "Create" };
-    send(store, client, &r, |hlc, n| {
+    send(store, client, &r, &[], |hlc, n| {
         Activity::channel(kind, name, about, hlc, n)
     })
     .await
@@ -1275,7 +1390,7 @@ pub async fn edit(
     let text = check_text(text)?;
     let r = ready(store, client, id).await?;
     let m = own_note(store, &r, at)?;
-    send(store, client, &r, |hlc, n| {
+    send(store, client, &r, &[], |hlc, n| {
         Activity::update(&m.id, text, &m.channel, hlc, n)
     })
     .await
@@ -1285,7 +1400,7 @@ pub async fn edit(
 pub async fn delete(store: &Store, client: &Client, id: &str, at: u64) -> Result<u64, CoreError> {
     let r = ready(store, client, id).await?;
     let m = own_note(store, &r, at)?;
-    send(store, client, &r, |hlc, n| {
+    send(store, client, &r, &[], |hlc, n| {
         Activity::delete(&m.id, &m.channel, hlc, n)
     })
     .await
@@ -1409,6 +1524,7 @@ pub mod testing {
                 &s.id,
                 &quill_proto::groups::PostMessage {
                     message: b64(&encode(&message)?),
+                    blobs: Vec::new(),
                 },
             )
             .await?;

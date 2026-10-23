@@ -94,6 +94,8 @@ enum Command {
     Request(request_cmd::RequestCommand),
     /// This login's sessions, and how this device stands in each.
     Sessions,
+    /// What your sessions take on the server: in total and per session.
+    Storage,
     /// Read, write to, or leave a session.
     #[command(subcommand)]
     Session(session_cmd::SessionCommand),
@@ -286,6 +288,10 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Devices => keys_cmd::devices(&ctx).await?,
         Command::Request(cmd) => request_cmd::request(&ctx, cmd).await?,
         Command::Sessions => session_cmd::list(&ctx).await?,
+        Command::Storage => {
+            let s = ctx.client()?.storage().await?;
+            ctx.print(&s, print_storage)?;
+        }
         Command::Session(cmd) => session_cmd::session(&ctx, cmd).await?,
     }
     Ok(())
@@ -384,4 +390,47 @@ async fn persona(ctx: &Ctx, cmd: PersonaCommand) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// A byte count for people.
+pub(crate) fn size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["bytes", "KiB", "MiB", "GiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} bytes")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+pub(crate) fn print_storage(s: &quill_proto::sessions::AccountStorage) {
+    println!(
+        "{} stored; attachments you uploaded: {} of {}; device sync: {}",
+        size(s.total_bytes),
+        size(s.quota_used_bytes),
+        size(s.quota_bytes),
+        size(s.device_sync_bytes)
+    );
+    for x in &s.sessions {
+        let who = match (&x.persona, &x.partner) {
+            (Some(me), Some(them)) => format!("  @{me} with @{them}"),
+            (Some(me), None) => format!("  @{me}"),
+            _ => String::new(),
+        };
+        println!(
+            "{}{who}{}  {} messages ({}), {} attachments ({}, {} yours)",
+            x.id,
+            if x.ended { " (ended)" } else { "" },
+            x.messages,
+            size(x.message_bytes),
+            x.files,
+            size(x.file_bytes),
+            size(x.own_file_bytes)
+        );
+    }
 }

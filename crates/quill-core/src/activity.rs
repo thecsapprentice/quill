@@ -68,6 +68,9 @@ pub struct Note {
     /// The id of the note it answers, in any channel.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub in_reply_to: Option<String>,
+    /// Encrypted files it carries (2i).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachment: Vec<crate::attachments::Attachment>,
 }
 
 fn urn() -> String {
@@ -100,6 +103,7 @@ impl Activity {
                 media_type: Some("text/markdown".into()),
                 content: text.to_owned(),
                 in_reply_to: None,
+                attachment: Vec::new(),
             }),
         )
     }
@@ -117,6 +121,7 @@ impl Activity {
                 media_type: Some("text/markdown".into()),
                 content: text.to_owned(),
                 in_reply_to: None,
+                attachment: Vec::new(),
             }),
         )
     }
@@ -151,6 +156,14 @@ impl Activity {
                 summary: summary.map(str::to_owned),
             }),
         )
+    }
+
+    /// The same note, carrying these files.
+    pub fn with_attachments(mut self, files: Vec<crate::attachments::Attachment>) -> Self {
+        if let Object::Note(n) = &mut self.object {
+            n.attachment = files;
+        }
+        self
     }
 
     /// The same note, answering the note `id`.
