@@ -6,6 +6,7 @@
 
 mod handlers;
 pub mod session;
+mod settings;
 
 use axum::{
     Router,
@@ -65,6 +66,31 @@ pub fn router() -> Router<AppState> {
         .route("/admin/reports", get(handlers::admin_reports))
         .route("/admin/reports/{id}/resolve", post(handlers::admin_resolve))
         .route("/admin/log", get(handlers::admin_log))
+        .route("/admin/settings", get(settings::index))
+        .route(
+            "/admin/settings/tag-types",
+            get(settings::tag_types).post(settings::tag_type_create),
+        )
+        .route(
+            "/admin/settings/tag-types/{name}",
+            post(settings::tag_type_update),
+        )
+        .route(
+            "/admin/settings/tags",
+            get(settings::tags).post(settings::tag_create),
+        )
+        .route(
+            "/admin/settings/tags/{namespace}/{slug}",
+            get(settings::tag).post(settings::tag_rename),
+        )
+        .route(
+            "/admin/settings/tags/{namespace}/{slug}/merge",
+            post(settings::tag_merge),
+        )
+        .route(
+            "/admin/settings/tags/{namespace}/{slug}/delete",
+            get(settings::tag_delete_form).post(settings::tag_delete),
+        )
         .route(quill_board_ui::STYLESHEET_PATH, get(stylesheet))
         // No icon; answering keeps browsers from logging a 404 on every page.
         .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
@@ -187,6 +213,12 @@ fn notice_text(key: &str) -> Option<&'static str> {
         "persona-deleted" => "Persona deleted.",
         "settings" => "Settings saved.",
         "resolved" => "Report resolved.",
+        "tag-type-created" => "Tag type added.",
+        "tag-type-saved" => "Tag type saved.",
+        "tag-created" => "Tag added.",
+        "tag-saved" => "Tag renamed.",
+        "tag-merged" => "Tag merged.",
+        "tag-deleted" => "Tag deleted.",
         _ => return None,
     })
 }

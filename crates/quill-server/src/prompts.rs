@@ -7,14 +7,14 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, patch, post},
+    routing::get,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use quill_proto::{
     board::{
-        AccountSettings, CreateNamespace, CreatePrompt, CreateTag, Maturity, Prompt, PromptAuthor,
-        PromptPage, PromptQuery, PromptState, Tag, TagNamespace, TagOrigin, TagPolicy, TagQuery,
-        UpdateAccountSettings, UpdatePrompt, UpdateTag,
+        AccountSettings, CreatePrompt, CreateTag, Maturity, Prompt, PromptAuthor, PromptPage,
+        PromptQuery, PromptState, Tag, TagNamespace, TagOrigin, TagPolicy, TagQuery,
+        UpdateAccountSettings, UpdatePrompt,
     },
     limits::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, SEARCH_QUERY_MAX_CHARS},
     validate::{self, TagSpec},
@@ -25,8 +25,8 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    auth::{Admin, Authed, MaybeAuthed},
-    error::{ApiError, is_unique_violation},
+    auth::{Authed, MaybeAuthed},
+    error::ApiError,
     markdown,
     routes::ApiJson,
 };
@@ -41,12 +41,9 @@ pub fn router() -> Router<AppState> {
         )
         .route("/tag-namespaces", get(list_namespaces))
         .route("/tags", get(list_tags).post(create_user_tag))
-        .route("/admin/tag-namespaces", post(admin_create_namespace))
-        .route("/admin/tags", post(admin_create_tag))
-        .route("/admin/tags/{namespace}/{slug}", patch(admin_update_tag))
 }
 
-fn parse_enum<T: std::str::FromStr>(value: &str) -> Result<T, ApiError> {
+pub(crate) fn parse_enum<T: std::str::FromStr>(value: &str) -> Result<T, ApiError> {
     value
         .parse()
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("unexpected enum value {value:?}")))
@@ -232,7 +229,7 @@ pub async fn load_prompt(
 
 /// Maps local `(namespace, slug)` pairs to canonical tag ids. Unknown pairs
 /// are absent from the result.
-async fn resolve_tags(
+pub(crate) async fn resolve_tags(
     conn: &mut PgConnection,
     keys: &[(String, String)],
 ) -> Result<HashMap<(String, String), i64>, ApiError> {
@@ -503,6 +500,7 @@ pub async fn post_prompt(
         return Err(ApiError::BadRequest("unknown persona".into()));
     }
     let tag_ids = resolve_for_write(&mut tx, state.config.tag_policy, specs).await?;
+    check_required_types(&mut tx, &tag_ids).await?;
     let id = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO prompts (id, actor_id, title, body_md, body_html, maturity, state, tag_ids)
@@ -556,27 +554,36 @@ pub async fn edit_prompt(
     let specs = body.tags.as_deref().map(validate::tag_specs).transpose()?;
 
     let mut tx = state.pool.begin().await?;
-    let removed: Option<bool> = sqlx::query_scalar(
-        "SELECT p.removed_at IS NOT NULL FROM prompts p JOIN actors a ON a.id = p.actor_id
+    let current: Option<(bool, Vec<i64>)> = sqlx::query_as(
+        "SELECT p.removed_at IS NOT NULL, p.tag_ids FROM prompts p JOIN actors a ON a.id = p.actor_id
          WHERE p.id = $1 AND a.account_id = $2 FOR UPDATE OF p",
     )
     .bind(id)
     .bind(account)
     .fetch_optional(&mut *tx)
     .await?;
-    match removed {
+    let current_tags = match current {
         None => return Err(ApiError::NotFound),
-        Some(true) => {
+        Some((true, _)) => {
             return Err(ApiError::Forbidden(
                 "this prompt was removed by a server administrator".into(),
             ));
         }
-        Some(false) => {}
-    }
+        Some((false, tags)) => tags,
+    };
     let tag_ids = match specs {
         Some(specs) => Some(resolve_for_write(&mut tx, state.config.tag_policy, specs).await?),
         None => None,
     };
+    // Any edit must meet the current required tag types. Changing only the
+    // open/busy/closed status doesn't count as an edit.
+    let edits_content = body.title.is_some()
+        || body.body.is_some()
+        || body.maturity.is_some()
+        || body.tags.is_some();
+    if edits_content {
+        check_required_types(&mut tx, tag_ids.as_deref().unwrap_or(&current_tags)).await?;
+    }
     let body_html = markdown_body.as_deref().map(markdown::render);
     sqlx::query(
         "UPDATE prompts SET
@@ -640,21 +647,67 @@ async fn list_namespaces(
 }
 
 pub async fn namespaces(state: &AppState) -> Result<Vec<TagNamespace>, ApiError> {
-    let rows: Vec<(String, String, bool)> =
-        sqlx::query_as("SELECT name, display, locked FROM tag_namespaces ORDER BY name")
+    let rows: Vec<(String, String, bool, bool)> =
+        sqlx::query_as("SELECT name, display, locked, required FROM tag_namespaces ORDER BY name")
             .fetch_all(&state.pool)
             .await?;
     Ok(rows
         .into_iter()
-        .map(|(name, display, locked)| TagNamespace {
+        .map(|(name, display, locked, required)| TagNamespace {
             name,
             display,
             locked,
+            required,
         })
         .collect())
 }
 
-fn escape_like(input: &str) -> String {
+/// One tag type, optionally locked for update.
+pub(crate) async fn load_namespace(
+    conn: &mut PgConnection,
+    name: &str,
+    for_update: bool,
+) -> Result<TagNamespace, ApiError> {
+    let sql = if for_update {
+        "SELECT name, display, locked, required FROM tag_namespaces WHERE name = $1 FOR UPDATE"
+    } else {
+        "SELECT name, display, locked, required FROM tag_namespaces WHERE name = $1"
+    };
+    let (name, display, locked, required): (String, String, bool, bool) = sqlx::query_as(sql)
+        .bind(name)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(TagNamespace {
+        name,
+        display,
+        locked,
+        required,
+    })
+}
+
+/// Refuses a prompt whose tags lack a currently required tag type.
+async fn check_required_types(conn: &mut PgConnection, tag_ids: &[i64]) -> Result<(), ApiError> {
+    let missing: Vec<String> = sqlx::query_scalar(
+        "SELECT n.display FROM tag_namespaces n
+         WHERE n.required AND NOT EXISTS (
+             SELECT 1 FROM tags t WHERE t.id = ANY($1) AND t.namespace = n.name)
+         ORDER BY n.display",
+    )
+    .bind(tag_ids)
+    .fetch_all(&mut *conn)
+    .await?;
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(ApiError::BadRequest(format!(
+            "Every prompt needs a tag of each required type. Add: {}.",
+            missing.join(", ")
+        )))
+    }
+}
+
+pub(crate) fn escape_like(input: &str) -> String {
     input
         .replace('\\', "\\\\")
         .replace('%', "\\%")
@@ -704,7 +757,11 @@ pub async fn search_tags(state: &AppState, q: &TagQuery) -> Result<Vec<Tag>, Api
         .collect()
 }
 
-async fn load_tag(conn: &mut PgConnection, namespace: &str, slug: &str) -> Result<Tag, ApiError> {
+pub(crate) async fn load_tag(
+    conn: &mut PgConnection,
+    namespace: &str,
+    slug: &str,
+) -> Result<Tag, ApiError> {
     let (namespace, slug, display, origin): (String, String, String, String) = sqlx::query_as(
         "SELECT namespace, slug, display, origin FROM tags
          WHERE instance = '' AND namespace = $1 AND slug = $2",
@@ -742,133 +799,6 @@ async fn create_user_tag(
         StatusCode::OK
     };
     Ok((status, Json(tag)))
-}
-
-async fn admin_create_namespace(
-    State(state): State<AppState>,
-    _admin: Admin,
-    ApiJson(body): ApiJson<CreateNamespace>,
-) -> Result<impl IntoResponse, ApiError> {
-    let name = validate::namespace(&body.name)?;
-    let display = validate::tag_display(&body.display)?;
-    let result =
-        sqlx::query("INSERT INTO tag_namespaces (name, display, locked) VALUES ($1, $2, $3)")
-            .bind(&name)
-            .bind(&display)
-            .bind(body.locked)
-            .execute(&state.pool)
-            .await;
-    match result {
-        Ok(_) => Ok((
-            StatusCode::CREATED,
-            Json(TagNamespace {
-                name,
-                display,
-                locked: body.locked,
-            }),
-        )),
-        Err(e) if is_unique_violation(&e) => {
-            Err(ApiError::Conflict("namespace already exists".into()))
-        }
-        Err(e) => Err(e.into()),
-    }
-}
-
-/// `POST /admin/tags`: create a curated tag, or promote an existing user tag
-/// to a curated one.
-async fn admin_create_tag(
-    State(state): State<AppState>,
-    _admin: Admin,
-    ApiJson(body): ApiJson<CreateTag>,
-) -> Result<impl IntoResponse, ApiError> {
-    let namespace = validate::namespace(&body.namespace)?;
-    let slug = validate::tag_slug(&body.display)?;
-    let display = validate::tag_display(&body.display)?;
-    let mut conn = state.pool.acquire().await?;
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM tag_namespaces WHERE name = $1")
-        .bind(&namespace)
-        .fetch_optional(&mut *conn)
-        .await?;
-    if exists.is_none() {
-        return Err(ApiError::BadRequest(format!(
-            "unknown tag namespace \"{namespace}\""
-        )));
-    }
-    sqlx::query(
-        "INSERT INTO tags (namespace, slug, display, origin) VALUES ($1, $2, $3, 'server')
-         ON CONFLICT (instance, namespace, slug)
-         DO UPDATE SET origin = 'server', display = EXCLUDED.display",
-    )
-    .bind(&namespace)
-    .bind(&slug)
-    .bind(&display)
-    .execute(&mut *conn)
-    .await?;
-    let tag = load_tag(&mut conn, &namespace, &slug).await?;
-    Ok((StatusCode::CREATED, Json(tag)))
-}
-
-/// `PATCH /admin/tags/{namespace}/{slug}`: rename a tag, or merge it into
-/// another tag as an alias.
-async fn admin_update_tag(
-    State(state): State<AppState>,
-    _admin: Admin,
-    Path((namespace, slug)): Path<(String, String)>,
-    ApiJson(body): ApiJson<UpdateTag>,
-) -> Result<Json<Tag>, ApiError> {
-    let mut tx = state.pool.begin().await?;
-    let id: i64 = sqlx::query_scalar(
-        "SELECT id FROM tags WHERE instance = '' AND namespace = $1 AND slug = $2 FOR UPDATE",
-    )
-    .bind(&namespace)
-    .bind(&slug)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(ApiError::NotFound)?;
-
-    if let Some(display) = body.display.as_deref() {
-        let display = validate::tag_display(display)?;
-        sqlx::query("UPDATE tags SET display = $2 WHERE id = $1")
-            .bind(id)
-            .bind(display)
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    if let Some(target) = body.alias_of.as_deref() {
-        let spec = validate::tag_spec(target)?;
-        let key = (spec.namespace, spec.slug);
-        let target_id = *resolve_tags(&mut tx, std::slice::from_ref(&key))
-            .await?
-            .get(&key)
-            .ok_or_else(|| ApiError::BadRequest(format!("unknown tag \"{target}\"")))?;
-        if target_id == id {
-            return Err(ApiError::BadRequest(
-                "a tag can't be an alias of itself".into(),
-            ));
-        }
-        // This tag and every alias of it now point at the target.
-        sqlx::query("UPDATE tags SET canonical_id = $2 WHERE id = $1 OR canonical_id = $1")
-            .bind(id)
-            .bind(target_id)
-            .execute(&mut *tx)
-            .await?;
-        // Move prompts over, keeping each prompt's tag order and dropping
-        // duplicates.
-        sqlx::query(
-            "UPDATE prompts SET tag_ids = ARRAY(
-                 SELECT t FROM unnest(array_replace(tag_ids, $1, $2)) WITH ORDINALITY AS u(t, n)
-                 GROUP BY t ORDER BY min(n))
-             WHERE tag_ids @> ARRAY[$1::bigint]",
-        )
-        .bind(id)
-        .bind(target_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-    let tag = load_tag(&mut tx, &namespace, &slug).await?;
-    tx.commit().await?;
-    Ok(Json(tag))
 }
 
 #[cfg(test)]

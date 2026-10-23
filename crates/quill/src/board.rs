@@ -7,9 +7,9 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 use quill_core::Client;
 use quill_proto::board::{
-    CreateNamespace, CreatePrompt, CreateReport, CreateTag, Maturity, Prompt, PromptQuery,
-    PromptState, ReportReason, Resolution, TagQuery, UpdateAccountSettings, UpdatePrompt,
-    UpdateTag,
+    AdminTagQuery, CreateNamespace, CreatePrompt, CreateReport, CreateTag, Maturity, Prompt,
+    PromptQuery, PromptState, ReportReason, Resolution, TagQuery, UpdateAccountSettings,
+    UpdateNamespace, UpdatePrompt, UpdateTag,
 };
 use uuid::Uuid;
 
@@ -158,14 +158,37 @@ pub enum AdminCommand {
         #[arg(long)]
         limit: Option<u32>,
     },
-    /// Create a tag namespace.
+    /// Create a tag type (namespace).
     Namespace {
         name: String,
         display: String,
-        /// Only administrators can add tags to it.
+        /// Curated tags only: writers can't create new ones.
         #[arg(long)]
         locked: bool,
+        /// Every prompt saved must have a tag of this type.
+        #[arg(long)]
+        required: bool,
     },
+    /// Change a tag type's name, or whether it is curated-only or required.
+    NamespaceSet {
+        name: String,
+        #[arg(long)]
+        display: Option<String>,
+        #[arg(long)]
+        locked: Option<bool>,
+        #[arg(long)]
+        required: Option<bool>,
+    },
+    /// List tags with how many prompts use them, aliases included.
+    Tags {
+        #[arg(long)]
+        namespace: Option<String>,
+        /// Text the slug or display name contains.
+        #[arg(long)]
+        search: Option<String>,
+    },
+    /// Delete a tag (namespace:slug) and remove it from every prompt.
+    DeleteTag { tag: String },
     /// Create a curated tag, or promote a user tag to curated.
     Tag { namespace: String, name: String },
     /// Rename a tag (namespace:slug).
@@ -454,15 +477,21 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
             let entries = client.admin_log(before, limit).await?;
             ctx.print(&entries, |list| {
                 for e in list {
-                    println!(
-                        "{:>6}  {}  {:<16} {:<15} prompt {}  sha256 {}",
-                        e.id,
-                        e.at,
-                        e.action,
-                        e.reason,
-                        e.prompt_id.map(|p| p.to_string()).unwrap_or_default(),
-                        &e.prompt_hash[..12.min(e.prompt_hash.len())]
-                    );
+                    let what = match (&e.subject, &e.prompt_hash) {
+                        (Some(subject), _) => {
+                            format!("{subject}  {}", e.detail.as_deref().unwrap_or_default())
+                        }
+                        (None, hash) => {
+                            let hash = hash.as_deref().unwrap_or_default();
+                            format!(
+                                "{} prompt {}  sha256 {}",
+                                e.reason.map(ReportReason::as_str).unwrap_or_default(),
+                                e.prompt_id.map(|p| p.to_string()).unwrap_or_default(),
+                                hash.get(..12).unwrap_or(hash)
+                            )
+                        }
+                    };
+                    println!("{:>6}  {}  {:<16} {what}", e.id, e.at, e.action);
                 }
             })
         }
@@ -470,15 +499,77 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
             name,
             display,
             locked,
+            required,
         } => {
             let ns = client
                 .admin_create_namespace(&CreateNamespace {
                     name,
                     display,
                     locked,
+                    required,
                 })
                 .await?;
-            ctx.print(&ns, |n| println!("created namespace {}", n.name))
+            ctx.print(&ns, |n| println!("created tag type {}", n.name))
+        }
+        AdminCommand::NamespaceSet {
+            name,
+            display,
+            locked,
+            required,
+        } => {
+            let ns = client
+                .admin_update_namespace(
+                    &name,
+                    &UpdateNamespace {
+                        display,
+                        locked,
+                        required,
+                    },
+                )
+                .await?;
+            ctx.print(&ns, |n| {
+                println!(
+                    "{} ({}): curated only {}, required {}",
+                    n.name, n.display, n.locked, n.required
+                );
+            })
+        }
+        AdminCommand::Tags { namespace, search } => {
+            let tags = client
+                .admin_tags(&AdminTagQuery {
+                    namespace,
+                    search,
+                    limit: None,
+                })
+                .await?;
+            ctx.print(&tags, |list| {
+                if list.is_empty() {
+                    println!("no tags");
+                }
+                for t in list {
+                    let kind = match &t.alias_of {
+                        Some(target) => format!("alias of {target}"),
+                        None => t.tag.origin.to_string(),
+                    };
+                    println!(
+                        "{:<36} {:<24} {:<22} {} prompt(s)",
+                        t.tag.key(),
+                        t.tag.display,
+                        kind,
+                        t.uses
+                    );
+                }
+            })
+        }
+        AdminCommand::DeleteTag { tag } => {
+            let (ns, slug) = split_key(&tag)?;
+            let deleted = client.admin_delete_tag(ns, slug).await?;
+            ctx.print(&deleted, |d| {
+                println!(
+                    "deleted {tag}; removed from {} prompt(s)",
+                    d.prompts_updated
+                );
+            })
         }
         AdminCommand::Tag { namespace, name } => {
             let tag = client

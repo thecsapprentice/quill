@@ -9,6 +9,7 @@ pub mod prompts;
 mod ratelimit;
 pub mod reports;
 pub mod routes;
+pub mod tag_admin;
 mod web;
 
 use std::sync::Arc;

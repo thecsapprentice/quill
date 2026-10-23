@@ -690,7 +690,7 @@ async fn reports_and_admin_actions() {
             "report_received"
         ]
     );
-    assert_eq!(log[0].prompt_hash, spam.prompt_hash);
+    assert_eq!(log[0].prompt_hash.as_ref(), Some(&spam.prompt_hash));
     assert!(log[0].admin.is_some());
     assert!(log[3].admin.is_none());
     let older = admin.admin_log(Some(log[1].id), Some(1)).await.unwrap();
@@ -707,6 +707,12 @@ async fn reports_and_admin_actions() {
     );
     assert!(
         sqlx::query("DELETE FROM admin_log")
+            .execute(&db)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("TRUNCATE admin_log")
             .execute(&db)
             .await
             .is_err()
@@ -745,6 +751,7 @@ async fn admin_tag_management_and_aliases() {
         name: "setting".into(),
         display: "Setting".into(),
         locked: true,
+        required: false,
     };
     assert_eq!(
         status(&alice.admin_create_namespace(&ns).await.unwrap_err()),

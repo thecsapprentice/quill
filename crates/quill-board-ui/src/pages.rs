@@ -2,7 +2,10 @@
 
 use dioxus::prelude::*;
 use quill_proto::{
-    board::{Maturity, PromptState, ReportReason, Resolution, TagPolicy},
+    board::{
+        AdminAction, AdminLogEntry, Maturity, PromptState, ReportReason, Resolution, TagNamespace,
+        TagPolicy,
+    },
     limits::{
         PROMPT_BODY_MAX_CHARS, PROMPT_TITLE_MAX_CHARS, REPORT_DETAILS_MAX_CHARS, USERNAME_MAX_CHARS,
     },
@@ -263,13 +266,40 @@ pub fn auth_page(chrome: &Chrome, view: AuthView) -> String {
 
 // ---- Posting and editing -------------------------------------------------
 
-fn tag_policy_hint(policy: TagPolicy) -> &'static str {
-    match policy {
-        TagPolicy::Curated => "Only tags listed on this server can be used.",
-        TagPolicy::User | TagPolicy::Both => {
-            "New tags are created as you use them, except in content-warning, format and length, which use the server's list."
-        }
+/// "a, b and c"
+fn join_and(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
+}
+
+fn tag_policy_hint(policy: TagPolicy, namespaces: &[TagNamespace]) -> String {
+    let curated: Vec<String> = namespaces
+        .iter()
+        .filter(|n| n.locked)
+        .map(|n| n.name.clone())
+        .collect();
+    match policy {
+        TagPolicy::Curated => "Only tags listed on this server can be used.".to_owned(),
+        TagPolicy::User | TagPolicy::Both if curated.is_empty() => {
+            "New tags are created as you use them.".to_owned()
+        }
+        TagPolicy::User | TagPolicy::Both => format!(
+            "New tags are created as you use them, except in {}, which use the server's list.",
+            join_and(&curated)
+        ),
+    }
+}
+
+fn required_hint(namespaces: &[TagNamespace]) -> Option<String> {
+    let required: Vec<String> = namespaces
+        .iter()
+        .filter(|n| n.required)
+        .map(|n| format!("{} ({}:…)", n.display, n.name))
+        .collect();
+    (!required.is_empty()).then(|| format!("Required: at least one {} tag.", join_and(&required)))
 }
 
 pub fn prompt_form_page(chrome: &Chrome, view: PromptFormView) -> String {
@@ -340,7 +370,10 @@ pub fn prompt_form_page(chrome: &Chrome, view: PromptFormView) -> String {
                 div { class: "field",
                     label { r#for: "tags", "Tags"
                         span { class: "hint",
-                            "Comma-separated, as namespace:name, like genre:horror, theme:found family. {tag_policy_hint(v.tag_policy)}"
+                            "Comma-separated, as namespace:name, like genre:horror, theme:found family. {tag_policy_hint(v.tag_policy, &v.namespaces)}"
+                        }
+                        if let Some(required) = required_hint(&v.namespaces) {
+                            span { class: "hint required", "{required}" }
                         }
                     }
                     input { r#type: "text", id: "tags", name: "tags", value: "{v.tags}", list: TAG_OPTIONS }
@@ -569,40 +602,67 @@ pub fn admin_reports_page(chrome: &Chrome, view: AdminReportsView) -> String {
     })
 }
 
+fn action_label(action: AdminAction) -> &'static str {
+    match action {
+        AdminAction::ReportReceived => "Report received",
+        AdminAction::Discard => "Report discarded",
+        AdminAction::DeletePrompt => "Prompt removed",
+        AdminAction::CreateTagType => "Tag type added",
+        AdminAction::UpdateTagType => "Tag type changed",
+        AdminAction::CreateTag => "Tag added",
+        AdminAction::RenameTag => "Tag renamed",
+        AdminAction::AliasTag => "Tag merged",
+        AdminAction::DeleteTag => "Tag deleted",
+    }
+}
+
+fn log_subject(e: &AdminLogEntry) -> Element {
+    if let Some(subject) = &e.subject {
+        return rsx! { code { "{subject}" } };
+    }
+    match e.prompt_id {
+        Some(id) => rsx! { a { href: "{prompt_url(id)}?show=1", "View prompt" } },
+        None => rsx! { "Prompt deleted" },
+    }
+}
+
+fn log_detail(e: &AdminLogEntry) -> Element {
+    if let Some(detail) = &e.detail {
+        return rsx! { "{detail}" };
+    }
+    let reason = e.reason.map(reason_label).unwrap_or_default();
+    let hash = e.prompt_hash.as_deref().unwrap_or_default();
+    let short = hash.get(..12).unwrap_or(hash);
+    rsx! {
+        "{reason}"
+        if !short.is_empty() {
+            br {}
+            span { class: "hint", "Fingerprint " code { "{short}" } }
+        }
+    }
+}
+
 pub fn admin_log_page(chrome: &Chrome, view: AdminLogView) -> String {
     render("Admin log", chrome, move || {
         let v = &view;
         rsx! {
             h1 { "Admin log" }
             p { class: "lede",
-                "Every report received and every action taken, newest first. The log can't be edited, and it keeps a fingerprint of each reported prompt rather than its text. "
+                "Every report received and every administrator action, newest first. The log can't be edited, and it keeps a fingerprint of each reported prompt rather than its text. "
                 a { href: "/admin/reports", "Back to reports" }
             }
             div { class: "table-scroll",
                 table { class: "log",
                     thead {
-                        tr { th { "When" } th { "Event" } th { "Reason" } th { "Prompt" } th { "Fingerprint" } }
+                        tr { th { "When" } th { "Event" } th { "Subject" } th { "Details" } }
                     }
                     tbody {
                         for e in v.entries.iter() {
                             tr { key: "{e.id}",
                                 td { "{short_date(e.at)}" }
-                                td {
-                                    match e.action.as_str() {
-                                        "report_received" => "Report received",
-                                        "discard" => "Report discarded",
-                                        "delete_prompt" => "Prompt removed",
-                                        other => other,
-                                    }
-                                }
-                                td { "{reason_label(e.reason)}" }
-                                td {
-                                    match e.prompt_id {
-                                        Some(id) => rsx! { a { href: "{prompt_url(id)}?show=1", "View" } },
-                                        None => rsx! { "Deleted" },
-                                    }
-                                }
-                                td { code { "{e.prompt_hash.get(..12).unwrap_or(&e.prompt_hash)}" } }
+                                td { "{action_label(e.action)}" }
+                                td { {log_subject(e)} }
+                                td { {log_detail(e)} }
                             }
                         }
                     }

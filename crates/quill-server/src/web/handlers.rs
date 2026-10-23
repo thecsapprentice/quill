@@ -35,7 +35,7 @@ use crate::{AppState, error::ApiError, prompts, reports, routes};
 // ---- Small helpers -------------------------------------------------------
 
 /// A trimmed, non-empty form value.
-fn opt(value: &Option<String>) -> Option<&str> {
+pub(super) fn opt(value: &Option<String>) -> Option<&str> {
     value.as_deref().map(str::trim).filter(|v| !v.is_empty())
 }
 
@@ -52,7 +52,7 @@ fn split_tags(raw: &str) -> Vec<String> {
 }
 
 /// Errors the visitor can fix by changing the form.
-fn form_error(err: &ApiError) -> Option<String> {
+pub(super) fn form_error(err: &ApiError) -> Option<String> {
     match err {
         ApiError::BadRequest(m) | ApiError::Conflict(m) | ApiError::Forbidden(m) => Some(m.clone()),
         _ => None,
@@ -235,6 +235,7 @@ async fn prompt_form_view(
         error,
         tag_options: tag_options(state).await,
         tag_policy: state.config.tag_policy,
+        namespaces: prompts::namespaces(state).await?,
     })
 }
 
@@ -859,7 +860,7 @@ pub async fn logout(
 
 // ---- Administration ------------------------------------------------------
 
-fn not_admin(state: &AppState, s: &Session) -> Response {
+pub(super) fn not_admin(state: &AppState, s: &Session) -> Response {
     message(
         &chrome(state, Some(s), Nav::Admin, None),
         StatusCode::FORBIDDEN,
