@@ -60,6 +60,17 @@ browsers accept for the board's Secure session cookie only on `localhost`.
 Requirements: the Rust toolchain pinned in `rust-toolchain.toml` (rustup
 installs it automatically) and PostgreSQL 16+.
 
+On Windows, `scripts/setup-windows.ps1` installs everything with Chocolatey:
+the Visual Studio C++ Build Tools, NASM, Git, rustup and the pinned Rust. From
+an Administrator PowerShell in the repository folder:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup-windows.ps1 -Build
+```
+
+`-Build` also builds the CLI (`target\release\quill.exe`). The client alone
+needs no database; PostgreSQL is only for running the server and its tests.
+
 ```sh
 # A role that can create databases (the e2e tests create and drop their own).
 createuser --createdb --pwprompt quill
