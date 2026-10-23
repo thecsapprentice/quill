@@ -39,10 +39,12 @@ pub fn api() -> Router<AppState> {
         .merge(crate::prompts::router())
         .merge(crate::reports::router())
         .merge(crate::tag_admin::router())
+        .merge(crate::server_settings::router())
 }
 
-async fn instance(State(state): State<AppState>) -> Json<InstanceInfo> {
-    Json(InstanceInfo {
+async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, ApiError> {
+    let settings = crate::server_settings::settings(&state).await?;
+    Ok(Json(InstanceInfo {
         domain: state.config.domain.clone(),
         software: "quill".into(),
         software_version: env!("CARGO_PKG_VERSION").into(),
@@ -52,10 +54,10 @@ async fn instance(State(state): State<AppState>) -> Json<InstanceInfo> {
             .collect(),
         registration_open: state.config.registration_open,
         email_recovery: false,
-        tag_policy: state.config.tag_policy,
+        tag_policy: settings.new_tags,
         default_maturity_max: quill_proto::board::Maturity::DEFAULT_MAX,
         limits: state.config.limits,
-    })
+    }))
 }
 
 /// Sign-in attempts allowed per login name every 15 minutes.

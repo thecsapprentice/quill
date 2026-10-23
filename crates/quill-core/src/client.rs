@@ -8,8 +8,8 @@ use quill_proto::{
     board::{
         AccountSettings, AdminLogEntry, AdminTag, AdminTagQuery, CreateNamespace, CreatePrompt,
         CreateReport, CreateTag, DeletedTag, Prompt, PromptPage, PromptQuery, Report, ReportQuery,
-        Resolution, ResolveReport, Tag, TagNamespace, TagQuery, UpdateAccountSettings,
-        UpdateNamespace, UpdatePrompt, UpdateTag,
+        Resolution, ResolveReport, ServerSettings, Tag, TagNamespace, TagQuery,
+        UpdateAccountSettings, UpdateNamespace, UpdatePrompt, UpdateServerSettings, UpdateTag,
     },
 };
 use reqwest::{Method, RequestBuilder, Response, StatusCode, header};
@@ -365,6 +365,18 @@ impl Client {
         body: &UpdateNamespace,
     ) -> Result<TagNamespace, CoreError> {
         let builder = self.authed_segments(Method::PATCH, "/admin/tag-namespaces", &[name])?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn admin_settings(&self) -> Result<ServerSettings, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/settings")?).await
+    }
+
+    pub async fn admin_update_settings(
+        &self,
+        body: &UpdateServerSettings,
+    ) -> Result<ServerSettings, CoreError> {
+        let builder = self.authed(Method::PATCH, "/admin/settings")?;
         Self::json(Self::with_json(builder, body)).await
     }
 

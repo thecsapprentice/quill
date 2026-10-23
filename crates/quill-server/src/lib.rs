@@ -9,6 +9,7 @@ pub mod prompts;
 mod ratelimit;
 pub mod reports;
 pub mod routes;
+pub mod server_settings;
 pub mod tag_admin;
 mod web;
 
@@ -40,6 +41,9 @@ impl AppState {
         ))
         .await
         .map_err(|e| anyhow::anyhow!("dummy hash: {e}"))?;
+        server_settings::init(&pool, &config)
+            .await
+            .context("storing starting server settings")?;
         Ok(Self {
             pool,
             config: Arc::new(config),

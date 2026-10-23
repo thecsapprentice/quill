@@ -26,6 +26,8 @@ pub enum ValidationError {
     Namespace,
     #[error("a prompt can have at most {PROMPT_MAX_TAGS} tags")]
     TooManyTags,
+    #[error("colour {0:?} must be written as #rrggbb, like #1e3a8a")]
+    Color(String),
 }
 
 /// Normalizes and validates a login name or persona handle.

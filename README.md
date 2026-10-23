@@ -88,6 +88,10 @@ QUILL_DATABASE_URL=... cargo run -p quill-server -- make-admin yourname
 cargo run -p quill -- admin reports
 cargo run -p quill -- admin namespace-set genre --required true   # every prompt needs a genre
 cargo run -p quill -- admin tags --namespace theme                  # tags with usage counts
+cargo run -p quill -- admin settings --new-tags approval            # writers' new tags need approval
+cargo run -p quill -- admin tags --status pending                   # tag requests
+cargo run -p quill -- admin namespace-set genre --color '#dbeafe' --text-color '#1e3a8a'
+cargo run -p quill -- admin tag-color genre:horror --color '#7f1d1d'   # text colour automatic
 ```
 
 Server configuration (environment variables):
@@ -100,11 +104,12 @@ Server configuration (environment variables):
 | `QUILL_REGISTRATION_OPEN` | `true` | Allow new accounts |
 | `QUILL_MAX_PERSONAS` | `20` | Personas per account |
 | `QUILL_TOKEN_TTL_DAYS` | `30` | Login token lifetime |
-| `QUILL_TAG_POLICY` | `both` | `curated` (admin tags only), `user` or `both` |
+| `QUILL_TAG_POLICY` | `open` | Starting value of the "new tags from writers" setting: `open`, `approval` or `curated`. Administrators change it in Server settings afterwards. |
 | `QUILL_SOURCE_URL` | this repository | Source link in the board's footer; point it at your version if you modify Quill (AGPL) |
 
 The web board runs no JavaScript and loads nothing from other sites. Its
-Content-Security-Policy allows only the board's own stylesheet, and forms are
+Content-Security-Policy allows only the board's own stylesheets (tag chip
+colours come from one generated from Server settings, never inline styles), and forms are
 protected by SameSite=Strict `__Host-` session cookies, per-session CSRF
 tokens and a cross-site request check. Session cookies are marked Secure, so
 serve the board over HTTPS; browsers make an exception for `localhost` during
