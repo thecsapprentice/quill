@@ -1537,3 +1537,151 @@ pub mod testing {
         Ok(posted.seq)
     }
 }
+
+// ---- Safety numbers (2j) ---------------------------------------------------------------
+
+/// What two writers compare out of band.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SafetyNumbers {
+    pub session: String,
+    pub partner: SessionMember,
+    /// 12 words from both personas' identity keys: the same for both
+    /// writers, changing only with an identity key.
+    pub identity: Vec<&'static str>,
+    /// The epoch the check is for, and 6 words from its authenticator: the
+    /// same on every device in the group at that epoch.
+    pub epoch: u64,
+    pub check: Vec<&'static str>,
+    /// This device marked the other writer verified, for their current key.
+    pub verified: bool,
+}
+
+fn length_prefixed(parts: &[&[u8]]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for p in parts {
+        out.extend_from_slice(&u32::try_from(p.len()).unwrap_or(u32::MAX).to_be_bytes());
+        out.extend_from_slice(p);
+    }
+    out
+}
+
+/// The identity number for two personas, whichever side computes it.
+pub fn identity_number(a: (&str, &[u8]), b: (&str, &[u8])) -> Vec<&'static str> {
+    let (first, second) = if a.0 <= b.0 { (a, b) } else { (b, a) };
+    let input = length_prefixed(&[first.0.as_bytes(), first.1, second.0.as_bytes(), second.1]);
+    crate::words::take(
+        &crate::words::labelled_hash("wr safety number v1", &[&input]),
+        12,
+    )
+}
+
+/// Whether this device marked `uri` verified with identity key `key`.
+fn is_verified(store: &Store, uri: &str, key: &[u8]) -> Result<bool, CoreError> {
+    Ok(store
+        .get(Table::Verified, uri.as_bytes())?
+        .is_some_and(|v| v.as_slice() == key))
+}
+
+/// The safety numbers for a session, after syncing it.
+pub async fn safety_numbers(
+    store: &Store,
+    client: &Client,
+    id: &str,
+) -> Result<SafetyNumbers, CoreError> {
+    let s = find(client, id).await?;
+    let mut report = SyncReport::default();
+    standing_error(sync_one(store, client, &s, &mut report).await?)?;
+    let gid = unb64(&s.id).ok_or_else(|| err("bad session id"))?;
+    let mine = s
+        .members
+        .iter()
+        .find(|m| m.persona.is_some())
+        .ok_or_else(|| err("you're not in this session"))?;
+    let partner = s
+        .members
+        .iter()
+        .find(|m| m.persona.is_none())
+        .ok_or_else(|| err("the other writer has left this session"))?
+        .clone();
+    let my_key = keys::load_identity(store, mine.persona.unwrap_or_default())?
+        .ok_or_else(|| requests::not_set_up(&mine.handle))?
+        .public();
+    let published = keys::check_published(
+        &client.actor_keys(&partner.handle).await?,
+        &partner.actor_uri,
+        keys::now_ms(),
+    )?;
+    let (their_key, version) = published
+        .identity
+        .ok_or_else(|| err("the other writer has no identity key"))?;
+    if let PinStatus::Changed { .. } =
+        keys::check_pin(store, &partner.actor_uri, &their_key, version)?
+    {
+        return Err(err(format!(
+            "@{}'s identity key changed since it was pinned; check it with `quill keys show {}`",
+            partner.handle, partner.handle
+        )));
+    }
+    let provider = Provider::new(store);
+    let group =
+        load_group(&provider, &gid)?.ok_or_else(|| err("the session's keys are missing"))?;
+    let epoch = group.epoch().as_u64();
+    let check = crate::words::words(&crate::words::labelled_hash(
+        "wr session check v1",
+        &[&length_prefixed(&[
+            &gid,
+            group.epoch_authenticator().as_slice(),
+        ])],
+    ));
+    Ok(SafetyNumbers {
+        session: s.id.clone(),
+        identity: identity_number(
+            (mine.actor_uri.as_str(), my_key.as_slice()),
+            (partner.actor_uri.as_str(), their_key.as_slice()),
+        ),
+        epoch,
+        check,
+        verified: is_verified(store, &partner.actor_uri, &their_key)?,
+        partner,
+    })
+}
+
+/// Marks the other writer verified on this device, for their current
+/// identity key, after the numbers were compared.
+pub async fn confirm_verified(
+    store: &Store,
+    client: &Client,
+    id: &str,
+) -> Result<SafetyNumbers, CoreError> {
+    let mut numbers = safety_numbers(store, client, id).await?;
+    let published = keys::check_published(
+        &client.actor_keys(&numbers.partner.handle).await?,
+        &numbers.partner.actor_uri,
+        keys::now_ms(),
+    )?;
+    let (key, _) = published
+        .identity
+        .ok_or_else(|| err("the other writer has no identity key"))?;
+    store.apply(&[crate::store::kv::Op::Put {
+        table: Table::Verified,
+        key: numbers.partner.actor_uri.as_bytes(),
+        value: &key,
+    }])?;
+    numbers.verified = true;
+    Ok(numbers)
+}
+
+/// Whether this device has verified the other writer of a session, for
+/// their pinned key.
+pub fn verified(store: &Store, s: &Session) -> Result<bool, CoreError> {
+    let Some(partner) = s.members.iter().find(|m| m.persona.is_none()) else {
+        return Ok(false);
+    };
+    let Some(pin) = store.get(Table::Pins, partner.actor_uri.as_bytes())? else {
+        return Ok(false);
+    };
+    if pin.len() != 36 {
+        return Ok(false);
+    }
+    is_verified(store, &partner.actor_uri, &pin[4..])
+}

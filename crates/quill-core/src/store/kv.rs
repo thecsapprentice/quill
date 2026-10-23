@@ -45,10 +45,15 @@ pub enum Table {
     Messages,
     /// Attachments' contents, decrypted, by blob URL.
     Files,
+    /// Writers whose safety numbers were compared: identity key by actor
+    /// URI.
+    Verified,
+    /// This device's backup settings, such as the recovery code.
+    Backup,
 }
 
 impl Table {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 14] = [
         Self::Meta,
         Self::Profile,
         Self::Identities,
@@ -61,6 +66,8 @@ impl Table {
         Self::Sessions,
         Self::Messages,
         Self::Files,
+        Self::Verified,
+        Self::Backup,
     ];
 
     pub fn name(self) -> &'static str {
@@ -77,6 +84,8 @@ impl Table {
             Self::Sessions => "sessions",
             Self::Messages => "messages",
             Self::Files => "files",
+            Self::Verified => "verified",
+            Self::Backup => "backup",
         }
     }
 }
