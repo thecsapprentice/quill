@@ -20,8 +20,8 @@ personas, CLI skeleton, the server dependency ban.
 | 1a | Prompts, tags, search, reports, admin inbox: API and CLI | done (#1) |
 | 1b | Server-rendered board (`quill-board-ui`), sessions, CSRF | done (#2) |
 | 1c | Docker setup and demo data | done |
-| 1d | Admin settings: tag management and required tag types | next |
-| 1e | Tag picker on the prompt form | planned |
+| 1d | Admin settings: tag management and required tag types | done |
+| 1e | Tag picker on the prompt form | next |
 | 1f | Persona handle rules | planned |
 
 ### 1c: Docker setup and demo data
@@ -64,6 +64,14 @@ Done when: an admin can do all of the above in the browser without
 JavaScript, non-admins get 403 on every settings URL, and the required-type
 rule has end-to-end tests (new and edited prompts refused without the tag,
 existing prompts left as they were, status changes still allowed).
+
+As built: the board pages are under `/admin/settings` (tabs "Tag types" and
+"Tags"). The JSON API adds `PATCH /admin/tag-namespaces/{name}`,
+`GET /admin/tags` (with usage counts) and `GET`/`DELETE
+/admin/tags/{namespace}/{slug}`, and the CLI has `admin namespace-set`,
+`admin tags` and `admin delete-tag`. Adding a tag that is already curated is
+refused (409) rather than logged twice. The admin log also refuses
+`TRUNCATE`, which row triggers alone didn't stop.
 
 ### 1e: Tag picker on the prompt form
 

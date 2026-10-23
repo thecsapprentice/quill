@@ -113,6 +113,21 @@ string_enum! {
     }
 }
 
+string_enum! {
+    /// What an admin log entry records.
+    AdminAction {
+        ReportReceived => "report_received",
+        Discard => "discard",
+        DeletePrompt => "delete_prompt",
+        CreateTagType => "create_tag_type",
+        UpdateTagType => "update_tag_type",
+        CreateTag => "create_tag",
+        RenameTag => "rename_tag",
+        AliasTag => "alias_tag",
+        DeleteTag => "delete_tag",
+    }
+}
+
 // ---- Tags ----------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,7 +135,11 @@ string_enum! {
 pub struct TagNamespace {
     pub name: String,
     pub display: String,
+    /// Only server-curated tags may be used.
     pub locked: bool,
+    /// Every prompt saved must carry at least one tag of this type.
+    #[serde(default)]
+    pub required: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +187,55 @@ pub struct CreateNamespace {
     pub display: String,
     #[serde(default)]
     pub locked: bool,
+    #[serde(default)]
+    pub required: bool,
+}
+
+/// `PATCH /admin/tag-namespaces/{name}`. Absent fields are unchanged.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateNamespace {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+}
+
+/// `GET /admin/tags` query. Unlike `GET /tags`, aliases are included.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminTagQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    /// Matches anywhere in the slug or display name, case-insensitively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// A tag as administrators see it: with its usage and alias target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminTag {
+    #[serde(flatten)]
+    pub tag: Tag,
+    /// Prompts carrying this tag, including ones removed by an administrator.
+    /// Always 0 for an alias, since prompts store the tag it points to.
+    pub uses: u64,
+    /// `namespace:slug` of the tag this one is an alias of.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias_of: Option<String>,
+}
+
+/// Response to `DELETE /admin/tags/{namespace}/{slug}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedTag {
+    /// Prompts the tag was removed from.
+    pub prompts_updated: u64,
 }
 
 /// `PATCH /admin/tags/{namespace}/{slug}`.
@@ -366,15 +434,23 @@ pub struct AdminLogEntry {
     pub id: i64,
     #[serde(with = "time::serde::rfc3339")]
     pub at: OffsetDateTime,
-    /// `report_received`, `discard` or `delete_prompt`.
-    pub action: String,
+    pub action: AdminAction,
     #[serde(default)]
     pub report_id: Option<Uuid>,
     #[serde(default)]
     pub prompt_id: Option<Uuid>,
-    /// Hex SHA-256 of the prompt as reported.
-    pub prompt_hash: String,
-    pub reason: ReportReason,
+    /// Hex SHA-256 of the prompt as reported (report entries only).
+    #[serde(default)]
+    pub prompt_hash: Option<String>,
+    /// Report entries only.
+    #[serde(default)]
+    pub reason: Option<ReportReason>,
+    /// What a tag entry changed, such as `genre:horror` or `genre`.
+    #[serde(default)]
+    pub subject: Option<String>,
+    /// Free-form detail, such as the new name or how many prompts changed.
+    #[serde(default)]
+    pub detail: Option<String>,
     /// Account id of the acting administrator, if any.
     #[serde(default)]
     pub admin: Option<Uuid>,

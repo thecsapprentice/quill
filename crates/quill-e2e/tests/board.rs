@@ -499,3 +499,203 @@ async fn maturity_warning_reports_and_admin_inbox() {
     assert!(!own.body.contains(&format!("{teen}/edit")));
     server.stop().await.unwrap();
 }
+
+#[tokio::test]
+async fn server_settings_manage_tag_types_and_tags() {
+    let server = server!();
+    let mut writer = Browser::new(&server);
+    let writer_csrf = writer.register("alice", "ink_fox").await;
+    writer.post_prompt(&writer_csrf, "Lamps", "general").await;
+
+    // Signed out: sign in first. Not an admin: refused, with no header link.
+    let mut anon = Browser::new(&server);
+    assert_eq!(anon.get("/admin/settings/tags").await.location(), "/login");
+    let refused = writer.get("/admin/settings/tag-types").await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN);
+    assert!(!writer.get("/").await.body.contains("Server settings"));
+    let forged = writer
+        .post(
+            "/admin/settings/tag-types/genre",
+            &[
+                ("csrf", &writer_csrf),
+                ("display", "Genre"),
+                ("required", "yes"),
+            ],
+        )
+        .await;
+    assert_eq!(forged.status, StatusCode::FORBIDDEN);
+
+    let mut admin = Browser::new(&server);
+    let csrf = admin.register("moderator", "mod_desk").await;
+    let pool = server.db().await.unwrap();
+    sqlx::query("UPDATE accounts SET is_admin = true WHERE login_name = 'moderator'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    assert!(
+        admin
+            .get("/")
+            .await
+            .body
+            .contains(r#"href="/admin/settings""#)
+    );
+    assert_eq!(
+        admin.get("/admin/settings").await.location(),
+        "/admin/settings/tag-types"
+    );
+
+    // Make Genre required. Unticked boxes mean "off".
+    let types = admin.get("/admin/settings/tag-types").await;
+    assert!(
+        types
+            .body
+            .contains(r#"action="/admin/settings/tag-types/content-warning""#)
+    );
+    let saved = admin
+        .post(
+            "/admin/settings/tag-types/genre",
+            &[("csrf", &csrf), ("display", "Genre"), ("required", "yes")],
+        )
+        .await;
+    assert_eq!(
+        saved.location(),
+        "/admin/settings/tag-types?notice=tag-type-saved"
+    );
+    let types = admin
+        .get("/admin/settings/tag-types?notice=tag-type-saved")
+        .await;
+    assert!(types.body.contains("Tag type saved."));
+
+    // The prompt form says so, and enforces it.
+    let form = writer.get("/new").await;
+    assert!(
+        form.body
+            .contains("Required: at least one Genre (genre:…) tag.")
+    );
+    let start = form.body.find(r#"<option value=""#).unwrap() + 15;
+    let persona = form.body[start..start + 36].to_owned();
+    let missing = writer
+        .post(
+            "/new",
+            &[
+                ("csrf", &writer_csrf),
+                ("persona", &persona),
+                ("title", "No genre"),
+                ("body", "Body"),
+                ("maturity", "general"),
+                ("tags", "format:prose"),
+            ],
+        )
+        .await;
+    assert_eq!(missing.status, StatusCode::BAD_REQUEST);
+    assert!(missing.body.contains("Add: Genre."));
+    assert!(missing.body.contains("No genre"));
+
+    // Adding a tag type that exists re-shows the form with the input kept.
+    let dup = admin
+        .post(
+            "/admin/settings/tag-types",
+            &[
+                ("csrf", &csrf),
+                ("name", "genre"),
+                ("display", "Genre again"),
+            ],
+        )
+        .await;
+    assert_eq!(dup.status, StatusCode::BAD_REQUEST);
+    assert!(dup.body.contains("already exists"));
+    assert!(dup.body.contains(r#"value="Genre again""#));
+    let added = admin
+        .post(
+            "/admin/settings/tag-types",
+            &[
+                ("csrf", &csrf),
+                ("name", "setting"),
+                ("display", "Setting"),
+                ("locked", "yes"),
+            ],
+        )
+        .await;
+    assert_eq!(
+        added.location(),
+        "/admin/settings/tag-types?notice=tag-type-created"
+    );
+
+    // Tags: add, rename, merge, delete.
+    let created = admin
+        .post(
+            "/admin/settings/tags",
+            &[
+                ("csrf", &csrf),
+                ("namespace", "setting"),
+                ("name", "Deep space"),
+            ],
+        )
+        .await;
+    assert_eq!(
+        created.location(),
+        "/admin/settings/tags/setting/deep-space?notice=tag-created"
+    );
+    let renamed = admin
+        .post(
+            "/admin/settings/tags/setting/deep-space",
+            &[("csrf", &csrf), ("display", "Outer space")],
+        )
+        .await;
+    assert_eq!(
+        renamed.location(),
+        "/admin/settings/tags/setting/deep-space?notice=tag-saved"
+    );
+    let list = admin.get("/admin/settings/tags?namespace=theme").await;
+    assert!(list.body.contains("Lighthouses"));
+    assert!(list.body.contains("1 prompt"));
+    assert!(!list.body.contains("Outer space"));
+    let bad_merge = admin
+        .post(
+            "/admin/settings/tags/theme/lighthouses/merge",
+            &[("csrf", &csrf), ("target", "theme:nowhere")],
+        )
+        .await;
+    assert_eq!(bad_merge.status, StatusCode::BAD_REQUEST);
+    assert!(bad_merge.body.contains("unknown tag"));
+
+    let confirm = admin.get("/admin/settings/tags/genre/horror/delete").await;
+    assert!(confirm.body.contains("It&#39;s on 1 prompt."));
+    assert!(confirm.body.contains("Genre is a required type."));
+    let unconfirmed = admin
+        .post(
+            "/admin/settings/tags/genre/horror/delete",
+            &[("csrf", &csrf)],
+        )
+        .await;
+    assert_eq!(unconfirmed.status, StatusCode::BAD_REQUEST);
+    let deleted = admin
+        .post(
+            "/admin/settings/tags/genre/horror/delete",
+            &[("csrf", &csrf), ("confirm", "yes")],
+        )
+        .await;
+    assert_eq!(
+        deleted.location(),
+        "/admin/settings/tags?namespace=genre&notice=tag-deleted"
+    );
+    assert_eq!(
+        admin.get("/admin/settings/tags/genre/horror").await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert!(!anon.get("/").await.body.contains("genre: </span>Horror"));
+
+    let log = admin.get("/admin/log").await;
+    for event in [
+        "Tag deleted",
+        "Tag renamed",
+        "Tag added",
+        "Tag type added",
+        "Tag type changed",
+    ] {
+        assert!(log.body.contains(event), "{event}");
+    }
+    assert!(log.body.contains("<code>genre:horror</code>"));
+    server.stop().await.unwrap();
+}

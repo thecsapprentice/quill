@@ -38,6 +38,7 @@ pub fn api() -> Router<AppState> {
         )
         .merge(crate::prompts::router())
         .merge(crate::reports::router())
+        .merge(crate::tag_admin::router())
 }
 
 async fn instance(State(state): State<AppState>) -> Json<InstanceInfo> {

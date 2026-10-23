@@ -82,9 +82,12 @@ cargo run -p quill -- prompt post --as your_handle --title "The ledger" \
 cargo run -p quill -- prompt list --include genre:horror --exclude content-warning:gore
 cargo run -p quill -- tags list --namespace genre
 
-# Make an account a server administrator, then work the report inbox.
+# Make an account a server administrator, then work the report inbox and tags.
+# (On the board: the Reports and Server settings links.)
 QUILL_DATABASE_URL=... cargo run -p quill-server -- make-admin yourname
 cargo run -p quill -- admin reports
+cargo run -p quill -- admin namespace-set genre --required true   # every prompt needs a genre
+cargo run -p quill -- admin tags --namespace theme                  # tags with usage counts
 ```
 
 Server configuration (environment variables):

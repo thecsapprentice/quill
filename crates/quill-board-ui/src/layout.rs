@@ -30,6 +30,7 @@ pub(crate) fn header(chrome: &Chrome) -> Element {
                         {nav_link(chrome, Nav::Settings, "/settings", "Settings")}
                         if viewer.is_admin {
                             {nav_link(chrome, Nav::Admin, "/admin/reports", "Reports")}
+                            {nav_link(chrome, Nav::ServerSettings, "/admin/settings", "Server settings")}
                         }
                         form { method: "post", action: "/logout",
                             input { r#type: "hidden", name: CSRF_FIELD, value: "{viewer.csrf}" }

@@ -9,6 +9,7 @@
 //! Safety: all text is escaped by Dioxus. The only raw HTML inserted is a
 //! prompt's `body_html`, which the server has already sanitized.
 
+mod admin;
 mod layout;
 mod pages;
 
@@ -18,13 +19,14 @@ use dioxus::prelude::*;
 use quill_proto::{
     api::Persona,
     board::{
-        AccountSettings, AdminLogEntry, Maturity, Prompt, PromptState, Report, ReportReason, Tag,
-        TagNamespace, TagPolicy,
+        AccountSettings, AdminLogEntry, AdminTag, Maturity, Prompt, PromptState, Report,
+        ReportReason, Tag, TagNamespace, TagPolicy,
     },
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+pub use admin::*;
 pub use pages::*;
 
 /// The board's stylesheet, served at [`STYLESHEET_PATH`].
@@ -42,7 +44,10 @@ pub enum Nav {
     Mine,
     Personas,
     Settings,
+    /// The report inbox and admin log.
     Admin,
+    /// Server settings (administrators only).
+    ServerSettings,
     SignIn,
     Other,
 }
@@ -175,6 +180,8 @@ pub struct PromptFormView {
     pub error: Option<String>,
     pub tag_options: Vec<Tag>,
     pub tag_policy: TagPolicy,
+    /// Tag types, to show which are required or curated-only.
+    pub namespaces: Vec<TagNamespace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,6 +216,61 @@ pub struct AdminLogView {
     pub entries: Vec<AdminLogEntry>,
     /// Link to older entries.
     pub older: Option<String>,
+}
+
+/// The "add a tag type" form's values, kept when it's sent back with an error.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NewTagType {
+    pub name: String,
+    pub display: String,
+    pub locked: bool,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminTagTypesView {
+    pub namespaces: Vec<TagNamespace>,
+    pub new: NewTagType,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminTagsView {
+    pub namespaces: Vec<TagNamespace>,
+    pub tags: Vec<AdminTag>,
+    /// Filter: tag type name.
+    pub namespace: Option<String>,
+    /// Filter: search text.
+    pub search: String,
+    /// More tags matched than are shown.
+    pub truncated: bool,
+    /// The "add a tag" form's values, kept on error.
+    pub new_namespace: String,
+    pub new_name: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminTagView {
+    pub tag: AdminTag,
+    /// Display name of the tag's type.
+    pub namespace_display: String,
+    pub rename: String,
+    pub alias_target: String,
+    /// Suggestions for the alias target.
+    pub tag_options: Vec<Tag>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminTagDeleteView {
+    pub tag: AdminTag,
+    pub namespace: TagNamespace,
+}
+
+/// Board link for a tag's admin page.
+pub fn admin_tag_url(tag: &Tag) -> String {
+    format!("/admin/settings/tags/{}/{}", tag.namespace, tag.slug)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

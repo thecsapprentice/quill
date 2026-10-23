@@ -1,8 +1,8 @@
 use quill_proto::{
     api::Persona,
     board::{
-        AccountSettings, Maturity, Prompt, PromptAuthor, PromptState, Report, ReportReason, Tag,
-        TagOrigin, TagPolicy,
+        AccountSettings, AdminAction, AdminLogEntry, AdminTag, Maturity, Prompt, PromptAuthor,
+        PromptState, Report, ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy,
     },
 };
 use time::macros::datetime;
@@ -166,8 +166,30 @@ fn forms_render_with_values_and_errors() {
             error: Some("Tag \"x\" is invalid".into()),
             tag_options: Vec::new(),
             tag_policy: TagPolicy::Both,
+            namespaces: vec![
+                TagNamespace {
+                    name: "genre".into(),
+                    display: "Genre".into(),
+                    locked: false,
+                    required: true,
+                },
+                TagNamespace {
+                    name: "format".into(),
+                    display: "Format".into(),
+                    locked: true,
+                    required: true,
+                },
+                TagNamespace {
+                    name: "length".into(),
+                    display: "Length".into(),
+                    locked: true,
+                    required: false,
+                },
+            ],
         },
     );
+    assert!(html.contains("Required: at least one Genre (genre:…) and Format (format:…) tag."));
+    assert!(html.contains("except in format and length, which use"));
     assert!(html.contains(r#"value="T&#34;itle""#));
     assert!(html.contains("&#60;/textarea&#62;&#60;script&#62;"));
     assert!(html.contains(r#"<option value="mature" selected"#));
@@ -187,6 +209,7 @@ fn forms_render_with_values_and_errors() {
             error: None,
             tag_options: Vec::new(),
             tag_policy: TagPolicy::Both,
+            namespaces: Vec::new(),
         },
     );
     assert!(empty.contains("Create a persona"));
@@ -256,4 +279,148 @@ fn other_pages_render() {
 fn short_dates() {
     assert_eq!(short_date(datetime!(2026-01-05 00:00 UTC)), "Jan 5, 2026");
     assert_eq!(short_date(datetime!(2026-12-31 23:59 UTC)), "Dec 31, 2026");
+}
+
+fn genre() -> TagNamespace {
+    TagNamespace {
+        name: "genre".into(),
+        display: "Genre".into(),
+        locked: false,
+        required: true,
+    }
+}
+
+fn admin_tag(slug: &str, uses: u64, alias_of: Option<&str>) -> AdminTag {
+    AdminTag {
+        tag: Tag {
+            namespace: "genre".into(),
+            slug: slug.into(),
+            display: "<Horror>".into(),
+            origin: TagOrigin::User,
+        },
+        uses,
+        alias_of: alias_of.map(str::to_owned),
+    }
+}
+
+#[test]
+fn server_settings_pages() {
+    let c = Chrome {
+        current: Nav::ServerSettings,
+        ..chrome(true, true)
+    };
+    let types = admin_tag_types_page(
+        &c,
+        AdminTagTypesView {
+            namespaces: vec![genre()],
+            new: NewTagType {
+                name: "setting".into(),
+                ..NewTagType::default()
+            },
+            error: Some("a tag type named \"setting\" already exists".into()),
+        },
+    );
+    assert!(types.contains(r#"action="/admin/settings/tag-types/genre""#));
+    assert!(types.contains(r#"name="required" value="yes" checked=true"#));
+    assert!(types.contains(r#"value="setting""#));
+    assert!(types.contains("role=\"alert\""));
+    assert!(types.contains(r#"href="/admin/settings" aria-current="page""#));
+    assert_eq!(types.matches(r#"name="csrf""#).count(), 3);
+
+    let tags = admin_tags_page(
+        &c,
+        AdminTagsView {
+            namespaces: vec![genre()],
+            tags: vec![
+                admin_tag("horror", 12, None),
+                admin_tag("scary", 0, Some("genre:horror")),
+            ],
+            namespace: Some("genre".into()),
+            search: "hor".into(),
+            truncated: true,
+            new_namespace: "genre".into(),
+            new_name: String::new(),
+            error: None,
+        },
+    );
+    assert!(tags.contains("&#60;Horror&#62;"));
+    assert!(tags.contains("12 prompts"));
+    assert!(tags.contains("Other name for genre:horror"));
+    assert!(tags.contains(r#"href="/admin/settings/tags/genre/horror/delete""#));
+    assert!(tags.contains("Showing the first 2 tags"));
+
+    let page = admin_tag_page(
+        &c,
+        AdminTagView {
+            tag: admin_tag("horror", 1, None),
+            namespace_display: "Genre".into(),
+            rename: "Horror".into(),
+            alias_target: String::new(),
+            tag_options: Vec::new(),
+            error: None,
+        },
+    );
+    assert!(page.contains(r#"action="/admin/settings/tags/genre/horror/merge""#));
+    assert!(page.contains("1 prompt"));
+    let alias = admin_tag_page(
+        &c,
+        AdminTagView {
+            tag: admin_tag("scary", 0, Some("genre:horror")),
+            namespace_display: "Genre".into(),
+            rename: "Scary".into(),
+            alias_target: String::new(),
+            tag_options: Vec::new(),
+            error: None,
+        },
+    );
+    assert!(!alias.contains("/merge"));
+
+    let delete = admin_tag_delete_page(
+        &c,
+        AdminTagDeleteView {
+            tag: admin_tag("horror", 3, None),
+            namespace: genre(),
+        },
+    );
+    assert!(delete.contains("It&#39;s on 3 prompts."));
+    assert!(delete.contains("Genre is a required type."));
+    assert!(delete.contains("Writers can still create this tag again"));
+    assert!(delete.contains(r#"name="confirm""#));
+}
+
+#[test]
+fn admin_log_shows_tag_and_report_entries() {
+    let entry = |id, action, subject: Option<&str>, detail: Option<&str>| AdminLogEntry {
+        id,
+        at: datetime!(2026-10-22 12:00 UTC),
+        action,
+        report_id: None,
+        prompt_id: subject.is_none().then(Uuid::nil),
+        prompt_hash: subject.is_none().then(|| "00ff00ff00ff00ff".into()),
+        reason: subject.is_none().then_some(ReportReason::Spam),
+        subject: subject.map(str::to_owned),
+        detail: detail.map(str::to_owned),
+        admin: None,
+    };
+    let html = admin_log_page(
+        &chrome(true, true),
+        AdminLogView {
+            entries: vec![
+                entry(
+                    2,
+                    AdminAction::DeleteTag,
+                    Some("genre:horror"),
+                    Some("removed from 3 prompt(s)"),
+                ),
+                entry(1, AdminAction::ReportReceived, None, None),
+            ],
+            older: None,
+        },
+    );
+    assert!(html.contains("Tag deleted"));
+    assert!(html.contains("<code>genre:horror</code>"));
+    assert!(html.contains("removed from 3 prompt(s)"));
+    assert!(html.contains("Report received"));
+    assert!(html.contains("<code>00ff00ff00ff</code>"));
+    assert!(html.contains("View prompt"));
 }
