@@ -19,6 +19,8 @@ pub mod profile;
 pub mod requests;
 pub mod sessions;
 pub mod store;
+#[cfg(feature = "test-tools")]
+pub mod testing;
 pub mod words;
 
 pub use client::{Client, CoreError};
