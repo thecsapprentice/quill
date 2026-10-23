@@ -70,7 +70,15 @@ jobs:
           persist-credentials: false
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: cargo clippy --locked -p quill-core -p quill --all-targets -- -D warnings
+      - name: cargo clippy -p quill-core -p quill
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo clippy --locked -p quill-core -p quill --all-targets -- -D warnings 2>&1 | tee clippy.log || {
+            grep -E -A6 "^(error|warning)" clippy.log | head -60 | tr '\n' ' ' | sed 's/^/::error::/'
+            echo
+            exit 1
+          }
       - name: cargo test -p quill-core
         shell: bash
         # Failing tests are also reported as annotations, readable without
