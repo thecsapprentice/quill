@@ -507,8 +507,8 @@ request, writing, Leave) is 2f.
 - **Withdrawing** (`quill request withdraw ID`) deletes a request that isn't
   a session yet; `quill request list` shows the login's requests.
 - **Expiry:** the earlier of the requester's choice and 30 days. Deleting a
-  prompt, or the author's persona or login, expires its waiting requests at
-  once, so the requester sees *no response* rather than the request
+  prompt, or the author's persona or login, or an administrator removing
+  the prompt after a report, expires its waiting requests at once, so the requester sees *no response* rather than the request
   vanishing. Expired requests lose their
   ciphertext; the requester's view keeps *no response* until dismissed.
 - **Cleaning up.** Each device notes the requests it holds a group for.
@@ -517,7 +517,9 @@ request, writing, Leave) is 2f.
 - **Prompts** now report `acceptingSessions`: the author has an identity
   key and a full device with KeyPackages.
 
-Not in 2e: blocking doesn't exist yet. When it's built, a blocked login's
+Not in 2e: what administrator action does to sessions already running (they
+carry on) and account suspension are to be decided closer to a working
+implementation. Blocking doesn't exist yet. When it's built, a blocked login's
 requests are filed as refused, silently, as the plan describes.
 
 Done when: a request reaches only the author's devices; held, refused and

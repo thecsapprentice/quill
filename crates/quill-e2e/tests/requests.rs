@@ -688,3 +688,76 @@ async fn deleting_the_authors_persona_means_no_response() {
         .unwrap();
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn removing_a_reported_prompt_expires_its_requests() {
+    use quill_proto::board::{CreateReport, ReportReason, Resolution};
+    let server = server!();
+    let alice_c = server.account("alice").await.unwrap();
+    let (fox, alice) = writer(&alice_c, "ink_fox").await;
+    let p = prompt(&alice_c, fox.id, PromptState::Open).await;
+    let bob_c = server.account("bob").await.unwrap();
+    let (wren, bob) = writer(&bob_c, "quiet_wren").await;
+    let carol_c = server.account("carol").await.unwrap();
+    let (moth, carol) = writer(&carol_c, "paper_moth").await;
+    // Carol's request becomes a session; Bob's is still waiting, and read.
+    let carols = requests::send(&carol, &carol_c, &moth, p.id, PITCH, None)
+        .await
+        .unwrap();
+    let bobs = requests::send(&bob, &bob_c, &wren, p.id, PITCH, None)
+        .await
+        .unwrap();
+    requests::inbox(&alice, &alice_c, p.id, false)
+        .await
+        .unwrap();
+    let group = requests::accept(&alice, &alice_c, carols.request.id)
+        .await
+        .unwrap();
+
+    let admin = server.admin_account("boss").await.unwrap();
+    bob_c
+        .report(&CreateReport {
+            prompt: p.id,
+            reason: ReportReason::Spam,
+            details: None,
+        })
+        .await
+        .unwrap();
+    let reports = admin.admin_reports(false).await.unwrap();
+    admin
+        .resolve_report(reports[0].id, Resolution::Delete)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        own_status(&bob_c, bobs.request.id).await,
+        RequestStatus::NoResponse
+    );
+    assert_eq!(
+        status(&alice_c.accept_request(bobs.request.id).await.unwrap_err()),
+        409
+    );
+    // New requests are refused as for any prompt nobody can see.
+    let dave_c = server.account("dave").await.unwrap();
+    let (heron, dave) = writer(&dave_c, "slow_heron").await;
+    let e = requests::send(&dave, &dave_c, &heron, p.id, PITCH, None)
+        .await
+        .unwrap_err();
+    assert_eq!(status(&e), 404);
+    // The running session carries on.
+    assert_eq!(
+        own_status(&carol_c, carols.request.id).await,
+        RequestStatus::Session
+    );
+    let gid = quill_proto::keys::unb64(&group).unwrap();
+    carol_c
+        .post_group_message(
+            &group,
+            &PostMessage {
+                message: message(&gid, 1, 1),
+            },
+        )
+        .await
+        .unwrap();
+    server.stop().await.unwrap();
+}
