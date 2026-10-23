@@ -228,9 +228,9 @@ pub struct ChannelInfo {
     pub versions: Vec<Version>,
     /// Notes in it, and how many this device hasn't shown yet (filled in
     /// by [`channels`]).
-    #[serde(default, skip)]
+    #[serde(default)]
     pub notes: usize,
-    #[serde(default, skip)]
+    #[serde(default)]
     pub unseen: usize,
 }
 
