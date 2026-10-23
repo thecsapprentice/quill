@@ -45,6 +45,7 @@ fn prompt(title: &str, maturity: Maturity) -> Prompt {
             display: "Horror".into(),
             origin: TagOrigin::Server,
             status: TagStatus::Visible,
+            color: None,
         }],
         accepting_sessions: false,
         removed: false,
@@ -163,10 +164,54 @@ fn forms_render_with_values_and_errors() {
             title: "T\"itle".into(),
             body: "</textarea><script>".into(),
             maturity: Maturity::Mature,
-            tags: "genre:horror".into(),
+            chips: vec![
+                TagChip {
+                    value: "genre:horror".into(),
+                    tag: Tag {
+                        namespace: "genre".into(),
+                        slug: "horror".into(),
+                        display: "Horror".into(),
+                        origin: TagOrigin::Server,
+                        status: TagStatus::Visible,
+                        color: None,
+                    },
+                    kind: ChipKind::Existing,
+                },
+                TagChip {
+                    value: "theme:Sea <b>".into(),
+                    tag: Tag {
+                        namespace: "theme".into(),
+                        slug: "sea-b".into(),
+                        display: "Sea <b>".into(),
+                        origin: TagOrigin::User,
+                        status: TagStatus::Visible,
+                        color: None,
+                    },
+                    kind: ChipKind::NewNeedsApproval,
+                },
+            ],
+            add_text: "nope".into(),
+            tag_errors: vec!["Tag \"nope\" must be written as namespace:name.".into()],
             state: PromptState::Open,
             error: Some("Tag \"x\" is invalid".into()),
-            tag_options: Vec::new(),
+            tag_options: vec![
+                Tag {
+                    namespace: "format".into(),
+                    slug: "prose".into(),
+                    display: "Prose".into(),
+                    origin: TagOrigin::Server,
+                    status: TagStatus::Visible,
+                    color: None,
+                },
+                Tag {
+                    namespace: "genre".into(),
+                    slug: "horror".into(),
+                    display: "Horror".into(),
+                    origin: TagOrigin::Server,
+                    status: TagStatus::Visible,
+                    color: None,
+                },
+            ],
             tag_policy: TagPolicy::Open,
             namespaces: vec![
                 TagNamespace {
@@ -174,24 +219,45 @@ fn forms_render_with_values_and_errors() {
                     display: "Genre".into(),
                     locked: false,
                     required: true,
+                    color: None,
                 },
                 TagNamespace {
                     name: "format".into(),
                     display: "Format".into(),
                     locked: true,
                     required: true,
+                    color: None,
                 },
                 TagNamespace {
                     name: "length".into(),
                     display: "Length".into(),
                     locked: true,
                     required: false,
+                    color: None,
                 },
             ],
         },
     );
-    assert!(html.contains("Required: at least one Genre (genre:…) and Format (format:…) tag."));
+    // Chips: a ticked checkbox each, escaped, with their kind.
+    assert!(html.contains(r#"name="tag" value="genre:horror" checked=true"#));
+    assert!(html.contains(r#"value="theme:Sea &#60;b&#62;""#));
+    assert!(html.contains("(new, needs approval)"));
+    assert!(html.contains("chip tcn-genre tc-genre__horror chip-choice"));
+    // Genre is chosen; Format is required and missing, so it gets a slot.
+    assert!(html.contains("Format: required"));
+    assert!(!html.contains("Genre: required"));
+    // Typed text that couldn't be added is kept, with the reason.
+    assert!(html.contains(r#"name="add" value="nope""#));
+    assert!(html.contains("must be written as namespace:name"));
+    // Add comes before Post, so Enter adds; both reload to the picker.
+    let add = html.find(r#"value="add""#).unwrap();
+    assert!(add < html.find(r#"value="save""#).unwrap());
+    assert!(html.contains(r##"formaction="/new#tags""##));
+    // Browse offers what isn't chosen yet, required types first.
+    assert!(html.contains(r#"name="pick" value="format:prose""#));
+    assert!(!html.contains(r#"name="pick" value="genre:horror""#));
     assert!(html.contains("except in format and length, which use"));
+    assert!(html.contains(r#"href="/static/tag-colors.css""#));
     assert!(html.contains(r#"value="T&#34;itle""#));
     assert!(html.contains("&#60;/textarea&#62;&#60;script&#62;"));
     assert!(html.contains(r#"<option value="mature" selected"#));
@@ -206,7 +272,9 @@ fn forms_render_with_values_and_errors() {
             title: String::new(),
             body: String::new(),
             maturity: Maturity::General,
-            tags: String::new(),
+            chips: Vec::new(),
+            add_text: String::new(),
+            tag_errors: Vec::new(),
             state: PromptState::Open,
             error: None,
             tag_options: Vec::new(),
@@ -289,6 +357,7 @@ fn genre() -> TagNamespace {
         display: "Genre".into(),
         locked: false,
         required: true,
+        color: None,
     }
 }
 
@@ -300,9 +369,11 @@ fn admin_tag(slug: &str, uses: u64, alias_of: Option<&str>) -> AdminTag {
             display: "<Horror>".into(),
             origin: TagOrigin::User,
             status: TagStatus::Visible,
+            color: None,
         },
         uses,
         alias_of: alias_of.map(str::to_owned),
+        own_color: None,
     }
 }
 
@@ -442,6 +513,7 @@ fn tags_only_some_viewers_see() {
         display: slug.into(),
         origin: TagOrigin::User,
         status,
+        color: None,
     };
     p.tags = vec![
         tag("open", TagStatus::Visible),

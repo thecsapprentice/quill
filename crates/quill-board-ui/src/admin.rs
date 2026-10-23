@@ -1,11 +1,14 @@
 //! Server settings pages, for administrators: tag types and tags.
 
 use dioxus::prelude::*;
-use quill_proto::board::{AdminTag, TagNamespace, TagOrigin, TagPolicy, TagStatus};
+use quill_proto::{
+    board::{AdminTag, ChipColor, Tag, TagNamespace, TagOrigin, TagPolicy, TagStatus},
+    color::MIN_READABLE_CONTRAST,
+};
 
 use crate::{
     AdminTagDeleteView, AdminTagRequestsView, AdminTagTypesView, AdminTagView, AdminTagsView,
-    Chrome, admin_tag_url,
+    Chrome, admin_tag_url, chips,
     layout::{csrf, error_notice, tag_datalist},
     render, tag_url,
 };
@@ -161,6 +164,12 @@ pub fn admin_tag_types_page(chrome: &Chrome, view: AdminTagTypesView) -> String 
                         input { r#type: "text", id: "display-{ns.name}", name: "display", value: "{ns.display}", required: true }
                     }
                     {type_checkboxes(ns.locked, ns.required, false)}
+                    {color_fields(
+                        &format!("ns-{}", ns.name),
+                        ns.color.as_ref(),
+                        "No colour",
+                        &type_sample(ns),
+                    )}
                     div { class: "actions",
                         button { class: "btn", r#type: "submit", "Save {ns.display}" }
                         a { href: "/admin/settings/tags?namespace={ns.name}", "See its tags" }
@@ -185,6 +194,7 @@ pub fn admin_tag_types_page(chrome: &Chrome, view: AdminTagTypesView) -> String 
                     }
                 }
                 {type_checkboxes(v.new.locked, v.new.required, true)}
+                {color_fields("new", v.new.color.as_ref(), "No colour", &None)}
                 div { class: "actions",
                     button { class: "btn", r#type: "submit", "Add tag type" }
                 }
@@ -306,6 +316,23 @@ pub fn admin_tag_page(chrome: &Chrome, view: AdminTagView) -> String {
             {error_notice(v.error.as_ref())}
             if t.alias_of.is_none() {
                 {status_card(&chrome_for_body, t)}
+            }
+            if t.alias_of.is_none() {
+                form { class: "form-card", method: "post", action: "{url}/color",
+                    {csrf(&chrome_for_body)}
+                    if t.tag.status != TagStatus::Visible {
+                        p { class: "hint", "A tag's own colour shows once the tag is visible to everyone; until then it uses its type's." }
+                    }
+                    {color_fields(
+                        "tag",
+                        t.own_color.as_ref(),
+                        &format!("Same as {}", v.namespace_display),
+                        &Some(t.tag.clone()),
+                    )}
+                    div { class: "actions",
+                        button { class: "btn", r#type: "submit", "Save colour" }
+                    }
+                }
             }
             form { class: "form-card", method: "post", action: "{url}",
                 {csrf(&chrome_for_body)}
@@ -502,4 +529,76 @@ pub fn admin_tag_requests_page(chrome: &Chrome, view: AdminTagRequestsView) -> S
             }
         }
     })
+}
+
+// ---- Chip colours ----------------------------------------------------------
+
+/// A sample tag of type `ns`, to preview its colours.
+fn type_sample(ns: &TagNamespace) -> Option<Tag> {
+    Some(Tag {
+        namespace: ns.name.clone(),
+        slug: String::new(),
+        display: "Example".into(),
+        origin: TagOrigin::Server,
+        status: TagStatus::Visible,
+        color: ns.color.clone(),
+    })
+}
+
+/// Colour settings as form fields: off (or "same as its type"), or a
+/// background plus an automatic or chosen text colour. The browser's own
+/// colour picker needs no JavaScript.
+fn color_fields(
+    id: &str,
+    current: Option<&ChipColor>,
+    off_label: &str,
+    preview: &Option<Tag>,
+) -> Element {
+    let custom = current.is_some();
+    let bg = current.map_or("#e5e7eb".to_owned(), |c| c.background.clone());
+    let auto_text = current.is_none_or(|c| c.text.is_none());
+    let fg = current
+        .and_then(|c| c.text.clone())
+        .unwrap_or_else(|| "#111827".to_owned());
+    let contrast = current.and_then(ChipColor::contrast);
+    rsx! {
+        fieldset { class: "choices",
+            legend { class: "label", "Chip colour" }
+            if let Some(tag) = preview {
+                p { class: "chip-preview", {chips::chip(tag)} }
+            }
+            label { class: "inline-check",
+                input { r#type: "radio", name: "color_mode", value: "off", checked: !custom }
+                "{off_label}"
+            }
+            label { class: "inline-check",
+                input { r#type: "radio", name: "color_mode", value: "custom", checked: custom }
+                "These colours:"
+            }
+            div { class: "color-row",
+                label { class: "inline-check", r#for: "{id}-bg",
+                    input { r#type: "color", id: "{id}-bg", name: "chip_bg", value: "{bg}" }
+                    "Background"
+                }
+                label { class: "inline-check",
+                    input { r#type: "radio", name: "text_mode", value: "auto", checked: auto_text }
+                    "Automatic text (black or white)"
+                }
+                label { class: "inline-check",
+                    input { r#type: "radio", name: "text_mode", value: "custom", checked: !auto_text }
+                    "Text:"
+                }
+                input { r#type: "color", name: "chip_fg", value: "{fg}", "aria-label": "Text colour" }
+            }
+            match contrast {
+                Some(c) if c < MIN_READABLE_CONTRAST => rsx! {
+                    p { class: "hint contrast-warning", role: "status",
+                        "Text contrast is {c:.1}:1, which is hard to read. Aim for {MIN_READABLE_CONTRAST}:1 or more."
+                    }
+                },
+                Some(c) => rsx! { p { class: "hint", "Text contrast {c:.1}:1." } },
+                None => rsx! {},
+            }
+        }
+    }
 }
