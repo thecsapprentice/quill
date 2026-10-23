@@ -90,6 +90,7 @@ pub(crate) async fn record(
     fields: &NoticeFields,
     affected: &[Affected],
 ) -> Result<(), ApiError> {
+    crate::reports::log_targets(conn, log_id, affected).await?;
     for a in affected {
         sqlx::query(
             "INSERT INTO account_notices (account_id, log_id, kind, fields, prompts)

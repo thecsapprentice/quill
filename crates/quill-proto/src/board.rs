@@ -559,9 +559,47 @@ pub struct AdminLogEntry {
     /// Free-form detail, such as the new name or how many prompts changed.
     #[serde(default)]
     pub detail: Option<String>,
-    /// Account id of the acting administrator, if any.
+    /// Account id of the acting administrator, if any (and not deleted).
     #[serde(default)]
     pub admin: Option<Uuid>,
+    /// Who acted.
+    pub actor: LogActor,
+    /// The acting administrator's login name, as it was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin_login: Option<String>,
+    /// Login names of the accounts the decision was against, as they were.
+    /// Empty for server-wide changes.
+    #[serde(default)]
+    pub targets: Vec<String>,
+}
+
+string_enum! {
+    /// Who made an admin-log entry.
+    LogActor {
+        /// An administrator, named in `adminLogin`.
+        Admin => "admin",
+        /// The server itself, such as syncing the reserved-handles file.
+        Server => "server",
+        /// A writer's report. The reporter isn't named.
+        Reporter => "reporter",
+    }
+}
+
+/// `GET /admin/log` query.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminLogQuery {
+    /// Entries older than this id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    /// Only entries by this administrator (login name).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin: Option<String>,
+    /// Only entries against this account (login name).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 #[cfg(test)]

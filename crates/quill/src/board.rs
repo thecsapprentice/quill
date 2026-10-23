@@ -163,6 +163,12 @@ pub enum AdminCommand {
         before: Option<i64>,
         #[arg(long)]
         limit: Option<u32>,
+        /// Only this administrator's entries (login name).
+        #[arg(long)]
+        admin: Option<String>,
+        /// Only entries against this account (login name).
+        #[arg(long)]
+        account: Option<String>,
     },
     /// Create a tag type (namespace).
     Namespace {
@@ -560,8 +566,20 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                 );
             })
         }
-        AdminCommand::Log { before, limit } => {
-            let entries = client.admin_log(before, limit).await?;
+        AdminCommand::Log {
+            before,
+            limit,
+            admin,
+            account,
+        } => {
+            let entries = client
+                .admin_log_filtered(&quill_proto::board::AdminLogQuery {
+                    before,
+                    limit,
+                    admin,
+                    account,
+                })
+                .await?;
             ctx.print(&entries, |list| {
                 for e in list {
                     let what = match (&e.subject, &e.prompt_hash) {
@@ -578,7 +596,14 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                             )
                         }
                     };
-                    println!("{:>6}  {}  {:<16} {what}", e.id, e.at, e.action);
+                    let who = match (e.actor, &e.admin_login) {
+                        (quill_proto::board::LogActor::Admin, Some(login)) => login.clone(),
+                        (actor, _) => format!("({actor})"),
+                    };
+                    println!("{:>6}  {}  {:<12} {:<16} {what}", e.id, e.at, who, e.action);
+                    if !e.targets.is_empty() {
+                        println!("{:>8}against: {}", "", e.targets.join(", "));
+                    }
                 }
             })
         }

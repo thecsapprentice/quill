@@ -250,6 +250,35 @@ pub struct AdminLogView {
     pub entries: Vec<AdminLogEntry>,
     /// Link to older entries.
     pub older: Option<String>,
+    /// Filter: entries by this administrator.
+    pub admin: Option<String>,
+    /// Filter: entries against this account.
+    pub account: Option<String>,
+}
+
+/// The admin log, filtered by administrator and/or affected account.
+pub fn admin_log_url(admin: Option<&str>, account: Option<&str>, before: Option<i64>) -> String {
+    let mut q = url::form_urlencoded::Serializer::new(String::new());
+    if let Some(a) = admin {
+        q.append_pair("admin", a);
+    }
+    if let Some(a) = account {
+        q.append_pair("account", a);
+    }
+    if let Some(b) = before {
+        q.append_pair("before", &b.to_string());
+    }
+    let q = q.finish();
+    if q.is_empty() {
+        "/admin/log".to_owned()
+    } else {
+        format!("/admin/log?{q}")
+    }
+}
+
+/// A date and time in UTC, such as "Oct 22, 2026 21:04 UTC".
+pub fn short_datetime(at: OffsetDateTime) -> String {
+    format!("{} {:02}:{:02} UTC", short_date(at), at.hour(), at.minute())
 }
 
 /// The "add a tag type" form's values, kept when it's sent back with an error.

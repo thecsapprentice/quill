@@ -1,8 +1,9 @@
 use quill_proto::{
     api::Persona,
     board::{
-        AccountSettings, AdminAction, AdminLogEntry, AdminTag, Maturity, Prompt, PromptAuthor,
-        PromptState, Report, ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy, TagStatus,
+        AccountSettings, AdminAction, AdminLogEntry, AdminTag, LogActor, Maturity, Prompt,
+        PromptAuthor, PromptState, Report, ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy,
+        TagStatus,
     },
 };
 use time::macros::datetime;
@@ -482,6 +483,17 @@ fn admin_log_shows_tag_and_report_entries() {
         subject: subject.map(str::to_owned),
         detail: detail.map(str::to_owned),
         admin: None,
+        actor: if subject.is_some() {
+            LogActor::Admin
+        } else {
+            LogActor::Reporter
+        },
+        admin_login: subject.is_some().then(|| "boss & co".to_owned()),
+        targets: if subject.is_some() {
+            (1..=7).map(|i| format!("writer{i}")).collect()
+        } else {
+            vec!["alice".into()]
+        },
     };
     let html = admin_log_page(
         &chrome(true, true),
@@ -495,9 +507,23 @@ fn admin_log_shows_tag_and_report_entries() {
                 ),
                 entry(1, AdminAction::ReportReceived, None, None),
             ],
-            older: None,
+            older: Some(admin_log_url(Some("boss & co"), None, Some(1))),
+            admin: Some("boss & co".into()),
+            account: None,
         },
     );
+    // Who acted, as a filter link; reports don't name their writer.
+    assert!(html.contains(r#"href="/admin/log?admin=boss+%26+co""#));
+    assert!(html.contains(">boss &#38; co</a>"));
+    assert!(html.contains("<em>A report</em>"));
+    // Which accounts, five at most, then a count.
+    assert!(html.contains(r#"href="/admin/log?account=writer1""#));
+    assert!(!html.contains("account=writer6"));
+    assert!(html.contains(" and 2 more"));
+    assert!(html.contains("Oct 22, 2026 12:00 UTC"));
+    // Filters are kept when paging.
+    assert!(html.contains(r#"href="/admin/log?admin=boss+%26+co&#38;before=1""#));
+    assert!(html.contains("Show everything"));
     assert!(html.contains("Tag deleted"));
     assert!(html.contains("<code>genre:horror</code>"));
     assert!(html.contains("removed from 3 prompt(s)"));

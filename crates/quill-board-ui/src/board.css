@@ -833,6 +833,10 @@ textarea.short {
   vertical-align: top;
 }
 
+.log .nowrap {
+  white-space: nowrap;
+}
+
 .log code {
   font-size: 0.8rem;
 }

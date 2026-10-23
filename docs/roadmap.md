@@ -206,6 +206,15 @@ prompts and tags, readable only by that account.
   text.
 - API `GET /account/notices`, `POST /account/notices/read`; the unread count
   in `GET /account`. CLI `quill account notices`.
+- **Accountability in the admin log** (administrators only). Every entry
+  records who acted (an administrator, by login name as it was; the server
+  itself; or a writer's report, whose writer stays unnamed) and which
+  accounts the decision was against, by login name as it was (none for
+  server-wide changes). Administrators filter the log by either, so they
+  can see what each of them is doing and when. Both records stay
+  append-only and survive account deletion. Existing entries were
+  backfilled from notices and reported prompts. API `GET
+  /admin/log?admin=&account=`; CLI `quill admin log --admin --account`.
 
 Done when: end-to-end tests show each action reaching exactly the affected
 accounts, with nothing about reporters or administrators, and unread counts

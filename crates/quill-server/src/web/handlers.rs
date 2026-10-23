@@ -990,6 +990,10 @@ pub async fn admin_resolve(
 #[derive(Debug, Default, Deserialize)]
 pub struct LogParams {
     before: Option<i64>,
+    /// Only this administrator's entries (login name).
+    admin: Option<String>,
+    /// Only entries against this account (login name).
+    account: Option<String>,
 }
 
 pub async fn admin_log(
@@ -1005,18 +1009,37 @@ pub async fn admin_log(
     }
     let c = chrome(&state, Some(&s), Nav::Admin, None);
     const PAGE: u32 = 50;
-    match reports::admin_log(&state, p.before, Some(PAGE)).await {
+    let admin = opt(&p.admin).map(str::to_owned);
+    let account = opt(&p.account).map(str::to_owned);
+    let query = quill_proto::board::AdminLogQuery {
+        before: p.before,
+        limit: Some(PAGE),
+        admin: admin.clone(),
+        account: account.clone(),
+    };
+    match reports::admin_log(&state, &query).await {
         Ok(entries) => {
             let older = (entries.len() == PAGE as usize)
-                .then(|| {
-                    entries
-                        .last()
-                        .map(|e| format!("/admin/log?before={}", e.id))
-                })
-                .flatten();
+                .then(|| entries.last().map(|e| e.id))
+                .flatten()
+                .map(|before| {
+                    quill_board_ui::admin_log_url(
+                        admin.as_deref(),
+                        account.as_deref(),
+                        Some(before),
+                    )
+                });
             html(
                 StatusCode::OK,
-                quill_board_ui::admin_log_page(&c, AdminLogView { entries, older }),
+                quill_board_ui::admin_log_page(
+                    &c,
+                    AdminLogView {
+                        entries,
+                        older,
+                        admin,
+                        account,
+                    },
+                ),
             )
         }
         Err(e) => error_page(&c, e),
