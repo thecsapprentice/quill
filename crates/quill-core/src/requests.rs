@@ -203,6 +203,7 @@ pub(crate) fn session_config(device: &keys::DeviceKey) -> Result<MlsGroupCreateC
     MlsGroupCreateConfig::builder()
         .ciphersuite(CIPHERSUITE)
         .max_past_epochs(PAST_EPOCHS)
+        .padding_size(devices::PADDING)
         .capabilities(mls::capabilities())
         .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
         .use_ratchet_tree_extension(true)
