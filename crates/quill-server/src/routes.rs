@@ -47,6 +47,7 @@ pub fn api() -> Router<AppState> {
         .merge(crate::requests::router())
         .merge(crate::sessions::router())
         .merge(crate::events::router())
+        .merge(crate::blobs::router())
 }
 
 async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, ApiError> {
