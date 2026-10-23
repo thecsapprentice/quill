@@ -15,6 +15,7 @@ pub mod requests;
 pub mod reserved;
 pub mod routes;
 pub mod server_settings;
+pub mod sessions;
 pub mod tag_admin;
 mod web;
 

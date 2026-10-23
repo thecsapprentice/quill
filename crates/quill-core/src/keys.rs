@@ -553,6 +553,17 @@ pub async fn claim(
     handle: &str,
     actor_uri: &str,
 ) -> Result<Claim, CoreError> {
+    claim_for(store, client, handle, actor_uri, None).await
+}
+
+/// As [`claim`], for one device only when `only` is set.
+pub async fn claim_for(
+    store: &Store,
+    client: &Client,
+    handle: &str,
+    actor_uri: &str,
+    only: Option<Uuid>,
+) -> Result<Claim, CoreError> {
     let now = now_ms();
     let published = client.actor_keys(handle).await?;
     let checked = check_published(&published, actor_uri, now)?;
@@ -565,7 +576,7 @@ pub async fn claim(
             "@{handle}'s identity key changed since it was pinned; check it with `quill keys show {handle}` first"
         )));
     }
-    let claimed = client.claim_key_packages(handle).await?;
+    let claimed = client.claim_key_packages_for(handle, only).await?;
     if claimed.actor_uri != actor_uri {
         return Err(keys_err("the server returned packages for another persona"));
     }
@@ -610,6 +621,7 @@ pub async fn claim(
         .devices
         .iter()
         .filter(|d| matches!(d.status, DeviceStatus::Valid { .. }))
+        .filter(|d| only.is_none_or(|o| o == d.id))
         .filter(|d| !claimed.packages.iter().any(|p| p.device == d.id))
         .map(|d| d.id)
         .collect();

@@ -53,5 +53,9 @@ zbus-secret-service-keyring-store = { version = "1", features = ["rt-async-io-cr
 quill-mls-envelope.workspace = true
 tempfile = "3"
 
+[features]
+# Helpers for end-to-end tests that play a dishonest client.
+test-tools = []
+
 [lints]
 workspace = true

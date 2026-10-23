@@ -14,6 +14,7 @@ pub mod keys;
 pub mod limits;
 pub mod notices;
 pub mod requests;
+pub mod sessions;
 pub mod validate;
 
 /// Protocol versions this build speaks, advertised in `GET /api/v1/instance`.

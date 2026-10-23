@@ -7,6 +7,7 @@ mod board;
 mod keys_cmd;
 mod local;
 mod request_cmd;
+mod session_cmd;
 
 use std::path::PathBuf;
 
@@ -91,6 +92,11 @@ enum Command {
     /// Collaboration requests: send one, read your inbox, accept or decline.
     #[command(subcommand)]
     Request(request_cmd::RequestCommand),
+    /// This login's sessions, and how this device stands in each.
+    Sessions,
+    /// Read, write to, or leave a session.
+    #[command(subcommand)]
+    Session(session_cmd::SessionCommand),
 }
 
 #[derive(Args)]
@@ -279,6 +285,8 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Device(cmd) => keys_cmd::device(&ctx, cmd).await?,
         Command::Devices => keys_cmd::devices(&ctx).await?,
         Command::Request(cmd) => request_cmd::request(&ctx, cmd).await?,
+        Command::Sessions => session_cmd::list(&ctx).await?,
+        Command::Session(cmd) => session_cmd::session(&ctx, cmd).await?,
     }
     Ok(())
 }
@@ -310,7 +318,11 @@ async fn upkeep(ctx: &Ctx) {
         Ok(report) if report.caught_up.removed => eprintln!(
             "This device was removed from your login's devices: its persona keys are gone. Link it again with `quill device link`."
         ),
-        Ok(_) => {}
+        Ok(report) => {
+            for (id, why) in &report.sessions.problems {
+                eprintln!("warning: couldn't sync session {id}: {why}");
+            }
+        }
         Err(e) => eprintln!("warning: couldn't sync with your other devices: {e}"),
     }
 }

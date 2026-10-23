@@ -38,10 +38,15 @@ pub enum Table {
     Siblings,
     /// Collaboration requests this device holds a group for, by request id.
     Requests,
+    /// This device's place in each session, by group id.
+    Sessions,
+    /// Session messages this device has read or sent, by group id and
+    /// sequence number.
+    Messages,
 }
 
 impl Table {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
         Self::Meta,
         Self::Profile,
         Self::Identities,
@@ -51,6 +56,8 @@ impl Table {
         Self::Account,
         Self::Siblings,
         Self::Requests,
+        Self::Sessions,
+        Self::Messages,
     ];
 
     pub fn name(self) -> &'static str {
@@ -64,6 +71,8 @@ impl Table {
             Self::Account => "account",
             Self::Siblings => "siblings",
             Self::Requests => "requests",
+            Self::Sessions => "sessions",
+            Self::Messages => "messages",
         }
     }
 }

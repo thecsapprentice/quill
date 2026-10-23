@@ -240,8 +240,8 @@ before device linking, which needs it.
 | 2b | Identity keys per persona, device keys and certificates; the server's device directory | done (#10) |
 | 2c | OpenMLS on the client; KeyPackage upload and claim; certificate checks on claimed packages | done (#11) |
 | 2d | Device linking and the personal device group, on the group message log and epoch sequencer | done (#12) |
-| 2e | Collaboration requests: request, approve, silent decline, 30-day expiry, one pending per prompt | next |
-| 2f | Sessions after acceptance: the session list, Welcomes for members' other and later devices, writing to the log, Leave | planned |
+| 2e | Collaboration requests: request, approve, silent decline, 30-day expiry, one pending per prompt | done (#13) |
+| 2f | Sessions after acceptance: the session list, Welcomes for members' other and later devices, writing to the log, Leave | next |
 | 2g | Messages: ordering (HLC), history that is never lost, live delivery over SSE | planned |
 | 2h | Channels within a session | planned |
 | 2i | Attachments and size limits or quotas | planned |
@@ -529,9 +529,75 @@ expires or is withdrawn; an accepted request becomes a group log both
 sides can use; and a forged member or pitch sender is caught by the author's
 client.
 
+### 2f: Sessions
+
+An accepted request is a session: two writers (the prompt's author and the
+requester), each with one or more devices, sharing an MLS group whose log
+the author's server sequences. 2f makes it usable: every device of both
+writers joins, they write and read, and either can leave. Ordering by the
+writers' clocks, edits and deletions, and live delivery are 2g.
+
+- **The session list** (`GET /sessions`, `quill sessions`): the login's
+  sessions, each with its group id, both personas, the prompt (while it
+  exists), its place in the log, whether it has ended, and the Welcomes
+  waiting for this login's devices. The session id is the group id; the
+  CLI accepts any unambiguous prefix of it.
+- **Every device joins.** Each command's upkeep syncs every session:
+  - A device that holds the group already (the requester's, or an author
+    device that read the pitch) carries on from its note of the request.
+  - A device that was in the request's Welcome but never opened it (the
+    requester's other devices; author devices that didn't read the pitch)
+    joins from that Welcome, which the server keeps with the session, and
+    reads the log from the start, pitch included.
+  - A device that wasn't in it (linked later, or certified again after an
+    identity key change) is added by one of its own persona's devices
+    already in the group: that device claims a KeyPackage for just the
+    missing device, commits the add, and leaves the Welcome on the server
+    addressed to it. Whichever device commits first wins the epoch race;
+    the others catch up and find nothing left to do.
+  - A device of one's own persona that the directory shows revoked is
+    removed the same way.
+  - A device that joined through its last-resort KeyPackage sends a key
+    update (a self-update commit) straight away, so that key isn't reused.
+- **Checks on every change**, by every device, against the directory and
+  TOFU pins:
+  - joining: each member is a valid device of one of the two personas (as
+    in 2e);
+  - a commit adding a device: the device is a valid device of the
+    *committer's* persona. A writer only ever adds their own devices, so
+    neither writer, nor the server, can slip a device into the other's
+    name;
+  - a commit removing a device: it's the committer's own persona's device.
+  A change that fails is refused: the device stops reading the session and
+  reports why, rather than going on in a group it can't trust.
+- **Writing and reading** (`quill session write ID`, `quill session read
+  ID`): messages are AS2 `Create`s of Markdown `Note`s, in the `story`
+  channel unless another is given, encrypted to the group and appended to
+  the log. Each device decrypts the log in order and keeps what it read in
+  the encrypted store (MLS decrypts a message only once, and a device can't
+  decrypt its own), so reading is local. A device added later reads from
+  when it joined; sharing earlier history with it is 2j's history bundles.
+- **Leave** (`quill session leave ID`): with two writers, one leaving ends
+  the session. The server marks it ended and accepts nothing more for its
+  log; both sides can still read what's there, and their devices drop the
+  group's keys once they've read to the end. Deleting either persona (or
+  its login) ends its sessions too. Keeping or deleting an ended session's
+  log on the server is left to 2g's delivery acknowledgements.
+- **Late messages** (the "based-on seq" idea from 2d): unchanged. The
+  sequencer already refuses a message for any epoch but the current one,
+  and readers keep 5 past epochs, so a message is never stored where its
+  readers can't decrypt it. 2g revisits this if live delivery shows a need.
+
+Done when: both writers' devices, including ones linked after the request
+and ones that never read the pitch, all join and read every message sent
+after they joined; a device added under the wrong persona, or a member that
+isn't a valid device, is refused; two devices racing to add the same
+missing device end up consistent; a revoked device is removed and can't
+read what follows; and leaving ends the session for both.
+
 ### Later sub-phases
 
-2f to 2k follow the [plan](plan.md#writing-session-cryptography) and the
+2g to 2k follow the [plan](plan.md#writing-session-cryptography) and the
 [protocol draft](protocol-draft.md), with keys per persona throughout: one
 KeyPackage pool per persona and device, and one personal device group per
 account carrying every persona's identity key. Each gets a detailed section

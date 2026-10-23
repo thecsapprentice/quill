@@ -180,6 +180,15 @@ async fn post_message(
     }
     let mut tx = state.pool.begin().await?;
     let epoch = group_epoch(&mut tx, authed.account_id, &group, true).await?;
+    let ended: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM sessions WHERE group_id = $1 AND ended_at IS NOT NULL)",
+    )
+    .bind(&group)
+    .fetch_one(&mut *tx)
+    .await?;
+    if ended {
+        return Err(ApiError::Forbidden("The session has ended.".into()));
+    }
     if i64::try_from(header.epoch).ok() != Some(epoch) {
         return Err(ApiError::Conflict(format!(
             "The group is at epoch {epoch}; catch up and try again."
