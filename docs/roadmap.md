@@ -692,6 +692,12 @@ ranges. Known so far:
     reports per hour.
   - Admin log: page sizes, accounts shown per row (5).
   - Certificates: clock-skew allowance (10 minutes).
+  - Requests and sessions: request expiry (30 days), requests per hour
+    (20), message retention grace period (7 days), low-pool notice
+    threshold (10), live notice buffer (1024).
+- **Client (sessions):** message padding (256 bytes), how far ahead a
+  clock may be and still move the reader's (1 day), longest pitch and
+  message.
 
 ## Phases 5 and 6
 

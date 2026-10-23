@@ -260,7 +260,7 @@ Inside every MLS application message is one AS2 activity in UTF-8 JSON, followin
 |----------------------------------------------------|-----------------------|--------------------------------------------------------------------------------------------------------------------------------------|
 | `channel`                                          | every activity        | Channel name; `story` and `planning` predefined, others free-form (max 32 chars, slug rules). Absent = `story`.                      |
 | `hlc`                                              | every activity        | Hybrid logical clock: wall-clock milliseconds, hyphen, 4-digit counter. Display order sorts by `hlc`, then author, then `authorSeq`. |
-| `authorSeq`                                        | every activity        | Per-author, per-session counter starting at 1; a gap means a missing message.                                                        |
+| `authorSeq`                                        | every activity        | Per-sending-device, per-session counter starting at 1; a gap means a missing message. (Per device, not per writer: a writer's devices send independently.) |
 | `EncryptedAttachment`                              | `attachment` items    | Reference to an encrypted blob. Small images may instead be an inline `Image` with base64 `content`, per the SWICG profile.          |
 | `blobToken`                                        | `EncryptedAttachment` | Capability token the reader presents to fetch the blob.                                                                              |
 | `encAlg`, `key`, `nonce`, `hashAlg`, `contentHash` | `EncryptedAttachment` | Decryption and integrity fields, modeled on MIMI content's external part; `contentHash` is over the plaintext.                       |
@@ -379,11 +379,11 @@ A JSON-over-HTTPS API under `/api/v1`, authenticated with bearer tokens, used by
 | Sessions | `GET/POST /groups/{id}/messages?after=`                                                               | A session's log is its group's (2f); `409` if a commit lost the epoch race, `403` once ended |
 | Sessions | `POST /sessions/{id}/welcomes`, `DELETE /sessions/{id}/welcomes/{device}`                             | A Welcome for one of the caller's own persona's devices just added; taken once it has joined (2f) |
 | Sessions | `POST /sessions/{id}/leave`                                                                           | Leave; with two writers, ends the session (2f)                                           |
-| Sessions | `POST /sessions/{id}/ack`                                                                             | Per-device delivery ack (2g)                                                             |
+| Sessions | `POST /sessions/{id}/ack`                                                                             | Per-device delivery ack (2g): how far one of the caller's devices has read; only the server sees it |
 | Blobs    | `POST /blobs`, `GET /blobs/{id}`                                                                      | Encrypted attachments (capability token required)                                        |
 | Backup   | `PUT/GET /backup/{seq}`, `DELETE /backup`                                                             | Opaque backup chunks                                                                     |
 | Safety   | `POST /blocks`, `DELETE /blocks/{id}`, `POST /reports`                                                | Account-level blocks; prompt reports (section 10)                                        |
-| Events   | `GET /events`                                                                                         | Server-Sent Events: new messages, requests, device and prompt changes                    |
+| Events   | `GET /events`                                                                                         | Server-Sent Events (2g): content-free notices of new messages, waiting requests, sessions starting or ending, and low KeyPackage pools |
 
 Errors use RFC 9457 problem details. Every request body is size-checked against the instance limits before parsing.
 
