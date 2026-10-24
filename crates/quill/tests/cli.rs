@@ -120,8 +120,18 @@ async fn the_cli_keeps_its_login_in_the_encrypted_store() {
     assert_eq!(list[0]["handle"], "cli_pen");
 
     // Nothing readable on disk: not the server, the login or the token.
-    let raw = std::fs::read(dir.path().join("store.quill")).unwrap();
-    for needle in ["127.0.0.1", "qt_", "cli_writer"] {
+    // (The token itself, not its three-byte prefix, which random ciphertext
+    // matches now and then.)
+    let path = dir.path().join("store.quill");
+    let token = {
+        let store =
+            quill_core::Store::open(&path, quill_core::store::Unlock::Passphrase(PASSPHRASE))
+                .unwrap();
+        store.token().unwrap().unwrap().to_string()
+    };
+    assert!(token.starts_with("qt_") && token.len() > 20, "a real token");
+    let raw = std::fs::read(&path).unwrap();
+    for needle in [url.as_str(), token.as_str(), "cli_writer"] {
         assert!(
             !raw.windows(needle.len()).any(|w| w == needle.as_bytes()),
             "{needle} in the store file"
