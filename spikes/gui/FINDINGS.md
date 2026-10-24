@@ -21,8 +21,9 @@ they're listed at the end.
 - **Rich** (`contenteditable`) is not worth pursuing: it rewrites the
   writer's Markdown and needs the most JavaScript.
 - Spellcheck works everywhere checked, but WebKitGTK needs it switched on.
-- Provisional answer: keep Dioxus. Final once the hand checks below are
-  done.
+- Decision (2026-10-23): keep Dioxus, with Live as the editor and
+  Write + preview as the fallback. The hand checks not yet done move into
+  the sub-phases that build each part (roadmap, 3a "As built").
 
 ## What was found
 

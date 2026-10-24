@@ -1114,8 +1114,8 @@ part of its "done when".
 
 | Sub-phase | Scope | Status |
 | --- | --- | --- |
-| 3a | Spike: the session view (channels, the long-form editor with Markdown live preview, an image attachment) in Dioxus on desktop and in the browser, at narrow and wide window sizes; IME, spellcheck and screen readers; confirm Dioxus or fall back to Leptos + Tauri 2 | next |
-| 3b | `quill-ui` and the `quill-gui` shell: first run (sign up or in, a persona, keys made and published without being asked), unlocking the store, personas, settings, advanced mode | planned |
+| 3a | Spike: the session view (channels, the long-form editor with Markdown live preview, an image attachment) in Dioxus on desktop and in the browser, at narrow and wide window sizes; IME, spellcheck and screen readers; confirm Dioxus or fall back to Leptos + Tauri 2 | done (#23) |
+| 3b | `quill-ui` and the `quill-gui` shell: first run (sign up or in, a persona, keys made and published without being asked), unlocking the store, personas, settings, advanced mode | next |
 | 3c | The board in the GUI: browse, search, post and edit prompts, through the board's shared components | planned |
 | 3d | Keys and devices: identity keys, linking by QR code or words, the device list, revoking, safety numbers | planned |
 | 3e | Requests: sending with a pitch, the inbox, accepting and declining, status | planned |
@@ -1178,6 +1178,41 @@ learns decides 3b.
 Done when: the spike builds and runs on both targets; `FINDINGS.md`
 covers every check above on at least Windows and one browser, with the
 rest marked as still to check; and the roadmap records the decision.
+
+As built (`spikes/gui/FINDINGS.md` has the details):
+
+- **Dioxus is confirmed** (0.7.10). The spike builds unchanged for
+  Windows, macOS, Linux and the browser; the desktop app is 4.9 to 6.6 MB
+  with the system's webview, the WebAssembly module 0.6 MB gzipped.
+  Checked by hand on the Windows desktop (as expected) and in Edge;
+  scripted on Linux.
+- **The editor for 3f is Live**: the Markdown styled in place behind a
+  transparent text area, so typing, selection, spellcheck and input
+  methods stay the platform's own. Styles must not change character
+  widths, so while typing bold is a faint shadow, emphasis a colour, and
+  headings aren't larger. **Write + preview** is the fallback, and for very
+  long notes. **Rich** (`contenteditable`) is dropped: it rewrites the
+  writer's Markdown.
+- **Rules for every text input in the GUI:**
+  - Uncontrolled: a controlled text area lost about a third of fast
+    typing on the desktop. Rust replaces the text only by remounting.
+  - Remount through a one-item keyed list: Dioxus ignores `key` on a lone
+    element.
+  - `writingsuggestions="false"` and `autocomplete="off"`: Edge's text
+    prediction appeared in the browser, and a browser's writing assistant
+    may send text off the device.
+  - On Linux, spellcheck is switched on through WebKitGTK.
+- **For 3f:** re-render the preview a few times a second, not per
+  keystroke; measure Live on real hardware with long notes (it trailed at
+  the end of 20,000 words under software rendering, without losing
+  anything). Edge showed preview lists without markers; styles now set
+  them outright, to confirm.
+- **Still to check by hand, carried into the sub-phases that build each
+  part:** input methods and screen readers (3b onward), macOS, Linux
+  desktops, Chrome, Firefox and Safari (3f for the editor; Phase 4 for the
+  browsers).
+- `spikes/gui/` stays as a reference until 3f's editor replaces it, then
+  goes; its workflow runs only when it changes.
 
 ## Phase 4: Web client
 
