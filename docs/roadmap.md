@@ -246,8 +246,9 @@ before device linking, which needs it.
 | 2h | Channels within a session | done (#16) |
 | 2i | Attachments and size limits or quotas | done (#17) |
 | 2j | Safety numbers; backup and recovery; rejoining sessions after a restore | done (#18) |
-| 2k | History sync for devices added later; deleting messages by age | next |
-| 2l | Phase gate: the plaintext-canary test and the database-dump audit | planned |
+| 2k | History sync for devices added later; deleting messages by age | done (#19) |
+| 2l | Phase gate: the plaintext-canary test and the database-dump audit | next |
+| 2m | Conformance artifacts: the OpenAPI file, JSON Schemas and the remaining test vectors | planned |
 
 ### 2a: Encrypted local store
 
@@ -907,11 +908,71 @@ and a device away longer than that rejoins its sessions (through a sibling,
 or through the other writer when it has none) and gets back what it
 missed.
 
-### Later sub-phases
+### 2l: Phase gate
 
-2l follows the [plan](plan.md#writing-session-cryptography) and the
-[protocol draft](protocol-draft.md), and gets a detailed section like the
-ones above when it's next.
+Phase 2's exit gate ([plan](plan.md#roadmap-and-testing-strategy)): the database holds no
+plaintext or private keys, and uncertified devices are rejected. 2l proves
+the first with two checks that stay in CI, so every later change is held to
+it; the second is already proven by 2b and 2c's tests, listed below.
+Decided 2026-10-23: the conformance artifacts the protocol draft also puts
+before the gate move to 2m, and Phase 2 closes after 2m.
+
+- **Plaintext-canary test** ([plan](plan.md#testing-layers)). One end-to-end test
+  drives everything Phase 2 built, putting a random canary in everything a
+  writer writes: the pitch, notes in two channels, a reply, an edit, a
+  deleted note, a channel's name and description, an attachment's name and
+  contents. Along the way a second device is linked and gets the history by
+  bundle, a backup is made and restored on a new device, which rejoins.
+  - It then dumps **every table** in the database (found from the schema,
+    so new tables are covered without changing the test) and searches the
+    dump for the canary as text, hex, and base64 and base64url at each
+    alignment.
+  - It also searches it for every **secret** the clients hold: each
+    persona's identity private key, each device's private keys (persona and
+    account), each attachment's key, each blob token (the server keeps only
+    hashes), and the recovery code (its words and its bits).
+  - And it searches the **server's logs**, captured at the most detailed
+    level for the whole run.
+  - Positive controls show the search works: the prompt's public text is
+    found as text, and a public key is found as hex.
+  - The plan also names the federation queue, which arrives in Phase 3;
+    the test gains it then.
+- **Database audit** (`docs/server-data.md`): every column of every table,
+  what it holds and why that's acceptable, in one of a few classes: public
+  by design (the board, personas, public keys), what a login needs (login
+  name, password hash, optional email), metadata (ids, times, sizes, log
+  positions, who is in which session), ciphertext the server can't open,
+  digests of secrets, and moderation text that reporters disclose. It ends
+  with what the server can and can't learn. A test reads the schema and
+  fails if a column is missing from the audit or listed but gone, so every
+  migration must update it.
+- **Uncertified devices rejected**, already proven: the server refuses
+  certificates that don't verify (2b, `keys.rs`), clients refuse KeyPackages
+  whose certificate doesn't verify against the pinned identity key (2c,
+  `key_packages.rs`), and members refuse commits adding devices the
+  directory doesn't list (2f, `sessions.rs`). The gate section of the audit
+  names each test.
+
+Done when: the canary test and the audit test pass in CI, the audit covers
+every column, and the roadmap marks Phase 2's gate as passed pending 2m.
+
+As built: the canary test checks 286 secrets in four dumps (after the story
+is written, while a history bundle waits on the server, after a backup,
+and at the end) and in the trace-level logs of the server and the
+libraries it serves with (client libraries are left out: a client's logs
+stay on its device). OpenMLS's secrets are found in its state by the
+fields that name a private key or a secret. A negative control plants the
+canary, base64url-encoded at an odd alignment, in a persona's public
+profile and checks the search catches it.
+
+### 2m: Conformance artifacts
+
+Planned. The protocol draft (section 11) asks for these before the Phase 2
+gate: the OpenAPI file generated from the code, JSON Schemas for the
+federated and encrypted objects, and test vectors for the formats that
+don't have them yet (linking, backup, attachment, ordering clock, tag
+normalization, padding and limits, JSON objects). It gets a detailed section
+when it's next.
 
 ## Phase 3: Federation
 
@@ -1011,6 +1072,10 @@ done.
   interface so our own implementation of the format can replace the crate
   without other changes. History sync for later devices moves to 2k; the
   phase gate becomes 2l.
+- **2l, gate and conformance (decided 2026-10-23):** 2l builds the
+  plaintext-canary test and the database audit; the OpenAPI file, JSON
+  Schemas and remaining test vectors become 2m, and Phase 2 closes after
+  it, before federation needs them.
 - **2i, attachments (decided 2026-10-23):** any file type, size caps only;
   no type checks, which renaming defeats. Image cleaning (metadata
   stripping, re-encoding) and rendering wait for the GUI. Administrators
