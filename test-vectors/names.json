@@ -1,0 +1,233 @@
+{
+  "channel": {
+    "invalid": [
+      {
+        "codepoints": "",
+        "input": "",
+        "why": "empty"
+      },
+      {
+        "codepoints": "U+0053 U+0074 U+006F U+0072 U+0079",
+        "input": "Story",
+        "why": "uppercase is not folded: a name means the same to every client"
+      },
+      {
+        "codepoints": "U+0074 U+0077 U+006F U+0020 U+0077 U+006F U+0072 U+0064 U+0073",
+        "input": "two words",
+        "why": "a space"
+      },
+      {
+        "codepoints": "U+002D U+0078",
+        "input": "-x",
+        "why": "starts with a hyphen"
+      },
+      {
+        "codepoints": "U+0078 U+002D",
+        "input": "x-",
+        "why": "ends with a hyphen"
+      },
+      {
+        "codepoints": "U+0061 U+002D U+002D U+0062",
+        "input": "a--b",
+        "why": "two hyphens together"
+      },
+      {
+        "codepoints": "U+0063 U+0061 U+0066 U+00E9",
+        "input": "café",
+        "why": "not ASCII"
+      },
+      {
+        "codepoints": "U+0061 U+005F U+0062",
+        "input": "a_b",
+        "why": "an underscore"
+      },
+      {
+        "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "why": "one character over the limit"
+      }
+    ],
+    "valid": [
+      "story",
+      "planning",
+      "world-notes",
+      "act-2",
+      "a",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ]
+  },
+  "description": "Tag slugs (validate::tag_slug): NFKD, combining marks dropped, a few letters folded by table (ß ss, æ ae, œ oe, ø o, đ ð d, ł l, þ th, ı i), ASCII letters lowercased, whitespace and ASCII punctuation separate words with one hyphen, apostrophes (U+0027, U+2019) join words, and anything else rejects the whole name. At most 40 characters after folding. Channel names (validate::channel) are checked as given, never folded: 1-32 of a-z, 0-9 and single inner hyphens; a note whose channel is malformed is filed under story. Tag namespaces are lowercased, then 1-32 of a-z, 0-9 and single inner hyphens.",
+  "namespace": {
+    "invalid": [
+      "-cw",
+      "c w",
+      "cw--x",
+      "",
+      "ns:x"
+    ],
+    "valid": [
+      {
+        "input": "Content-Warning",
+        "namespace": "content-warning"
+      },
+      {
+        "input": "genre",
+        "namespace": "genre"
+      }
+    ]
+  },
+  "tagSlug": {
+    "invalid": [
+      {
+        "codepoints": "U+602A U+8AC7",
+        "input": "怪談",
+        "why": "another script is rejected, not dropped"
+      },
+      {
+        "codepoints": "U+0430 U+0070 U+0070 U+006C U+0065",
+        "input": "аpple",
+        "why": "a Cyrillic а that looks Latin"
+      },
+      {
+        "codepoints": "U+0068 U+006F U+0072 U+0072 U+006F U+0072 U+0020 U+1F383",
+        "input": "horror 🎃",
+        "why": "an emoji"
+      },
+      {
+        "codepoints": "U+0078 U+200B U+0079",
+        "input": "x​y",
+        "why": "a zero-width space is not whitespace or punctuation"
+      },
+      {
+        "codepoints": "U+0021 U+0021 U+0021",
+        "input": "!!!",
+        "why": "nothing left"
+      },
+      {
+        "codepoints": "",
+        "input": "",
+        "why": "empty"
+      },
+      {
+        "codepoints": "U+0020 U+0020 U+0020",
+        "input": "   ",
+        "why": "only spaces"
+      },
+      {
+        "codepoints": "U+0061 U+0062 U+0000 U+0063",
+        "input": "ab\u0000c",
+        "why": "a control character"
+      },
+      {
+        "codepoints": "U+03C9",
+        "input": "ω",
+        "why": "Greek"
+      },
+      {
+        "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "why": "one character over the limit"
+      },
+      {
+        "input": "ßßßßßßßßßßßßßßßßßßßßß",
+        "why": "over the limit once folded"
+      }
+    ],
+    "valid": [
+      {
+        "codepoints": "U+0053 U+006C U+006F U+0077 U+0020 U+0062 U+0075 U+0072 U+006E",
+        "input": "Slow burn",
+        "slug": "slow-burn",
+        "why": "folding case, a space becomes a hyphen"
+      },
+      {
+        "codepoints": "U+0020 U+0020 U+0043 U+0061 U+0066 U+00E9 U+0020 U+0020 U+004E U+006F U+0069 U+0072 U+0021 U+0021 U+0020",
+        "input": "  Café  Noir!! ",
+        "slug": "cafe-noir",
+        "why": "an accent folds; runs of spaces and punctuation are one hyphen; ends are trimmed"
+      },
+      {
+        "codepoints": "U+0043 U+0061 U+0066 U+0065 U+0301 U+0020 U+004E U+006F U+0069 U+0072",
+        "input": "Café Noir",
+        "slug": "cafe-noir",
+        "why": "a combining accent (decomposed form) folds the same way"
+      },
+      {
+        "codepoints": "U+0053 U+0063 U+0069 U+005F U+0046 U+0069 U+0020 U+002F U+0020 U+0053 U+0070 U+0061 U+0063 U+0065 U+002D U+004F U+0070 U+0065 U+0072 U+0061",
+        "input": "Sci_Fi / Space-Opera",
+        "slug": "sci-fi-space-opera",
+        "why": "underscores, slashes and hyphens all separate words"
+      },
+      {
+        "codepoints": "U+0057 U+0072 U+0069 U+0074 U+0065 U+0072 U+0027 U+0073 U+0020 U+0062 U+006C U+006F U+0063 U+006B",
+        "input": "Writer's block",
+        "slug": "writers-block",
+        "why": "an ASCII apostrophe joins words"
+      },
+      {
+        "codepoints": "U+0057 U+0072 U+0069 U+0074 U+0065 U+0072 U+2019 U+0073 U+0020 U+0062 U+006C U+006F U+0063 U+006B",
+        "input": "Writer’s block",
+        "slug": "writers-block",
+        "why": "a typographic apostrophe joins words too"
+      },
+      {
+        "codepoints": "U+0053 U+0074 U+0072 U+0061 U+00DF U+0065",
+        "input": "Straße",
+        "slug": "strasse",
+        "why": "ß becomes ss"
+      },
+      {
+        "codepoints": "U+0141 U+00F3 U+0064 U+017A",
+        "input": "Łódź",
+        "slug": "lodz",
+        "why": "letters without a decomposition are folded by table"
+      },
+      {
+        "codepoints": "U+00C6 U+0072 U+00F8 U+0073 U+006B U+00F8 U+0062 U+0069 U+006E U+0067",
+        "input": "Ærøskøbing",
+        "slug": "aeroskobing",
+        "why": "æ and ø"
+      },
+      {
+        "codepoints": "U+00DE U+0069 U+006E U+0067 U+0076 U+0065 U+006C U+006C U+0069 U+0072",
+        "input": "Þingvellir",
+        "slug": "thingvellir",
+        "why": "thorn becomes th"
+      },
+      {
+        "codepoints": "U+FB01 U+0072 U+0065",
+        "input": "ﬁre",
+        "slug": "fire",
+        "why": "a ligature decomposes (NFKD)"
+      },
+      {
+        "codepoints": "U+FF26 U+FF35 U+FF2C U+FF2C U+3000 U+FF57 U+FF49 U+FF44 U+FF54 U+FF48",
+        "input": "ＦＵＬＬ　ｗｉｄｔｈ",
+        "slug": "full-width",
+        "why": "full-width letters and an ideographic space"
+      },
+      {
+        "codepoints": "U+0031 U+0039 U+0032 U+0030 U+0073",
+        "input": "1920s",
+        "slug": "1920s",
+        "why": "digits stay"
+      },
+      {
+        "codepoints": "U+0061 U+2003 U+0062",
+        "input": "a b",
+        "slug": "a-b",
+        "why": "any whitespace separates words"
+      },
+      {
+        "codepoints": "U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061 U+0061",
+        "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slug": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "why": "exactly at the limit"
+      },
+      {
+        "codepoints": "U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF U+00DF",
+        "input": "ßßßßßßßßßßßßßßßßßßßß",
+        "slug": "ssssssssssssssssssssssssssssssssssssssss",
+        "why": "the limit counts the slug, after folding"
+      }
+    ]
+  }
+}
