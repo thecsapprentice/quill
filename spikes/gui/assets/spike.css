@@ -146,6 +146,12 @@ button, input, textarea { font: inherit; color: inherit; }
 .rendered blockquote { margin: 0.5rem 0; padding-left: 0.8rem; border-left: 3px solid var(--accent); color: var(--muted); }
 .rendered code { font-family: var(--mono); font-size: 0.88em; background: var(--code-bg); padding: 0.05em 0.3em; border-radius: 4px; }
 .rendered a { color: var(--accent); }
+/* Lists stated outright, so nothing else on the page can reset them. */
+.rendered ul, .rendered ol { padding-left: 1.6em; margin: 0.5rem 0; }
+.rendered ul { list-style: disc outside; }
+.rendered ol { list-style: decimal outside; }
+.rendered li { display: list-item; }
+.rendered li::marker { color: var(--muted); }
 
 /* ---- The composer ---- */
 

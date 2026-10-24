@@ -143,14 +143,42 @@ check on a real Linux desktop.
 - Sanitizing rendered notes with `ammonia` is fine per note, too slow to
   run on a whole long draft per keystroke (finding 5).
 
+### 9. Browsers add their own writing suggestions
+
+In Edge (checked by hand, 2026-10-23), the text areas showed suggestions
+as you type: Edge's text prediction. The desktop app (WebView2) doesn't.
+Beyond getting in a writer's way, a browser's writing assistant may
+process what's typed on its maker's servers, depending on the browser and
+its settings, which a client built so the server never sees plaintext must
+not invite. The editors now set `writingsuggestions="false"` (Chromium
+and Edge honour it) and `autocomplete="off"`. Spellcheck stays on: the
+basic spellcheckers work on the device, though Chrome's optional
+"enhanced spell check" sends text to Google. The web client proposal (4a)
+should say what the web client turns off and what it tells writers about
+the rest.
+
+### 10. Lists in the preview, in Edge
+
+In Edge, lists in the Write + preview pane were indented but had no
+markers. That didn't reproduce in WebKitGTK or in Chromium given the same
+HTML and styles, so the cause isn't known yet. The note styles now set
+list markers outright (`list-style`, `display: list-item`) so nothing on
+the page can reset them; to check again in Edge.
+
 ## Still to check, by hand
 
 Each with the spike running (README). Record results here, with who
 checked and on what.
 
+- **Windows desktop (WebView2), checked by hand 2026-10-23:** everything
+  tried behaved as expected.
+- **Edge, checked by hand 2026-10-23:** writing suggestions appeared
+  (finding 9, now turned off) and preview lists lacked markers (finding
+  10); both to check again.
+
 | Check | Windows (WebView2) | macOS (WKWebView) | Linux desktop | Chrome | Firefox | Safari |
 | --- | --- | --- | --- | --- | --- | --- |
-| Builds (CI) and runs | builds; run: | builds; run: | yes (Xvfb) | builds; run: | run: | run: |
+| Builds (CI) and runs | yes | builds | yes (Xvfb) | builds | | |
 | Spellcheck in each editor form | | | yes (after switching on) | | | |
 | Input methods: Japanese or Chinese, accents and dead keys, the emoji picker; nothing lost or doubled, in Live especially | | | | | | |
 | Screen reader: notes read, the editor named, everything reachable by keyboard | Narrator or NVDA | VoiceOver | Orca | | | |

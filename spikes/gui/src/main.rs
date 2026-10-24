@@ -406,6 +406,12 @@ fn App() -> Element {
                                     id: "draft",
                                     class: "writing plain",
                                     spellcheck: "true",
+                                    // No browser writing suggestions (Edge's text
+                                    // prediction): they get in the way, and a
+                                    // browser's assistant may send what's typed
+                                    // to its maker's servers (FINDINGS 9).
+                                    "writingsuggestions": "false",
+                                    autocomplete: "off",
                                     lang: "en",
                                     aria_label: "Note in #{current}",
                                     placeholder: "Write in #{current}…  (Markdown; Ctrl+Enter sends)",
@@ -438,6 +444,12 @@ fn App() -> Element {
                                     id: "draft",
                                     class: "writing over",
                                     spellcheck: "true",
+                                    // No browser writing suggestions (Edge's text
+                                    // prediction): they get in the way, and a
+                                    // browser's assistant may send what's typed
+                                    // to its maker's servers (FINDINGS 9).
+                                    "writingsuggestions": "false",
+                                    autocomplete: "off",
                                     lang: "en",
                                     aria_label: "Note in #{current}",
                                     placeholder: "Write in #{current}…  (Markdown; Ctrl+Enter sends)",
@@ -460,6 +472,7 @@ fn App() -> Element {
                                 class: "writing rich rendered",
                                 contenteditable: "true",
                                 spellcheck: "true",
+                                "writingsuggestions": "false",
                                 lang: "en",
                                 role: "textbox",
                                 aria_multiline: "true",
