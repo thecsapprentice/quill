@@ -3691,6 +3691,7 @@ dependencies = [
  "directories",
  "ed25519-dalek",
  "getrandom 0.4.3",
+ "hex",
  "hkdf 0.13.0",
  "keyring-core",
  "openmls",

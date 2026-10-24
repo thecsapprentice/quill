@@ -1,0 +1,43 @@
+{
+  "description": "Device linking (protocol draft, section 6). The new device shows quill-link:1:<host>:<linkId>:<fp>, where fp is SHA-256 of the serialized KeyPackage (the MLSMessage bytes posted to /link), base64url without padding. The host may carry a port, so a reader splits the rest from the right. The typed form is the link id and 6 words: the first 66 bits of the SHA-256, 11 bits per word, big-endian, BIP-39 English list; any case and spacing. A device approving the link must refuse a KeyPackage whose fingerprint doesn't match.",
+  "invalid": {
+    "malformed": [
+      "quill-link:1:writers.example:abc",
+      "quill-link:1:writers.example::sbNvUfUU0Rxs06llYyfxgCCdUDlh_wYW20bPiJId6yg",
+      "quill-link:1:h:id:short",
+      "quill-link:2:writers.example:id:sbNvUfUU0Rxs06llYyfxgCCdUDlh_wYW20bPiJId6yg",
+      "2c8f0a1b9d3e4f5a6b7c8d9e0f1a2b3c random opinion stamp tuition escape",
+      ""
+    ],
+    "wrongWords": "2c8f0a1b9d3e4f5a6b7c8d9e0f1a2b3c opinion random stamp tuition escape mixed"
+  },
+  "mismatched": {
+    "code": "quill-link:1:writers.example:2c8f0a1b9d3e4f5a6b7c8d9e0f1a2b3c:sbNvUfUU0Rxs06llYyfxgCCdUDlh_wYW20bPiJId6yg",
+    "itsQr": "quill-link:1:writers.example:2c8f0a1b9d3e4f5a6b7c8d9e0f1a2b3c:RTjyoN34eLh1mVdkf6HtCCnH5UksJ6yxNxk4FINl2h8",
+    "keyPackage": "020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f",
+    "name": "the mailbox holds another KeyPackage",
+    "typed": "2c8f0a1b9d3e4f5a6b7c8d9e0f1a2b3c random opinion stamp tuition escape mixed"
+  },
+  "typed": [
+    "2c8f0a1b9d3e4f5a6b7c8d9e0f1a2b3c random opinion stamp tuition escape mixed",
+    "  2c8f0a1b9d3e4f5a6b7c8d9e0f1a2b3c   RANDOM  OPINION  STAMP  TUITION  ESCAPE  MIXED  "
+  ],
+  "valid": [
+    {
+      "fingerprint": "b1b36f51f514d11c6cd3a9656327f180209d503961ff0616db46cf88921deb28",
+      "host": "writers.example",
+      "keyPackage": "01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e",
+      "linkId": "2c8f0a1b9d3e4f5a6b7c8d9e0f1a2b3c",
+      "qr": "quill-link:1:writers.example:2c8f0a1b9d3e4f5a6b7c8d9e0f1a2b3c:sbNvUfUU0Rxs06llYyfxgCCdUDlh_wYW20bPiJId6yg",
+      "words": "random opinion stamp tuition escape mixed"
+    },
+    {
+      "fingerprint": "b1b36f51f514d11c6cd3a9656327f180209d503961ff0616db46cf88921deb28",
+      "host": "writers.example:8443",
+      "keyPackage": "01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e",
+      "linkId": "2c8f0a1b9d3e4f5a6b7c8d9e0f1a2b3c",
+      "qr": "quill-link:1:writers.example:8443:2c8f0a1b9d3e4f5a6b7c8d9e0f1a2b3c:sbNvUfUU0Rxs06llYyfxgCCdUDlh_wYW20bPiJId6yg",
+      "words": "random opinion stamp tuition escape mixed"
+    }
+  ]
+}

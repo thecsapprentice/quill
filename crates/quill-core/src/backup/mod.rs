@@ -36,8 +36,8 @@ const TABLES: [Table; 5] = [
     Table::Messages,
     Table::Files,
 ];
-const FORMAT: &str = "quill-backup";
-const VERSION: u32 = 1;
+pub(crate) const FORMAT: &str = "quill-backup";
+pub(crate) const VERSION: u32 = 1;
 const K_CODE: &[u8] = b"code";
 
 fn err(msg: impl Into<String>) -> CoreError {
@@ -48,15 +48,15 @@ fn err(msg: impl Into<String>) -> CoreError {
 /// difference there), tables as lists of `[key, value]` in base64url.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Contents {
-    format: String,
-    version: u32,
-    created_ms: u64,
-    tables: BTreeMap<String, Vec<[String; 2]>>,
+pub(crate) struct Contents {
+    pub(crate) format: String,
+    pub(crate) version: u32,
+    pub(crate) created_ms: u64,
+    pub(crate) tables: BTreeMap<String, Vec<[String; 2]>>,
 }
 
 /// The passphrase a code gives: its 12 words, lowercase, single spaces.
-fn passphrase(entropy: &[u8; 16]) -> Zeroizing<String> {
+pub(crate) fn passphrase(entropy: &[u8; 16]) -> Zeroizing<String> {
     Zeroizing::new(words::mnemonic(entropy).join(" "))
 }
 

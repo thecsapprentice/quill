@@ -106,10 +106,6 @@ impl Message {
     pub fn edited(&self) -> bool {
         self.versions.len() > 1
     }
-
-    fn clock(&self) -> Hlc {
-        self.hlc.parse().unwrap_or_default()
-    }
 }
 
 /// Who sent an activity, and from where.
@@ -409,9 +405,23 @@ pub fn messages(store: &Store, gid: &[u8]) -> Result<Vec<Message>, CoreError> {
         .map(|(_, v)| serde_json::from_slice(&v).map_err(|_| err("a stored message is damaged")))
         .collect::<Result<_, _>>()?;
     out.sort_by(|a, b| {
-        (a.clock(), &a.sender, a.author_seq).cmp(&(b.clock(), &b.sender, b.author_seq))
+        display_key(&a.hlc, &a.sender, a.author_seq).cmp(&display_key(
+            &b.hlc,
+            &b.sender,
+            b.author_seq,
+        ))
     });
     Ok(out)
+}
+
+/// What display order sorts by: the clock (a malformed value reads as
+/// zero), then the sender's actor URI by its bytes, then `authorSeq`.
+pub fn display_key<'a>(hlc: &str, sender: &'a str, author_seq: u64) -> (Hlc, &'a [u8], u64) {
+    (
+        hlc.parse().unwrap_or_default(),
+        sender.as_bytes(),
+        author_seq,
+    )
 }
 
 /// How many notes this device holds for a session.

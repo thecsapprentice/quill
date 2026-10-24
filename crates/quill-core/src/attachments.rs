@@ -65,6 +65,21 @@ pub struct Sealed {
 
 /// Seals `plain`, padding the ciphertext to its bucket under `max` bytes.
 pub fn seal(plain: &[u8], max: u64) -> Result<Sealed, CoreError> {
+    let mut key = Zeroizing::new([0u8; 32]);
+    let mut nonce = [0u8; 12];
+    getrandom::fill(key.as_mut()).map_err(|e| err(format!("no randomness: {e}")))?;
+    getrandom::fill(&mut nonce).map_err(|e| err(format!("no randomness: {e}")))?;
+    seal_with(plain, max, key, nonce)
+}
+
+/// [`seal`] with a given key and nonce (for test vectors: a nonce must
+/// never be used twice with one key).
+pub(crate) fn seal_with(
+    plain: &[u8],
+    max: u64,
+    key: Zeroizing<[u8; 32]>,
+    nonce: [u8; 12],
+) -> Result<Sealed, CoreError> {
     let size = u64::try_from(plain.len()).map_err(|_| err("the file is too large"))?;
     let bucket = blob_bucket(size + TAG as u64, max).ok_or_else(|| {
         err(format!(
@@ -72,10 +87,6 @@ pub fn seal(plain: &[u8], max: u64) -> Result<Sealed, CoreError> {
             max.saturating_sub(TAG as u64)
         ))
     })?;
-    let mut key = Zeroizing::new([0u8; 32]);
-    let mut nonce = [0u8; 12];
-    getrandom::fill(key.as_mut()).map_err(|e| err(format!("no randomness: {e}")))?;
-    getrandom::fill(&mut nonce).map_err(|e| err(format!("no randomness: {e}")))?;
     let cipher = Aes256Gcm::new_from_slice(key.as_ref()).map_err(|_| err("bad key"))?;
     let mut blob = cipher
         .encrypt(&Nonce::from(nonce), plain)
