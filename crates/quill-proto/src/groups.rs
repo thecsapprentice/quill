@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// `POST /groups`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateGroup {
     /// The MLS group id, base64url.
@@ -16,6 +17,7 @@ pub struct CreateGroup {
 
 /// A group's place in its log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct GroupState {
     pub group_id: String,
@@ -27,6 +29,7 @@ pub struct GroupState {
 
 /// `POST /groups/{id}/messages`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PostMessage {
     /// An `MLSMessage` holding a `PrivateMessage`, base64url.
@@ -38,6 +41,7 @@ pub struct PostMessage {
 
 /// Where the server put a message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Posted {
     pub seq: u64,
@@ -47,6 +51,7 @@ pub struct Posted {
 
 /// One logged message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct LoggedMessage {
     pub seq: u64,
@@ -55,6 +60,11 @@ pub struct LoggedMessage {
 
 /// `GET /groups/{id}/messages?after=&limit=`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct MessagesQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -64,6 +74,7 @@ pub struct MessagesQuery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Messages {
     pub messages: Vec<LoggedMessage>,
@@ -73,12 +84,14 @@ pub struct Messages {
 
 /// `POST /link`: a new device's KeyPackage for the personal group.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct StartLink {
     pub key_package: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct LinkStarted {
     /// 128 random bits, base64url.
@@ -88,6 +101,7 @@ pub struct LinkStarted {
 
 /// `GET /link/{id}`. Once the reply has been fetched, the mailbox is gone.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct LinkMailbox {
     pub key_package: String,
@@ -100,6 +114,7 @@ pub struct LinkMailbox {
 
 /// `POST /link/{id}/reply`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct LinkReply {
     /// An `MLSMessage` holding a `Welcome`, base64url.

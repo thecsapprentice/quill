@@ -15,6 +15,11 @@ thiserror.workspace = true
 time.workspace = true
 unicode-normalization.workspace = true
 uuid.workspace = true
+utoipa = { workspace = true, optional = true }
+
+[features]
+# Schemas for the OpenAPI file; only the server turns this on.
+openapi = ["dep:utoipa"]
 
 [dev-dependencies]
 serde_json.workspace = true

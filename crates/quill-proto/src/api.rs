@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 /// `GET /api/v1/instance`: what this server is and what it allows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct InstanceInfo {
     pub domain: String,
@@ -31,6 +32,7 @@ fn default_attachments() -> bool {
 /// Limits a client must respect. In a cross-server session a client uses the
 /// smaller value of each pair of servers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Limits {
     pub max_message_bytes: u64,
@@ -88,6 +90,7 @@ impl Default for Limits {
 /// The login name is private to the account and never federated; public
 /// identities are personas.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Credentials {
     pub username: String,
     pub password: String,
@@ -105,6 +108,7 @@ impl std::fmt::Debug for Credentials {
 /// Returned by register and login. The token is shown once and stored only
 /// as a hash on the server.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct TokenResponse {
     pub token: String,
@@ -123,6 +127,7 @@ impl std::fmt::Debug for TokenResponse {
 
 /// A persona: one public ActivityPub actor owned by an account.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Persona {
     pub id: Uuid,
@@ -138,6 +143,7 @@ pub struct Persona {
 
 /// `POST /api/v1/personas`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePersona {
     pub handle: String,
@@ -150,6 +156,7 @@ pub struct CreatePersona {
 /// `PATCH /api/v1/personas/{id}`. Absent fields are unchanged; an empty string
 /// clears the field.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePersona {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -160,6 +167,7 @@ pub struct UpdatePersona {
 
 /// RFC 9457 problem details, used for every error response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Problem {
     #[serde(rename = "type")]
     pub kind: String,

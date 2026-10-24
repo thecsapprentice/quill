@@ -8,6 +8,7 @@ use uuid::Uuid;
 /// One notice. Sent as an SSE event named after its `type`, with this
 /// JSON as the data.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(
     tag = "type",
     rename_all = "camelCase",

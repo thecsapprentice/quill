@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 /// A persona taking part in a session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMember {
     pub handle: String,
@@ -20,6 +21,7 @@ pub struct SessionMember {
 
 /// A Welcome left for one of the caller's devices.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceWelcome {
     /// The persona device (directory id) it's for.
@@ -32,6 +34,7 @@ pub struct DeviceWelcome {
 
 /// One of the login's sessions, in `GET /sessions`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     /// The group id, base64url.
@@ -64,6 +67,7 @@ pub struct Session {
 
 /// A restored device's request to be let back into a session (2j).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Rejoin {
     pub id: Uuid,
@@ -75,6 +79,7 @@ pub struct Rejoin {
 
 /// `POST /sessions/{id}/rejoin`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SendRejoin {
     pub request: String,
@@ -83,6 +88,7 @@ pub struct SendRejoin {
 /// `POST /sessions/{id}/welcomes`: a Welcome for one of the caller's
 /// persona's devices, just added to the group.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct LeaveWelcome {
     pub device: Uuid,
@@ -93,6 +99,7 @@ pub struct LeaveWelcome {
 /// `POST /sessions/{id}/ack`: how far one of the caller's devices has read
 /// the session's log. Only the server sees it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Ack {
     pub device: Uuid,
@@ -101,6 +108,7 @@ pub struct Ack {
 
 /// The answer to `POST /sessions/{id}/blobs` (2i).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct BlobUploaded {
     pub id: Uuid,
@@ -115,6 +123,7 @@ pub const BLOB_TOKEN_HEADER: &str = "blob-token";
 /// One session's share of the server's storage (2i). Sizes are of
 /// ciphertext: nothing here says what was written.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStorage {
     /// The session id (group id, base64url).
@@ -140,6 +149,7 @@ pub struct SessionStorage {
 /// `GET /account/storage`, and an administrator's view of one login
 /// (`GET /admin/storage/{account}`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AccountStorage {
     /// Everything stored for the login's sessions and device group.
@@ -157,6 +167,7 @@ pub struct AccountStorage {
 
 /// One login in `GET /admin/storage`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AccountStorageSummary {
     pub account: Uuid,
@@ -173,6 +184,7 @@ pub struct AccountStorageSummary {
 
 /// `GET /admin/storage`: every login with anything stored, largest first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerStorage {
     /// Everything stored, counted once.
@@ -184,6 +196,7 @@ pub struct ServerStorage {
 
 /// The login's committed backup (`GET /backup`, 2j).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct BackupInfo {
     pub generation: Uuid,
@@ -195,6 +208,7 @@ pub struct BackupInfo {
 
 /// `POST /backup/{generation}/commit`: the new backup is complete.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CommitBackup {
     pub parts: u32,

@@ -25,6 +25,7 @@ pub fn actor_uri(domain: &str, handle: &str) -> String {
 
 /// `PUT /personas/{id}/identity-key`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SetIdentityKey {
     /// Ed25519 public key, base64url.
@@ -35,6 +36,7 @@ pub struct SetIdentityKey {
 
 /// `POST /personas/{id}/devices`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterDevice {
     /// A `DeviceCertificate`, base64url.
@@ -43,6 +45,7 @@ pub struct RegisterDevice {
 
 /// `POST /personas/{id}/devices/{device}/revoke`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RevokeDevice {
     /// A `DeviceRevocation`, base64url.
@@ -52,6 +55,7 @@ pub struct RevokeDevice {
 /// One of a persona's devices, as the directory publishes it. There are
 /// deliberately no timestamps.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
     /// Random; not ordered by time.
@@ -71,6 +75,7 @@ pub struct DeviceInfo {
 
 /// `GET /actors/{handle}/keys` (public) and the owner's views.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PersonaKeys {
     pub actor_uri: String,
@@ -87,6 +92,7 @@ pub struct PersonaKeys {
 /// `POST /personas/{id}/devices/{device}/key-packages`: KeyPackages as
 /// `MLSMessage`s, base64url.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UploadKeyPackages {
     /// One-time packages, added to the pool.
@@ -99,6 +105,7 @@ pub struct UploadKeyPackages {
 
 /// What's left in a device's pool.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct KeyPackageStatus {
     /// Unexpired one-time packages.
@@ -111,6 +118,7 @@ pub struct KeyPackageStatus {
 
 /// One device's package in a claim.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ClaimedKeyPackage {
     pub device: Uuid,
@@ -123,6 +131,11 @@ pub struct ClaimedKeyPackage {
 /// `POST /actors/{handle}/key-packages/claim?device=`: limits the claim to
 /// one device (2f, adding a device to a session).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaimQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -132,6 +145,7 @@ pub struct ClaimQuery {
 /// `POST /actors/{handle}/key-packages/claim`: one package per current
 /// device of the persona.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct KeyPackageClaim {
     pub actor_uri: String,

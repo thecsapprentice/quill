@@ -11,6 +11,7 @@ pub const MAX_EXPIRY_DAYS: u32 = 30;
 
 /// `POST /requests`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SendRequest {
     /// The requesting persona (the caller's).
@@ -27,6 +28,7 @@ pub struct SendRequest {
 
 /// The answer to `POST /requests`: the same whatever the server did with it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RequestSent {
     pub id: Uuid,
@@ -36,6 +38,7 @@ pub struct RequestSent {
 
 /// A request's status as one side sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum RequestStatus {
     /// Requester's view of anything undecided, declined or refused.
@@ -56,6 +59,7 @@ pub enum RequestStatus {
 
 /// `GET /requests/{id}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RequestState {
     pub id: Uuid,
@@ -64,6 +68,7 @@ pub struct RequestState {
 
 /// One of the login's own requests, in `GET /requests`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct OutgoingRequest {
     pub id: Uuid,
@@ -81,6 +86,7 @@ pub struct OutgoingRequest {
 
 /// A persona as a request shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RequestPersona {
     pub handle: String,
@@ -91,6 +97,7 @@ pub struct RequestPersona {
 
 /// A request in the author's queue.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct IncomingRequest {
     pub id: Uuid,
@@ -107,6 +114,11 @@ pub struct IncomingRequest {
 
 /// `GET /prompts/{id}/requests?state=`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueQuery {
     /// `pending` (the default) or `held`. Reading held requests releases
@@ -117,6 +129,7 @@ pub struct QueueQuery {
 
 /// The author's queue for one prompt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Queue {
     pub requests: Vec<IncomingRequest>,

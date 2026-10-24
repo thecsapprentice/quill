@@ -15,6 +15,24 @@ macro_rules! string_enum {
             $($(#[$vmeta])* #[serde(rename = $text)] $variant),+
         }
 
+        // Written out: the derive doesn't see renames made inside a macro.
+        #[cfg(feature = "openapi")]
+        impl ::utoipa::PartialSchema for $name {
+            fn schema() -> ::utoipa::openapi::RefOr<::utoipa::openapi::schema::Schema> {
+                ::utoipa::openapi::schema::ObjectBuilder::new()
+                    .schema_type(::utoipa::openapi::schema::Type::String)
+                    .enum_values(Some([$($text),+]))
+                    .into()
+            }
+        }
+
+        #[cfg(feature = "openapi")]
+        impl ::utoipa::ToSchema for $name {
+            fn name() -> ::std::borrow::Cow<'static, str> {
+                ::std::borrow::Cow::Borrowed(stringify!($name))
+            }
+        }
+
         impl $name {
             pub const ALL: &'static [Self] = &[$(Self::$variant),+];
 
@@ -163,6 +181,7 @@ string_enum! {
 /// A chip's colours, as `#rrggbb`. A `None` text colour is automatic: black
 /// or white, whichever contrasts more with the background.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ChipColor {
     pub background: String,
@@ -186,6 +205,7 @@ impl ChipColor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct TagNamespace {
     pub name: String,
@@ -201,6 +221,7 @@ pub struct TagNamespace {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Tag {
     pub namespace: String,
@@ -225,6 +246,11 @@ impl Tag {
 
 /// `GET /tags` query.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct TagQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -238,6 +264,7 @@ pub struct TagQuery {
 
 /// `POST /tags`: a user creates a tag in an unlocked namespace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTag {
     pub namespace: String,
@@ -246,6 +273,7 @@ pub struct CreateTag {
 
 /// `POST /admin/tag-namespaces`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateNamespace {
     pub name: String,
@@ -260,6 +288,7 @@ pub struct CreateNamespace {
 
 /// `PATCH /admin/tag-namespaces/{name}`. Absent fields are unchanged.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateNamespace {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -278,6 +307,11 @@ pub struct UpdateNamespace {
 
 /// `GET /admin/tags` query. Unlike `GET /tags`, aliases are included.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminTagQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -293,6 +327,7 @@ pub struct AdminTagQuery {
 
 /// A tag as administrators see it: with its usage and alias target.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AdminTag {
     #[serde(flatten)]
@@ -311,6 +346,7 @@ pub struct AdminTag {
 
 /// Response to `DELETE /admin/tags/{namespace}/{slug}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct DeletedTag {
     /// Prompts the tag was removed from.
@@ -319,6 +355,7 @@ pub struct DeletedTag {
 
 /// `PATCH /admin/tags/{namespace}/{slug}`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTag {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -341,6 +378,7 @@ pub struct UpdateTag {
 
 /// `GET /admin/settings`: settings administrators change while the server runs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerSettings {
     /// Whether writers may create new tags.
@@ -356,6 +394,7 @@ fn yes() -> bool {
 
 /// `PATCH /admin/settings`. Absent fields are unchanged.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateServerSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -368,6 +407,7 @@ pub struct UpdateServerSettings {
 
 /// The public identity that posted a prompt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PromptAuthor {
     pub id: Uuid,
@@ -377,6 +417,7 @@ pub struct PromptAuthor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Prompt {
     pub id: Uuid,
@@ -403,6 +444,7 @@ pub struct Prompt {
 
 /// `POST /prompts`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePrompt {
     /// Persona (owned by the caller) the prompt is posted as.
@@ -421,6 +463,7 @@ pub struct CreatePrompt {
 /// `PATCH /prompts/{id}`. Absent fields are unchanged; `tags` replaces the
 /// whole set.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePrompt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -437,6 +480,11 @@ pub struct UpdatePrompt {
 
 /// `GET /prompts` query. Tag lists are comma-separated `namespace:slug`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct PromptQuery {
     /// Prompts must carry every one of these tags.
@@ -467,6 +515,7 @@ pub struct PromptQuery {
 
 /// One page of prompts, newest first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PromptPage {
     pub items: Vec<Prompt>,
@@ -478,6 +527,7 @@ pub struct PromptPage {
 
 /// `GET /account`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AccountSettings {
     pub maturity_max: Maturity,
@@ -489,6 +539,7 @@ pub struct AccountSettings {
 
 /// `PATCH /account`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateAccountSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -499,6 +550,7 @@ pub struct UpdateAccountSettings {
 
 /// `POST /reports`. Anyone may report, signed in or not.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateReport {
     pub prompt: Uuid,
@@ -509,6 +561,7 @@ pub struct CreateReport {
 
 /// A Review Message in the administrators' inbox.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
     pub id: Uuid,
@@ -530,6 +583,11 @@ pub struct Report {
 
 /// `GET /admin/reports` query.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct ReportQuery {
     /// `open` (default) or `all`.
@@ -539,6 +597,7 @@ pub struct ReportQuery {
 
 /// `POST /admin/reports/{id}/resolve`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ResolveReport {
     pub action: Resolution,
@@ -546,6 +605,7 @@ pub struct ResolveReport {
 
 /// One row of the append-only admin log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AdminLogEntry {
     pub id: i64,
@@ -592,6 +652,11 @@ pub const LOG_TARGET_PREVIEW: usize = 5;
 
 /// `GET /admin/log/{id}` query: a page of the entry's affected accounts.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminLogTargetQuery {
     /// Accounts after this login name, alphabetically.
@@ -604,6 +669,7 @@ pub struct AdminLogTargetQuery {
 
 /// One admin-log entry with a page of the accounts it was against.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AdminLogDetail {
     pub entry: AdminLogEntry,
@@ -616,6 +682,7 @@ pub struct AdminLogDetail {
 
 /// An account a decision was against, and its prompts the decision touched.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AdminLogTarget {
     /// Login name as it was.
@@ -630,6 +697,7 @@ pub struct AdminLogTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AdminLogPrompt {
     pub id: Uuid,
@@ -654,6 +722,11 @@ string_enum! {
 
 /// `GET /admin/log` query.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminLogQuery {
     /// Entries older than this id.
