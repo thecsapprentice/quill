@@ -40,7 +40,9 @@ jobs:
       - run: cargo test --locked
       - run: cargo build --locked --release --features desktop
       - name: Size
-        run: ls -l target/release/quill-gui-spike*
+        run: |
+          bin=target/release/quill-gui-spike${{ runner.os == 'Windows' && '.exe' || '' }}
+          echo "::notice title=Desktop size (${{ runner.os }})::$(wc -c < "$bin") bytes"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: quill-gui-spike-${{ runner.os }}
@@ -67,15 +69,15 @@ jobs:
         run: |
           version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
           cargo install --locked wasm-bindgen-cli --version "$version"
-          wasm-bindgen --target web --no-typescript --out-dir dist \
+          wasm-bindgen --target web --no-typescript --out-dir dist --out-name quill_gui_spike \
             target/wasm32-unknown-unknown/release/quill-gui-spike.wasm
           cp web/index.html dist/
       - name: Size
         run: |
           ls -l dist
-          gzip -9 -k dist/quill_gui_spike_bg.wasm
-          echo "gzipped wasm: $(stat -c %s dist/quill_gui_spike_bg.wasm.gz) bytes"
-          rm dist/quill_gui_spike_bg.wasm.gz
+          wasm=$(stat -c %s dist/quill_gui_spike_bg.wasm)
+          gz=$(gzip -9 -c dist/quill_gui_spike_bg.wasm | wc -c)
+          echo "::notice title=Web size::wasm ${wasm} bytes, ${gz} gzipped"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: quill-gui-spike-web
