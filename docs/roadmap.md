@@ -1214,6 +1214,102 @@ As built (`spikes/gui/FINDINGS.md` has the details):
 - `spikes/gui/` stays as a reference until 3f's editor replaces it, then
   goes; its workflow runs only when it changes.
 
+### 3b: The app's frame and first run
+
+The first real GUI code: the two crates the plan names, the frame every
+later sub-phase fills, and getting a new writer from a fresh install to a
+signed-in persona with keys, without seeing an id or a key. Built to the
+Phase 3 principles and 3a's rules for text inputs.
+
+- **Crates**, in the main workspace from here on:
+  - `quill-ui`: the views (Dioxus components) and the app's state, with no
+    platform code. Views talk to a small `Backend` trait over `quill-core`
+    (sign in, personas, settings, status), so the web client can supply
+    its own, and tests can use a fake.
+  - `quill-gui`: the desktop binary. It owns the store and the API client,
+    runs `quill-core` on a background runtime, and implements `Backend`.
+  - Their dependencies (Dioxus desktop, wry, tao and the platform webview
+    bindings) enter `Cargo.lock` with `cargo vet` exemptions; Linux CI jobs
+    gain the WebKitGTK packages, and the Windows and macOS jobs build
+    `quill-gui`. `check-server-deps.sh` keeps both out of the server.
+- **First run**, as a short guided flow, one question per screen:
+  1. **Which server.** One field, checked as you type against
+     `GET /instance`: the server's name, whether it takes new logins, and a
+     plain line about what it can and can't see. A server address can be
+     given at build time to fill it in.
+  2. **New here, or have a login.** Create a login (name and password,
+     with the server's rules shown as you type, not after) or sign in.
+  3. **Your first persona** (for a new login): the handle and display
+     name, with the handle rules shown live; a taken handle is said plainly
+     with nearby suggestions.
+  4. **Getting ready**, shown as progress, not questions: the store is
+     made and locked with the OS keychain, the identity key is created and
+     published, a device certificate and KeyPackages are uploaded, and the
+     personal device group is started. Each step says what it's doing in
+     plain words; a failure says what to do and retries from where it
+     stopped.
+  5. **Home**, with the frame below and a gentle, dismissible suggestion
+     to make a backup (built in 3h).
+  - **Signing in where the login already has devices:** this computer has
+    no keys yet, so it says so and offers to link from another device (3d)
+    or restore from a backup (3h); until those land, it explains them and
+    stops there.
+- **The local store.** The GUI keeps its own store and profile, in its
+  own folder, not the CLI's (two programs on one store would fight over
+  the file lock). It's locked with the OS keychain, so there's nothing to
+  type when the app opens. Where no keychain is available (some Linux
+  setups), it asks for a passphrase once at start, with the CLI's rules.
+  Settings can switch to a passphrase.
+- **The frame.**
+  - Sections: Board (3c), Requests (3e), Sessions (3f), Personas,
+    Settings; the ones not built yet say what will be there.
+  - A sidebar when wide, a bar of tabs when narrow; the persona in use
+    shown and switched from one place.
+  - A status line: connected, offline (with automatic retries), or
+    signed out (with a way back in). Never a modal for any of them.
+  - Background upkeep, as the CLI does before each command: catching up
+    the device group, topping up KeyPackages, history requests. It runs on
+    start, every few minutes and on live notices (`GET /events`); it shows
+    only when something needs the writer.
+- **Personas**: list, create, change the display name and summary, delete.
+  Deleting can't be undone, so it asks once, plainly, saying what goes with
+  it (the persona's prompts and waiting requests).
+- **Settings**: the board's maturity setting; appearance (system, light or
+  dark; text size); the store (keychain or passphrase); signing out;
+  the advanced mode switch.
+- **Advanced mode** adds what the CLI shows: ids, device keys and
+  fingerprints, the store's path and key source, the server's version and
+  limits, KeyPackage pools, and the upkeep log with raw errors.
+- **Text inputs** follow 3a: uncontrolled, remounted through a keyed
+  one-item list, `writingsuggestions="false"` and `autocomplete="off"`
+  (passwords keep `autocomplete="new-password"` or `current-password`, so
+  password managers work), spellcheck off in name and handle fields, and
+  switched on through WebKitGTK on Linux for the fields that want it.
+- **Tests:**
+  - The first-run flow and the frame's state run against a real server in
+    `quill-e2e`, through `quill-ui`'s state and the `Backend` trait,
+    without a webview: new login, existing login on a new device, server
+    unreachable then back, registration closed, a taken handle.
+  - Views render with a fake backend through `dioxus-ssr`, checked for
+    labels, roles and that nothing shows an id outside advanced mode.
+  - By hand on Windows (and whatever else is at hand): the whole first
+    run, resizing, keyboard-only use, a screen reader on the first-run
+    forms, and an input method in the name fields.
+
+Done when: on a fresh machine, `cargo run -p quill-gui` goes from nothing
+to a signed-in persona with published keys, without an id or a key on
+screen and without leaving the app; signing in to a login that has other
+devices says what to do; personas and settings work; advanced mode shows
+the details; and CI builds `quill-gui` on all three platforms.
+
+Questions to settle before starting:
+- **Store separate from the CLI** (above), or shared with an explicit
+  "use the CLI's store" option in advanced mode?
+- **A server address at build time:** useful for a server that hands out
+  its own build later; or always ask?
+- **Persona at first run:** required (simplest path to writing), or
+  optional with the board browsable first?
+
 ## Phase 4: Web client
 
 `quill-web`: Rust compiled to WebAssembly, on its own origin, sharing
