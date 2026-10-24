@@ -473,6 +473,7 @@ Recommendation: use **Dioxus** for every UI surface — the server's public prom
 ### What matters for this app
 
 - **One UI for desktop and web.** The GUI and web client must look and behave the same; ideally the same component code.
+- **Friendly, responsive, made for writing.** Unlike the CLI, the GUI hides ids and key management behind sensible automatic defaults (an advanced mode may show them), adapts to any window size, and gives writers spellcheck and Markdown live preview without getting in their way. The roadmap's Phase 3 lists the principles.
 - **Long-form text editing.** Writers need spellcheck, IME input for non-Latin scripts, right-to-left text, text selection and screen readers. HTML/CSS renderers get all of these from the platform; canvas renderers must reimplement them and usually fall short.
 - **Responsive, modern styling.** CSS media queries, flex/grid, and component libraries in a Radix or shadcn style.
 - **Keys stay out of the presentation layer.** On desktop, the decrypting code should run in native Rust, not inside a webview's scripting context.

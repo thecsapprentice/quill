@@ -1068,10 +1068,54 @@ updates reach the webview, so keys never enter webview JavaScript. Views
 live in a shared `quill-ui` crate the web client reuses. A first cut;
 each sub-phase gets its detailed section when it's next.
 
+Design principles (requested 2026-10-23), which every Phase 3 sub-phase
+is reviewed against, and the web client inherits:
+
+- **Friendly first.** The CLI may be technical: ids, explicit key set-up,
+  manual steps. The GUI's job is to let people post a prompt and start
+  writing with someone as fluidly as possible. Without weakening any
+  protection, it removes every step a person doesn't need to decide:
+  - Keys are made and published on first run, KeyPackages are kept topped
+    up, history syncs and sessions are rejoined in the background, and
+    nobody sees an id, a key or a log position.
+  - Linking a device is scanning a QR code (or typing six words); a
+    backup is offered, with its recovery code, at a moment that doesn't
+    interrupt writing, and reminded about until one exists.
+  - Security that needs a person stays, made plain and quick: comparing
+    safety numbers is offered, never forced; a changed identity key or a
+    linking code that doesn't match always stops and explains, in words,
+    what happened and what to do.
+  - An **advanced mode** may show what the CLI shows (ids, device keys,
+    log positions, KeyPackage pools, raw errors) for those who want it;
+    nothing ordinary needs it.
+- **Responsive and alive.** Layouts adapt to the window, from a narrow
+  side-by-side window to full screen (lists and the session collapse into
+  one column when narrow). The interface is interactive throughout:
+  immediate feedback on every action, live updates as messages arrive,
+  drag and drop for files, keyboard shortcuts, and clear progress for
+  anything slow, so nothing makes people wait without knowing why.
+- **A pleasant place to write.** The editor gets out of the way:
+  - Spellcheck, and input methods for every language, through the
+    platform's own text input.
+  - Markdown with a live preview (formatting shown as you type) and a
+    side-by-side or toggled preview; plain shortcuts for the common
+    marks.
+  - Long-form writing that stays smooth in long sessions; drafts saved
+    as you type (in the encrypted store) and never lost to a closed
+    window or a dropped connection; sending that queues while offline.
+  - A focus mode without the surrounding chrome.
+  - No modal dialogs or confirmations in the way of writing; mistakes
+    are undone (an edit's history is kept anyway) rather than prevented
+    by asking.
+
+3a's spike tests these on both targets before Dioxus is confirmed: the
+editor's spellcheck, input methods, live preview and responsiveness are
+part of its "done when".
+
 | Sub-phase | Scope | Status |
 | --- | --- | --- |
-| 3a | Spike: the session view (channels, long-form editor, an image attachment) in Dioxus on desktop and in the browser; IME, spellcheck and screen readers; confirm Dioxus or fall back to Leptos + Tauri 2 | next |
-| 3b | `quill-ui` and the `quill-gui` shell: unlocking the store, register and sign in, personas, settings | planned |
+| 3a | Spike: the session view (channels, the long-form editor with Markdown live preview, an image attachment) in Dioxus on desktop and in the browser, at narrow and wide window sizes; IME, spellcheck and screen readers; confirm Dioxus or fall back to Leptos + Tauri 2 | next |
+| 3b | `quill-ui` and the `quill-gui` shell: first run (sign up or in, a persona, keys made and published without being asked), unlocking the store, personas, settings, advanced mode | planned |
 | 3c | The board in the GUI: browse, search, post and edit prompts, through the board's shared components | planned |
 | 3d | Keys and devices: identity keys, linking by QR code or words, the device list, revoking, safety numbers | planned |
 | 3e | Requests: sending with a pitch, the inbox, accepting and declining, status | planned |
@@ -1081,7 +1125,9 @@ each sub-phase gets its detailed section when it's next.
 | 3i | Packaging for Windows, macOS and Linux | planned |
 
 Gate: the GUI does everything the CLI does, and the end-to-end tests that
-drive `quill-core` pass unchanged.
+drive `quill-core` pass unchanged. A new user can go from installing to
+writing in a session without seeing an id or a key, and without leaving
+the app.
 
 ## Phase 4: Web client
 
@@ -1203,6 +1249,10 @@ ranges. Known so far:
   plaintext-canary test and the database audit; the OpenAPI file, JSON
   Schemas and remaining test vectors become 2m, and Phase 2 closes after
   it, before federation needs them.
+- **GUI design principles (decided 2026-10-23):** friendly first, with an
+  advanced mode for what the CLI shows; responsive to the window and
+  interactive throughout; a writing environment with spellcheck and
+  Markdown live preview that gets out of the way. Listed under Phase 3.
 - **Phase order (decided 2026-10-23):** the desktop GUI (now Phase 3)
   and the web client (Phase 4) move ahead of federation (Phase 5) and
   hardening and review (Phase 6), so the project is usable on one server
