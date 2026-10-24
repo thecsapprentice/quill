@@ -1129,6 +1129,56 @@ drive `quill-core` pass unchanged. A new user can go from installing to
 writing in a session without seeing an id or a key, and without leaving
 the app.
 
+### 3a: Spike: the session view and the editor
+
+The plan asks for a short spike before the GUI is built on Dioxus: the
+riskiest view, built quickly on both targets, to find out whether Dioxus
+(0.7, already used for the board) can give writers the editor Phase 3's
+principles ask for. It is throwaway code that answers questions; what it
+learns decides 3b.
+
+- **Where it lives.** `spikes/gui/`, its own small Cargo workspace outside
+  the main one, so its dependencies (the desktop webview stack) don't enter
+  the project's lockfile, CI or `cargo vet` until 3b decides what to
+  adopt. One crate builds both targets: `--features desktop` (Dioxus
+  desktop: WebView2 on Windows, WKWebView on macOS, WebKitGTK on Linux)
+  and `--features web` (WebAssembly in the browser, through `dx serve`).
+- **What it shows.** One session, with made-up notes, no networking or
+  keys:
+  - The channel list, the notes in the selected channel (rendered Markdown,
+    sanitized as the real client must), and replying to one.
+  - The editor, in the three forms worth comparing:
+    1. a plain text area with a preview beside it or toggled;
+    2. live preview in place: the Markdown source styled as you type
+       (headings, emphasis, quotes, code), drawn behind a transparent text
+       area so typing, spellcheck and input methods stay the platform's
+       own;
+    3. a rich editing surface (`contenteditable`), formatted in place.
+  - Shortcuts for bold, italic and sending; a draft kept as you type and
+    restored when switching channels.
+  - Attaching an image by picking or dropping it, shown inline.
+  - A layout that goes from one column in a narrow window to channels,
+    notes and editor side by side when wide.
+- **What it tests**, on Windows, macOS and Linux desktops and in Chrome,
+  Firefox and Safari, recorded in `spikes/gui/FINDINGS.md`:
+  - Spellcheck (underlines and suggestions) in each editor form.
+  - Input methods: composing Japanese or Chinese, dead keys and accents,
+    emoji pickers, without lost or doubled characters.
+  - Screen readers (Narrator or NVDA, VoiceOver, Orca): the notes and the
+    editor are announced and usable from the keyboard.
+  - Responsiveness: resizing between narrow and wide; typing stays smooth
+    in a note of 20,000 words.
+  - Building: the desktop binary on each platform, the web build's size.
+- **Deciding.** The findings pick the editor form for 3f, and confirm
+  Dioxus or move to Leptos + Tauri 2 (the plan's fallback) before 3b. The
+  checks that need a person at each machine (input methods, screen
+  readers, the look on each platform) are done by hand with the spike
+  running; the findings say who checked what.
+
+Done when: the spike builds and runs on both targets; `FINDINGS.md`
+covers every check above on at least Windows and one browser, with the
+rest marked as still to check; and the roadmap records the decision.
+
 ## Phase 4: Web client
 
 `quill-web`: Rust compiled to WebAssembly, on its own origin, sharing
