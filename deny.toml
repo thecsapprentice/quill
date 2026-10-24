@@ -36,7 +36,7 @@ confidence-threshold = 0.9
 # The list also covers licences expected in later phases.
 unused-allowed-license = "allow"
 allow = [
-  # The project licence; activitypub_federation (Phase 3) is AGPL too.
+  # The project licence; activitypub_federation (Phase 5) is AGPL too.
   "AGPL-3.0-only",
   "AGPL-3.0-or-later",
   "Apache-2.0",

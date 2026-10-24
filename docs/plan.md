@@ -150,7 +150,7 @@ Servers can enforce mandatory tag namespaces. For example, if Server A enforces 
 
 ### Sanitization
 
-Prompt bodies are written in Markdown (decided Phase 1). The server renders them with `pulldown-cmark`, escapes any raw HTML, turns images into plain links (so viewing a prompt never contacts a third-party host), and sanitizes the result with `ammonia` to a small allowlist. Remote prompts (Phase 3) arrive as HTML and get the same sanitizer, size caps and tag normalization on ingest.
+Prompt bodies are written in Markdown (decided Phase 1). The server renders them with `pulldown-cmark`, escapes any raw HTML, turns images into plain links (so viewing a prompt never contacts a third-party host), and sanitizes the result with `ammonia` to a small allowlist. Remote prompts (Phase 5) arrive as HTML and get the same sanitizer, size caps and tag normalization on ingest.
 
 ## Writing session cryptography
 
@@ -422,7 +422,7 @@ Use protocol-level libraries (OpenMLS, rustls) so the project never touches prim
 
 ### Web Client
 
-While out of scope for v1, we eventually need some type of web client the server can provide. This should have all the same security protections a stand alone client has. Key storage, decoding, and client-side message cache would need a local only solution that transmits no plaintext to the server.
+We need a web client the server can provide (Phase 4, ahead of federation since 2026-10-23). This should have all the same security protections a stand alone client has. Key storage, decoding, and client-side message cache would need a local only solution that transmits no plaintext to the server.
 
 This client option is important as many users won't adopt a platform that requires a download. A lower barrier of entry web client is necessary.
 
@@ -473,6 +473,7 @@ Recommendation: use **Dioxus** for every UI surface — the server's public prom
 ### What matters for this app
 
 - **One UI for desktop and web.** The GUI and web client must look and behave the same; ideally the same component code.
+- **Friendly, responsive, made for writing.** Unlike the CLI, the GUI hides ids and key management behind sensible automatic defaults (an advanced mode may show them), adapts to any window size, and gives writers spellcheck and Markdown live preview without getting in their way. The roadmap's Phase 3 lists the principles.
 - **Long-form text editing.** Writers need spellcheck, IME input for non-Latin scripts, right-to-left text, text selection and screen readers. HTML/CSS renderers get all of these from the platform; canvas renderers must reimplement them and usually fall short.
 - **Responsive, modern styling.** CSS media queries, flex/grid, and component libraries in a Radix or shadcn style.
 - **Keys stay out of the presentation layer.** On desktop, the decrypting code should run in native Rust, not inside a webview's scripting context.
@@ -543,30 +544,28 @@ Phase 1 builds the board on Dioxus fullstack, which validates the SSR path early
 
 ## Roadmap and testing strategy
 
-Build single-server encryption before federation, so the hardest property (server can't read sessions) is proven on the simplest topology first. No dates are set; each phase closes only when its gate passes.
+Build single-server encryption before federation, so the hardest property (server can't read sessions) is proven on the simplest topology first. The desktop GUI and the web client follow on one server, then federation, then hardening and review before launch. No dates are set; each phase closes only when its gate passes.
 
 ```mermaid
 flowchart TD
   P0["<b>Phase 0 · Foundations</b><br/>workspace, CI with cargo-deny / audit / vet, protocol spec,<br/>Postgres schema, accounts and personas, quill CLI skeleton"]
   P1["<b>Phase 1 · Prompt board</b><br/>prompts, tag policies, filters, full-text search, prompt-to-session rules,<br/>SSR board (quill-board-ui): sign-in, posting, personas, reports, admin inbox"]
   P2["<b>Phase 2 · Encrypted sessions on one server</b><br/>encrypted local store, identity keys per persona, device certificates, linking, backup; KeyPackages, Welcome flow;<br/>channels, attachments, limits, epoch sequencer, HLC ordering, SSE, safety numbers"]
-  P3["<b>Phase 3 · Federation</b><br/>actors, HTTP Signatures, board follows, cross-server sessions<br/>sequenced by the prompt author's server, two-instance harness"]
-  P4["<b>Phase 4 · Hardening and review</b><br/>malicious-server suite, parser fuzzing, external review,<br/>operations runbook, disclosure policy, Tor onion service"]
-  P5["<b>Phase 5 · Desktop GUI (later)</b><br/>quill-gui on Dioxus desktop, shared quill-ui, native key storage"]
-  P6["<b>Phase 6 · Web client (separate proposal)</b><br/>quill-web: Rust to WebAssembly on its own origin, verifiable builds"]
+  P3["<b>Phase 3 · Desktop GUI</b><br/>quill-gui on Dioxus desktop, shared quill-ui, native key storage"]
+  P4["<b>Phase 4 · Web client</b><br/>quill-web: Rust to WebAssembly on its own origin, verifiable builds"]
+  P5["<b>Phase 5 · Federation</b><br/>actors, HTTP Signatures, board follows, cross-server sessions<br/>sequenced by the prompt author's server, two-instance harness"]
+  P6["<b>Phase 6 · Hardening and review</b><br/>malicious-server suite, parser fuzzing, external review,<br/>operations runbook, disclosure policy, Tor onion service"]
 
   P0 -->|"CI green; spec reviewed; no MLS crypto in quill-server"| P1
   P1 -->|"filter tests pass; board works without JavaScript"| P2
   P2 -->|"DB dump holds no plaintext or private keys;<br/>uncertified devices rejected"| P3
-  P3 -->|"cross-server session survives concurrent commits<br/>and an offline peer"| P4
-  P4 -->|"review findings resolved; launch checklist complete"| P5
-  P5 -->|"GUI reaches feature parity with the CLI"| P6
-
-  classDef later stroke-dasharray: 5 5
-  class P5,P6 later
+  P3 -->|"GUI reaches feature parity with the CLI"| P4
+  P4 -->|"web client passes the end-to-end and canary tests<br/>in a browser; builds are reproducible"| P5
+  P5 -->|"cross-server session survives concurrent commits<br/>and an offline peer"| P6
+  P6 -->|"review findings resolved; launch checklist complete"| L["Launch"]
 ```
 
-*Arrows carry each phase's exit gate. Dashed phases come later.*
+*Arrows carry each phase's exit gate. Reordered on 2026-10-23: the GUI and web client come before federation and hardening; nothing launches publicly before the Phase 6 review.*
 
 Each phase is split into sub-phases, one pull request each, tracked in the [roadmap](roadmap.md).
 
@@ -592,7 +591,7 @@ Each phase is split into sub-phases, one pull request each, tracked in the [road
 - **Two writers per session in v1.** Groups of 3+ are a later feature; the cap is enforced by server and client.
 - **Sequencer.** The prompt author's home server sequences cross-server sessions (see Federation).
 - **Channels, images, limits.** Channels are an encrypted payload tag; larger images are encrypted blobs; all sizes are server-configured limits (see Writing session cryptography).
-- **Web client.** Accepted for reach despite weaker protection against a malicious operator; specified in a separate proposal that must adopt the listed mitigations.
+- **Web client.** Accepted for reach despite weaker protection against a malicious operator; specified in a separate proposal (roadmap 4a) that must adopt the listed mitigations.
 
 * **Optional email for account recovery.** Users may add an email, behind a clear warning that it can link the account to their real identity; it enables password reset. Without one, a lost password means a lost account. Rules:
   - Email is verified, stored only on the home server, never federated or shown, and removable at any time.

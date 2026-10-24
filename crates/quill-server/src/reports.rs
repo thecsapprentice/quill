@@ -255,7 +255,7 @@ pub async fn resolve(
     let logged = match action {
         Resolution::Discard => "discard",
         Resolution::Delete => {
-            // Phase 3 also sends a federated `Delete` for local prompts.
+            // Federation (Phase 5) also sends a federated `Delete` for local prompts.
             sqlx::query(
                 "UPDATE prompts SET removed_at = now() WHERE id = $1 AND removed_at IS NULL",
             )

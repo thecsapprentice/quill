@@ -18,6 +18,6 @@ give their recorded results (`cargo test -p quill-core json_object`).
 Each describes what a sender must produce; readers ignore unknown terms,
 and are lenient where a schema's description says so. Schemas for the
 federated objects (`Prompt`, the session request's `Offer`, the actor
-extensions) come with federation in Phase 3, with the `wr:` context
+extensions) come with federation in Phase 5, with the `wr:` context
 document. The `quill.example` URLs are placeholders until the project's
 domain is chosen.

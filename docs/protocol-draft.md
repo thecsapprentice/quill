@@ -503,7 +503,7 @@ The OpenAPI file, JSON Schemas and test vectors are built alongside the code, no
 As built in 2m, each is in the repository and checked in CI against the code:
 
 - **OpenAPI file:** [`docs/openapi.json`](openapi.json) (OpenAPI 3.1, 81 operations), generated from the server's routes; the server also serves it at `/api/v1/openapi.json`. A test fails when the committed file differs from what the code generates, and another runs a story through a server and checks every answer's status, media type and JSON body against the file.
-- **JSON Schemas:** [`schemas/`](../schemas/) for what travels inside encrypted messages: session activities, `EncryptedAttachment`, device group payloads and history rows. Written by hand and checked against what the client produces. The federated objects' schemas come with federation (Phase 3).
+- **JSON Schemas:** [`schemas/`](../schemas/) for what travels inside encrypted messages: session activities, `EncryptedAttachment`, device group payloads and history rows. Written by hand and checked against what the client produces. The federated objects' schemas come with federation (Phase 5).
 - **Test vectors:** [`test-vectors/`](../test-vectors/), one file per format, listed in its README.
 
 ### Pinned now
@@ -525,7 +525,7 @@ As built in 2m, each is in the repository and checked in CI against the code:
 
 - States the privacy behaviors explicitly: identical login and reset responses whether or not an account exists, and no distinction between held, pending, declined or expired for requesters.
 
-- Used to fuzz a test server (e.g. with Schemathesis) for malformed and oversized input (Phase 4b).
+- Used to fuzz a test server (e.g. with Schemathesis) for malformed and oversized input (Phase 6b).
 
 ### JSON Schemas
 
