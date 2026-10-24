@@ -55,6 +55,8 @@ zbus-secret-service-keyring-store = { version = "1", features = ["rt-async-io-cr
 quill-mls-envelope.workspace = true
 tempfile = "3"
 hex = "0.4"
+# Checks the JSON Schemas in schemas/ against what the client produces.
+boon = "0.6"
 
 [features]
 # Helpers for end-to-end tests that play a dishonest client.

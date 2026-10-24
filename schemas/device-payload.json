@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quill.example/ns/wr/schemas/1/device-payload.json",
+  "title": "Device group payload",
+  "description": "What one MLS application message in a login's own device group carries (protocol draft, section 5, as built in 2d and 2k): a JSON object tagged by type. These never appear in session groups. Unknown terms are ignored; a payload of an unknown type is skipped.",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": { "enum": ["deviceGrant", "deviceKeys", "historyRequest", "historyBundle"] }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/deviceGrant" },
+    { "$ref": "#/$defs/deviceKeys" },
+    { "$ref": "#/$defs/historyRequest" },
+    { "$ref": "#/$defs/historyBundle" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "bytes32": { "type": "string", "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$" },
+    "position": { "description": "A position in a group's message log.", "type": "integer", "minimum": 0 },
+    "personaDevice": {
+      "description": "One of the sender's persona devices in the server's directory.",
+      "type": "object",
+      "required": ["persona", "device"],
+      "properties": { "persona": { "$ref": "#/$defs/uuid" }, "device": { "$ref": "#/$defs/uuid" } }
+    },
+    "deviceGrant": {
+      "description": "To a newly linked full device: the personas' identity private keys, the trust pins, and what the sender knows of the login's devices.",
+      "type": "object",
+      "required": ["type", "identities", "pins"],
+      "properties": {
+        "type": { "const": "deviceGrant" },
+        "identities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["persona", "keyVersion", "key"],
+            "properties": {
+              "persona": { "$ref": "#/$defs/uuid" },
+              "keyVersion": { "type": "integer", "minimum": 1 },
+              "key": { "description": "The Ed25519 private key's 32-byte seed.", "$ref": "#/$defs/bytes32" }
+            }
+          }
+        },
+        "pins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["actorUri", "key", "keyVersion"],
+            "properties": {
+              "actorUri": { "type": "string", "pattern": "^https?://" },
+              "key": { "description": "The pinned Ed25519 identity public key.", "$ref": "#/$defs/bytes32" },
+              "keyVersion": { "type": "integer", "minimum": 1 }
+            }
+          }
+        },
+        "devices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["device", "personas"],
+            "properties": {
+              "device": { "$ref": "#/$defs/uuid" },
+              "personas": { "type": "array", "items": { "$ref": "#/$defs/personaDevice" } }
+            }
+          }
+        }
+      }
+    },
+    "deviceKeys": {
+      "description": "Which persona devices in the directory belong to the sending account device.",
+      "type": "object",
+      "required": ["type", "device", "personas"],
+      "properties": {
+        "type": { "const": "deviceKeys" },
+        "device": { "$ref": "#/$defs/uuid" },
+        "personas": { "type": "array", "items": { "$ref": "#/$defs/personaDevice" } }
+      }
+    },
+    "historyRequest": {
+      "description": "The sender lacks a session's history from `from` to `to`, inclusive; `to` is the largest integer for a session that ended.",
+      "type": "object",
+      "required": ["type", "session", "from", "to"],
+      "properties": {
+        "type": { "const": "historyRequest" },
+        "session": { "description": "The session's group id.", "$ref": "#/$defs/bytes32" },
+        "from": { "$ref": "#/$defs/position" },
+        "to": { "$ref": "#/$defs/position" }
+      }
+    },
+    "historyBundle": {
+      "description": "Part of an answer to a history request, for one device. Each part is an encrypted blob in the device group: rows (history-rows.json) when file is absent, otherwise the file the notes name by that attachment URL. At most 10 parts per message; the last message is marked.",
+      "type": "object",
+      "required": ["type", "forDevice", "session", "from", "to", "parts", "last"],
+      "properties": {
+        "type": { "const": "historyBundle" },
+        "forDevice": { "$ref": "#/$defs/uuid" },
+        "session": { "$ref": "#/$defs/bytes32" },
+        "from": { "$ref": "#/$defs/position" },
+        "to": { "$ref": "#/$defs/position" },
+        "parts": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "required": ["blob"],
+            "properties": {
+              "file": { "type": "string" },
+              "blob": { "$ref": "encrypted-attachment.json" }
+            }
+          }
+        },
+        "last": { "type": "boolean" }
+      }
+    }
+  }
+}

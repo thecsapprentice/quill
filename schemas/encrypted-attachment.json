@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quill.example/ns/wr/schemas/1/encrypted-attachment.json",
+  "title": "EncryptedAttachment",
+  "description": "A file a note carries (protocol draft, section 5): where its encrypted blob is, and what opens it. Sealed with AES-256-GCM under a fresh key; contentHash is SHA-256 of the plaintext; size is the plaintext's length. Binary values are base64url without padding. Unknown terms are ignored.",
+  "type": "object",
+  "required": ["type", "mediaType", "name", "url", "blobToken", "encAlg", "key", "nonce", "hashAlg", "contentHash", "size"],
+  "properties": {
+    "type": { "const": "EncryptedAttachment" },
+    "mediaType": {
+      "description": "A label from the file name; nothing checks it against the contents.",
+      "type": "string"
+    },
+    "name": { "description": "The file's name as the sender gave it. Readers save it under a safe base name.", "type": "string" },
+    "url": {
+      "description": "The blob: {server}/api/v1/blobs/{id}.",
+      "type": "string",
+      "pattern": "^https?://"
+    },
+    "blobToken": {
+      "description": "The capability presented in the Blob-Token header to fetch the blob; the server keeps only its hash.",
+      "type": "string",
+      "minLength": 1
+    },
+    "encAlg": { "const": "A256GCM" },
+    "key": { "$ref": "#/$defs/bytes32" },
+    "nonce": { "description": "12 bytes.", "type": "string", "pattern": "^[A-Za-z0-9_-]{16}$" },
+    "hashAlg": { "const": "sha-256" },
+    "contentHash": { "$ref": "#/$defs/bytes32" },
+    "size": { "type": "integer", "minimum": 0 },
+    "width": { "type": "integer", "minimum": 1 },
+    "height": { "type": "integer", "minimum": 1 }
+  },
+  "$defs": {
+    "bytes32": { "description": "32 bytes, base64url without padding.", "type": "string", "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$" }
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quill.example/ns/wr/schemas/1/activity.json",
+  "title": "Session activity",
+  "description": "What one MLS application message in a session carries (protocol draft, section 5): one ActivityStreams activity in UTF-8 JSON, read as plain JSON (no JSON-LD expansion). Unknown terms are ignored. This is what a sender must produce; readers are lenient where noted: a malformed channel files the note under story, a malformed clock reads as 0-0000, and activities of other types, or about notes they can't find, are discarded.",
+  "type": "object",
+  "required": ["@context", "type", "id", "object"],
+  "properties": {
+    "@context": {
+      "type": "array",
+      "items": { "type": "string" },
+      "allOf": [
+        { "contains": { "const": "https://www.w3.org/ns/activitystreams" } },
+        { "contains": { "const": "https://quill.example/ns/wr/1.0" } }
+      ]
+    },
+    "type": {
+      "description": "Read, View and Listen are never sent; readers discard them.",
+      "enum": ["Create", "Update", "Delete", "Like", "Announce", "Undo", "IntransitiveActivity"]
+    },
+    "id": { "$ref": "#/$defs/urn" },
+    "channel": {
+      "description": "The channel; absent means story.",
+      "$ref": "#/$defs/channelName"
+    },
+    "hlc": {
+      "description": "Hybrid logical clock: milliseconds, hyphen, 4-digit counter (ordering-clock.json).",
+      "type": "string",
+      "pattern": "^[0-9]{1,16}-[0-9]{4}$"
+    },
+    "authorSeq": {
+      "description": "Counts the sending device's activities in the session, from 1; a gap means a missing message.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "object": {}
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "enum": ["Create", "Update"] } } },
+      "then": { "properties": { "object": { "oneOf": [{ "$ref": "#/$defs/note" }, { "$ref": "#/$defs/channel" }] } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "Delete" } } },
+      "then": { "properties": { "object": { "$ref": "#/$defs/urn" } } }
+    },
+    {
+      "if": { "properties": { "object": { "$ref": "#/$defs/channel" } } },
+      "then": {
+        "description": "Naming or describing a channel: the activity's channel, when given, is the channel's own name.",
+        "properties": { "type": { "enum": ["Create", "Update"] } }
+      }
+    }
+  ],
+  "$defs": {
+    "urn": {
+      "type": "string",
+      "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "channelName": {
+      "description": "1-32 of a-z, 0-9 and single inner hyphens, never folded (names.json).",
+      "type": "string",
+      "maxLength": 32,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "note": {
+      "description": "A note. For Update, id is the note being changed and content its new text; only its author's updates count.",
+      "type": "object",
+      "required": ["type", "id", "content"],
+      "properties": {
+        "type": { "const": "Note" },
+        "id": { "$ref": "#/$defs/urn" },
+        "mediaType": { "const": "text/markdown" },
+        "content": { "description": "Markdown; readers sanitize anything rendered from it.", "type": "string" },
+        "inReplyTo": { "description": "The id of the note it answers, in any channel.", "$ref": "#/$defs/urn" },
+        "attachment": {
+          "type": "array",
+          "items": { "$ref": "encrypted-attachment.json" }
+        }
+      }
+    },
+    "channel": {
+      "description": "Names a channel (Create) or describes it again (Update); every description is kept, and channels are never deleted.",
+      "type": "object",
+      "required": ["type", "name"],
+      "properties": {
+        "type": { "const": "wr:Channel" },
+        "name": { "$ref": "#/$defs/channelName" },
+        "summary": { "type": "string" }
+      }
+    }
+  }
+}

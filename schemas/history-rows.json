@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quill.example/ns/wr/schemas/1/history-rows.json",
+  "title": "History rows",
+  "description": "A history bundle's rows (as built in 2k), the plaintext of a part without a file: the notes with a version logged in the range, each with every version; every channel and its descriptions; and the authorSeq values seen per sending device. The receiver merges them: notes it lacks are added, notes it has gain the versions they lack, and counts are joined. Unknown terms are ignored.",
+  "type": "object",
+  "properties": {
+    "notes": { "type": "array", "items": { "$ref": "#/$defs/note" } },
+    "channels": { "type": "array", "items": { "$ref": "#/$defs/channel" } },
+    "seen": {
+      "description": "Pairs of a sending device's signature key (base64url) and the authorSeq values seen from it.",
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          { "type": "string" },
+          { "type": "array", "items": { "type": "integer", "minimum": 1 }, "uniqueItems": true }
+        ],
+        "minItems": 2,
+        "maxItems": 2
+      }
+    }
+  },
+  "$defs": {
+    "version": {
+      "type": "object",
+      "required": ["seq", "hlc"],
+      "properties": {
+        "seq": { "description": "Its position in the session's log.", "type": "integer", "minimum": 0 },
+        "hlc": { "type": "string" },
+        "content": { "description": "The text; null where the note was deleted.", "type": ["string", "null"] }
+      }
+    },
+    "note": {
+      "type": "object",
+      "required": ["seq", "id", "sender", "device", "channel", "hlc", "authorSeq", "content", "versions", "deleted"],
+      "properties": {
+        "seq": { "description": "The log position of its Create.", "type": "integer", "minimum": 0 },
+        "id": { "type": "string", "pattern": "^urn:uuid:" },
+        "sender": { "description": "The author's actor URI.", "type": "string" },
+        "device": { "description": "The sending device's signature key, base64url.", "type": "string" },
+        "channel": { "type": "string" },
+        "hlc": { "type": "string" },
+        "authorSeq": { "type": "integer", "minimum": 0 },
+        "content": { "description": "The latest text; the last text before a deletion.", "type": "string" },
+        "versions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/version" } },
+        "deleted": { "type": "boolean" },
+        "own": { "description": "Ignored by the receiver, which decides for itself.", "type": "boolean" },
+        "inReplyTo": { "type": ["string", "null"] },
+        "attachments": { "type": "array", "items": { "$ref": "encrypted-attachment.json" } }
+      }
+    },
+    "channel": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "summary": { "type": ["string", "null"] },
+        "versions": { "type": "array", "items": { "$ref": "#/$defs/version" } },
+        "notes": { "type": "integer", "minimum": 0 },
+        "unseen": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

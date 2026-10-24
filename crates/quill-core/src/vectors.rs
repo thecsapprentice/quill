@@ -23,12 +23,16 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 use crate::{
+    activity::{Activity, Object},
     attachments::{self, Attachment},
     backup::{
         self,
         cipher::{AgeCrate, BackupCipher},
     },
-    devices::{self, LinkCode},
+    devices::{
+        self, BundlePart, GrantedIdentity, GrantedPin, HistoryBundle, LinkCode, Payload,
+        PersonaDevice,
+    },
     history,
     hlc::Hlc,
     words,
@@ -566,4 +570,327 @@ fn the_mls_padding_is_the_one_published() {
         limits["defaults"]["mlsPaddingBytes"].as_u64(),
         Some(u64::try_from(devices::PADDING).unwrap())
     );
+}
+
+// ---- JSON objects and their schemas ---------------------------------------------------------
+
+const SCHEMAS: [&str; 4] = [
+    "activity.json",
+    "encrypted-attachment.json",
+    "device-payload.json",
+    "history-rows.json",
+];
+const SCHEMA_BASE: &str = "https://quill.example/ns/wr/schemas/1/";
+
+fn schema_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas")
+}
+
+/// The schemas, compiled: `name → index`.
+fn compiled() -> (boon::Schemas, BTreeMap<&'static str, boon::SchemaIndex>) {
+    let mut compiler = boon::Compiler::new();
+    for name in SCHEMAS {
+        let text = std::fs::read_to_string(schema_dir().join(name)).unwrap();
+        let value: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["$id"], format!("{SCHEMA_BASE}{name}"), "{name}'s $id");
+        compiler
+            .add_resource(&format!("{SCHEMA_BASE}{name}"), value)
+            .unwrap();
+    }
+    let mut schemas = boon::Schemas::new();
+    let indexes = SCHEMAS
+        .iter()
+        .map(|name| {
+            let i = compiler
+                .compile(&format!("{SCHEMA_BASE}{name}"), &mut schemas)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            (*name, i)
+        })
+        .collect();
+    (schemas, indexes)
+}
+
+/// Whether the client's own reader takes `object` as a `schema` object.
+fn reader_takes(schema: &str, object: &Value) -> bool {
+    match schema {
+        "activity.json" => serde_json::from_value::<Activity>(object.clone()).is_ok(),
+        "encrypted-attachment.json" => serde_json::from_value::<Attachment>(object.clone()).is_ok(),
+        "device-payload.json" => serde_json::from_value::<Payload>(object.clone()).is_ok(),
+        "history-rows.json" => serde_json::from_value::<history::Rows>(object.clone()).is_ok(),
+        other => panic!("no reader for {other}"),
+    }
+}
+
+fn urn(n: u8) -> String {
+    format!("urn:uuid:0192f3d0-1111-7222-8333-4444555566{n:02x}")
+}
+
+fn uuid(n: u8) -> uuid::Uuid {
+    format!("0192f3d0-2222-7000-8000-0000000000{n:02x}")
+        .parse()
+        .unwrap()
+}
+
+/// An activity the client makes, with fixed ids in place of random ones.
+fn fixed(mut a: Activity, n: u8) -> Value {
+    a.id = urn(n);
+    if let Object::Note(note) = &mut a.object
+        && a.kind == "Create"
+    {
+        note.id = urn(n + 1);
+    }
+    serde_json::to_value(a).unwrap()
+}
+
+fn attachment_example() -> Attachment {
+    sealed_case(23, 2).1
+}
+
+fn with(mut v: Value, path: &[&str], value: Value) -> Value {
+    let mut at = &mut v;
+    for p in &path[..path.len() - 1] {
+        at = &mut at[*p];
+    }
+    at[path[path.len() - 1]] = value;
+    v
+}
+
+fn without(mut v: Value, path: &[&str]) -> Value {
+    let mut at = &mut v;
+    for p in &path[..path.len() - 1] {
+        at = &mut at[*p];
+    }
+    at.as_object_mut().unwrap().remove(path[path.len() - 1]);
+    v
+}
+
+fn json_objects() -> Value {
+    let clock = h("1792746000123-0000");
+    let note = fixed(
+        Activity::create("The ledger's last page was still wet.", "story", clock, 1),
+        1,
+    );
+    let note_id = urn(2);
+    let reply = fixed(
+        Activity::create("See planning.", "planning", h("1792746000200-0000"), 2)
+            .replying_to(&note_id),
+        3,
+    );
+    let with_file = fixed(
+        Activity::create("A map.", "story", h("1792746000300-0000"), 3)
+            .with_attachments(vec![attachment_example()]),
+        5,
+    );
+    let update = fixed(
+        Activity::update(
+            &note_id,
+            "The ledger's last page was dry.",
+            "story",
+            h("1792746000400-0000"),
+            4,
+        ),
+        7,
+    );
+    let delete = fixed(
+        Activity::delete(&note_id, "story", h("1792746000500-0000"), 5),
+        8,
+    );
+    let named = fixed(
+        Activity::channel("Create", "world", None, h("1792746000600-0000"), 6),
+        9,
+    );
+    let described = fixed(
+        Activity::channel(
+            "Update",
+            "world",
+            Some("Places and people"),
+            h("1792746000700-0000"),
+            7,
+        ),
+        10,
+    );
+    let no_channel = without(note.clone(), &["channel"]);
+
+    let request = serde_json::to_value(Payload::HistoryRequest {
+        session: b64(&[7; 32]),
+        from: 1,
+        to: u64::MAX,
+    })
+    .unwrap();
+    let bundle = serde_json::to_value(Payload::HistoryBundle(HistoryBundle {
+        for_device: uuid(1),
+        session: b64(&[7; 32]),
+        from: 1,
+        to: 40,
+        parts: vec![
+            BundlePart {
+                file: None,
+                blob: attachment_example(),
+            },
+            BundlePart {
+                file: Some(attachment_example().url),
+                blob: attachment_example(),
+            },
+        ],
+        last: true,
+    }))
+    .unwrap();
+    let grant = serde_json::to_value(Payload::DeviceGrant {
+        identities: vec![GrantedIdentity {
+            persona: uuid(2),
+            key_version: 1,
+            key: b64(&[1; 32]),
+        }],
+        pins: vec![GrantedPin {
+            actor_uri: "https://writers.example/users/bo".into(),
+            key: b64(&[3; 32]),
+            key_version: 2,
+        }],
+        devices: vec![devices::DeviceAnnouncement {
+            device: uuid(3),
+            personas: vec![PersonaDevice {
+                persona: uuid(2),
+                device: uuid(4),
+            }],
+        }],
+    })
+    .unwrap();
+    let device_keys = serde_json::to_value(Payload::DeviceKeys {
+        device: uuid(3),
+        personas: vec![PersonaDevice {
+            persona: uuid(2),
+            device: uuid(4),
+        }],
+    })
+    .unwrap();
+
+    let rows = serde_json::to_value(history::Rows {
+        notes: vec![history::Message {
+            seq: 12,
+            id: urn(2),
+            sender: "https://writers.example/users/ink_fox".into(),
+            device: b64(&[5; 32]),
+            channel: "story".into(),
+            hlc: "1792746000123-0000".into(),
+            author_seq: 1,
+            content: "The ledger's last page was dry.".into(),
+            versions: vec![
+                history::Version {
+                    seq: 12,
+                    hlc: "1792746000123-0000".into(),
+                    content: Some("The ledger's last page was still wet.".into()),
+                },
+                history::Version {
+                    seq: 15,
+                    hlc: "1792746000400-0000".into(),
+                    content: Some("The ledger's last page was dry.".into()),
+                },
+            ],
+            deleted: false,
+            own: false,
+            in_reply_to: None,
+            attachments: Vec::new(),
+        }],
+        channels: vec![history::ChannelInfo {
+            name: "world".into(),
+            summary: Some("Places and people".into()),
+            versions: vec![history::Version {
+                seq: 13,
+                hlc: "1792746000700-0000".into(),
+                content: Some("Places and people".into()),
+            }],
+            notes: 0,
+            unseen: 0,
+        }],
+        seen: vec![(b64(&[5; 32]), [1u64, 2, 4].into_iter().collect())],
+    })
+    .unwrap();
+
+    let case = |schema: &str, name: &str, object: Value| json!({ "schema": schema, "name": name, "object": object });
+    let reject = |schema: &str, name: &str, object: Value, why: &str| {
+        let reader = reader_takes(schema, &object);
+        json!({ "schema": schema, "name": name, "object": object, "readerTakes": reader, "why": why })
+    };
+    let attachment = serde_json::to_value(attachment_example()).unwrap();
+    json!({
+        "description": "JSON objects (protocol draft, sections 5 and 11) against the schemas in schemas/. Every `valid` object is what the client produces and passes its schema; `unknownTerms` adds terms nobody defined, which schema and reader both accept; `invalid` objects fail the schema. readerTakes says whether the client's reader still parses one (then it discards it or reads it leniently, as `why` says); a reader must never take an object missing a required field.",
+        "valid": [
+            case("activity.json", "a note", note.clone()),
+            case("activity.json", "a reply in another channel", reply),
+            case("activity.json", "a note with a file", with_file),
+            case("activity.json", "an edit", update),
+            case("activity.json", "a deletion", delete.clone()),
+            case("activity.json", "naming a channel", named),
+            case("activity.json", "describing a channel", described.clone()),
+            case("activity.json", "no channel (story)", no_channel),
+            case("encrypted-attachment.json", "an attachment", attachment.clone()),
+            case("device-payload.json", "a history request for an ended session", request.clone()),
+            case("device-payload.json", "a history bundle", bundle.clone()),
+            case("device-payload.json", "a device grant", grant.clone()),
+            case("device-payload.json", "device keys", device_keys),
+            case("history-rows.json", "rows", rows.clone()),
+        ],
+        "unknownTerms": [
+            case("activity.json", "on the activity and the note", with(with(note.clone(), &["wr:mood"], json!("tense")), &["object", "summary"], json!("ignored"))),
+            case("encrypted-attachment.json", "an image's size", with(with(attachment.clone(), &["width"], json!(1200)), &["height"], json!(800))),
+            case("device-payload.json", "a later field", with(request.clone(), &["priority"], json!(3))),
+            case("history-rows.json", "a later table", with(rows.clone(), &["reactions"], json!([]))),
+        ],
+        "invalid": [
+            reject("activity.json", "no object", without(note.clone(), &["object"]), "required"),
+            reject("activity.json", "no id", without(note.clone(), &["id"]), "required"),
+            reject("activity.json", "no @context", without(note.clone(), &["@context"]), "required"),
+            reject("activity.json", "a note without content", without(note.clone(), &["object", "content"]), "required"),
+            reject("activity.json", "a channel without a name", without(described.clone(), &["object", "name"]), "required"),
+            reject("activity.json", "a Read activity", with(note.clone(), &["type"], json!("Read")), "never sent; a reader discards it"),
+            reject("activity.json", "a malformed clock", with(note.clone(), &["hlc"], json!("12-1")), "a reader reads it as 0-0000"),
+            reject("activity.json", "a malformed channel", with(note.clone(), &["channel"], json!("Story")), "a reader files the note under story"),
+            reject("activity.json", "authorSeq 0", with(note.clone(), &["authorSeq"], json!(0)), "counts start at 1"),
+            reject("activity.json", "a deletion carrying a note", with(delete, &["object"], note["object"].clone()), "a reader deletes the note it names"),
+            reject("activity.json", "an id that isn't a urn:uuid", with(note.clone(), &["id"], json!("https://writers.example/notes/1")), "ids inside sessions are urn:uuid"),
+            reject("encrypted-attachment.json", "no key", without(attachment.clone(), &["key"]), "required"),
+            reject("encrypted-attachment.json", "another cipher", with(attachment.clone(), &["encAlg"], json!("A128GCM")), "a reader refuses to open it"),
+            reject("encrypted-attachment.json", "a 16-byte key", with(attachment.clone(), &["key"], json!(b64(&[1; 16]))), "a reader refuses to open it"),
+            reject("device-payload.json", "a bundle without last", without(bundle.clone(), &["last"]), "required"),
+            reject("device-payload.json", "a type nobody defined", with(request.clone(), &["type"], json!("settings")), "a reader skips it"),
+            reject("device-payload.json", "a request without to", without(request, &["to"]), "required"),
+            reject("device-payload.json", "an identity key that isn't 32 bytes", with(grant, &["identities"], json!([{ "persona": uuid(2), "keyVersion": 1, "key": b64(&[1; 31]) }])), "a reader refuses the grant"),
+            reject("device-payload.json", "11 parts", with(bundle.clone(), &["parts"], Value::Array(vec![bundle["parts"][0].clone(); 11])), "senders split bundles into messages of at most 10"),
+            reject("history-rows.json", "a note without versions", with(rows.clone(), &["notes"], json!([without(rows["notes"][0].clone(), &["versions"])])), "required"),
+        ],
+    })
+}
+
+#[test]
+fn json_object_vectors() {
+    let v = check_file("json-objects.json", &json_objects());
+    let (schemas, index) = compiled();
+    let valid = |case: &Value| {
+        let i = index[case["schema"].as_str().unwrap()];
+        schemas
+            .validate(&case["object"], i)
+            .map_err(|e| e.to_string())
+    };
+    for group in ["valid", "unknownTerms"] {
+        for case in v[group].as_array().unwrap() {
+            valid(case).unwrap_or_else(|e| panic!("{group} {}: {e}", case["name"]));
+            assert!(
+                reader_takes(case["schema"].as_str().unwrap(), &case["object"]),
+                "the reader refuses {group} {}",
+                case["name"]
+            );
+        }
+    }
+    for case in v["invalid"].as_array().unwrap() {
+        assert!(valid(case).is_err(), "the schema takes {}", case["name"]);
+        let reader = reader_takes(case["schema"].as_str().unwrap(), &case["object"]);
+        assert_eq!(reader, case["readerTakes"], "{}", case["name"]);
+        if case["why"] == "required" {
+            assert!(
+                !reader,
+                "a reader takes {} missing a required field",
+                case["name"]
+            );
+        }
+    }
 }
