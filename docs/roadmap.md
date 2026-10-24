@@ -1036,7 +1036,8 @@ CI against the code, so it can't drift.
   - The draft also asks for checks on WebAssembly builds; those come with
     the web client.
 - **The draft catches up** with what was built: the backup's plaintext is
-  JSON, not CBOR, so the "Pinned now" rule on deterministic CBOR goes,
+  JSON, not CBOR (now zstd-compressed, as backup format version 2), so the
+  "Pinned now" rule on deterministic CBOR goes,
   and section 11 links each artifact.
 
 Done when: CI regenerates and checks the OpenAPI file, the schemas and
@@ -1158,8 +1159,9 @@ done.
   it, before federation needs them.
 - **2m, conformance (decided 2026-10-23):** the backup's plaintext stays
   JSON as built (one fewer format in the client; nothing signs or hashes
-  it, so it needs no deterministic encoding) and the draft changes to
-  match. JSON Schemas are written by hand, since they are the spec, and
+  it, so it needs no deterministic encoding) but is now zstd-compressed,
+  as the draft had it, to win back the size base64 costs; the draft
+  changes to match. JSON Schemas are written by hand, since they are the spec, and
   checked against the code; the OpenAPI file is generated from it.
 - **2i, attachments (decided 2026-10-23):** any file type, size caps only;
   no type checks, which renaming defeats. Image cleaning (metadata

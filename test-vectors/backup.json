@@ -30,7 +30,7 @@
       "words": "abandon amount liar amount expire adjust cage candy arch gather drum buyer"
     }
   ],
-  "description": "Backups (protocol draft, section 6, as built in 2j). The recovery code is 128 bits of entropy written as a BIP-39 mnemonic: the entropy and the first 4 bits of its SHA-256, 11 bits per word, big-endian, English list. Reading accepts any case and spacing. The age passphrase is the 12 words, lowercase, joined by single spaces. A backup is an age v1 file with one scrypt recipient (work factor 15; readers allow up to 20) over the plaintext: UTF-8 JSON {format: \"quill-backup\", version: 1, createdMs, tables}, where tables maps the client store's identities, pins, verified, messages and files tables to lists of [key, value] in base64url (the rows' contents are the client's own). sealed.file is base64url; it is randomized, so a new implementation checks it opens rather than reproducing it.",
+  "description": "Backups (protocol draft, section 6, as built in 2j). The recovery code is 128 bits of entropy written as a BIP-39 mnemonic: the entropy and the first 4 bits of its SHA-256, 11 bits per word, big-endian, English list. Reading accepts any case and spacing. The age passphrase is the 12 words, lowercase, joined by single spaces. A backup is an age v1 file with one scrypt recipient (work factor 15; readers allow up to 20) over the plaintext: one zstd frame (RFC 8878) holding UTF-8 JSON {format: \"quill-backup\", version: 2, createdMs, tables}, where tables maps the client store's identities, pins, verified, messages and files tables to lists of [key, value] in base64url (the rows' contents are the client's own). Readers decompress at most 1 GiB. Compressors differ, so any valid frame must be read (uncompressedFrame stores the same JSON without compression). sealed.file is base64url; it is randomized, so a new implementation checks it opens rather than reproducing it. invalidPlaintexts must be refused after the file opens.",
   "invalidCodes": [
     {
       "name": "bad checksum",
@@ -49,10 +49,25 @@
       "words": "abandon amount liar amount expire adjust cage candy arch gather drum zebrafish"
     }
   ],
+  "invalidPlaintexts": [
+    {
+      "name": "JSON that isn't compressed (version 1)",
+      "plaintext": "7b22666f726d6174223a227175696c6c2d6261636b7570222c2276657273696f6e223a312c22637265617465644d73223a313739323734363030303030302c227461626c6573223a7b2266696c6573223a5b5d2c226964656e746974696573223a5b5b226347567963323975595342705a41222c226157526c626e527064486b67636d566a62334a6b225d5d2c226d65737361676573223a5b5b226332567a63326c76626942756233526c4947746c6551222c2265794a7a5a5845694f6a4639225d5d2c2270696e73223a5b5b2259574e306233496764584a70222c2263476c75626d566b49476c6b5a573530615852354947746c6551225d5d2c227665726966696564223a5b5d7d7d"
+    },
+    {
+      "name": "a compressed version 1",
+      "plaintext": "28b52ffd04384508006c0e007b22666f726d6174223a227175696c6c2d6261636b7570222c2276657273696f6e223a312c22637265617465644d73223a313739323734363030303030302c227461626c6573223a7b2266695b5d2c226964656e746974696573223a5b5b226347567963323975595342705a41222c226157526c626e527064486b67636d566a62334a6b225d5d2c226d657373616732567a63326c76626942756233526c4947746c6551222c2265794a7a5a5845694f6a463970696e59574e306233496764584a70222c2263476c75626d566b49476c6b5a573530615852355d5d6966696564223a5b5d7d7d06a8101222fcef8b3e101481e707108acf01e5c0124a6beaf9a07b0c0df801f0bec8b0"
+    },
+    {
+      "name": "a truncated frame",
+      "plaintext": "28b52ffd04384508006c0e007b22666f726d6174223a227175696c6c2d6261636b7570222c2276657273696f6e223a322c22637265617465644d73223a313739323734363030303030302c227461626c6573223a7b2266695b5d2c226964656e746974696573223a5b5b226347567963323975595342705a41222c226157526c626e527064486b67636d"
+    }
+  ],
   "sealed": {
     "entropy": "000102030405060708090a0b0c0d0e0f",
-    "file": "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0-IHNjcnlwdCBNSVRmTWUxYXd3bVJmWGdmMGR4MjFBIDE1CmpDajN3anV5RjFUWlJNaDd0cG1abThlM2V3ME9XRGNJcWRqM2U4cHJyN0UKLS0tIGwvWUdaWlJGZlFCK2ZUcWdQenZKOHh1RDJ1OEs5ZnBsVUQ1b2xYLzQ5M1kK8zLPqPMYa0jqACdOi2m-s_bvURNYOGw0dGLwhFSasSw1CE7FgSdFuj3xw8ssBNNx0MG9b9p4vUrYvsK2-XfLeE2LMYyhj7t2v62crqjne6Y-YGVfXr7L3cfjke3KVQRAtTEA-IBFtErIkQ6lS87qDsjCAfsGCvcuEeOwMs7amuowyCuM3f6nvZM_BZGcA7lA5_SwFTyLeALNkJOM9uksquQD-RCBxI3z-Wj9zX7DWY8VR_7cmnBl921E_GD0EY2Oc52BpJfvHMLoxT8vxCLzA9pQxfbSwutSeySjnpjttV4EpXLkgqi4jxno9y0jboeVKSKxp9wOi1GbKlkv0H5tUlNhI8liskuTZd-lkD92u82MnjMJZ_hWSM3G87cRP-b6G-JPPQj2nAsFDw",
-    "plaintext": "{\"format\":\"quill-backup\",\"version\":1,\"createdMs\":1792746000000,\"tables\":{\"files\":[],\"identities\":[[\"cGVyc29uYSBpZA\",\"aWRlbnRpdHkgcmVjb3Jk\"]],\"messages\":[[\"c2Vzc2lvbiBub3RlIGtleQ\",\"eyJzZXEiOjF9\"]],\"pins\":[[\"YWN0b3IgdXJp\",\"cGlubmVkIGlkZW50aXR5IGtleQ\"]],\"verified\":[]}}",
+    "file": "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0-IHNjcnlwdCA5bG1yZVRHRk9BNTh4TjhYWWhaR3V3IDE1CnZ1WUVlcXVqS0pSK25jUkptTXNjS3VVbHgwbi9idkw1dFNCL1poTFJ0eUEKLS0tIGpQSy9UL3NTSGJtZ0tlTlFWeG5kZUt3WHk3QThpdXM5ZDZrb3F4QkRrZWsKWsBtUJ9xRbSJPT43Lc4Eo1DkVOpNkQZBQiyyJO1dz5ZKpORFqQy831HC0G5tI8Fk-f62Mn1C521WOCeQ0Aiu4A-bqqeO-WCQZWmwMYoTSvaflQay0Tf8Xls53i7XIqyyMQLpRIfn0-LXlWbSUonCRMP2NcD2ZWjye7dH1padtuYVd4yONn4Z_mPUe15DeUupffHRqP0ztbivWoYTqoXn6svJQ-9rqTxR9NJNC-uvHfFhm3ORoimzKFw-UCQhlGN4LGK3FJXtLI06D6SrNED4uJPCUDfcMBaWL8ndgD501hNHC7mk14YkIrWwCrktPAZX2dL32LLgy3A6TLl0eRIF39K0ZaUmrdNMHmxvdNhrckTbMjoZdHYhVCtT5EkGkfCvYVRG-IRKVgl0xE2RRRkw5iNoiAYw",
+    "json": "{\"format\":\"quill-backup\",\"version\":2,\"createdMs\":1792746000000,\"tables\":{\"files\":[],\"identities\":[[\"cGVyc29uYSBpZA\",\"aWRlbnRpdHkgcmVjb3Jk\"]],\"messages\":[[\"c2Vzc2lvbiBub3RlIGtleQ\",\"eyJzZXEiOjF9\"]],\"pins\":[[\"YWN0b3IgdXJp\",\"cGlubmVkIGlkZW50aXR5IGtleQ\"]],\"verified\":[]}}",
     "wrongCode": "00000000000000000000000000000000"
-  }
+  },
+  "uncompressedFrame": "28b52ffd04385108007b22666f726d6174223a227175696c6c2d6261636b7570222c2276657273696f6e223a322c22637265617465644d73223a313739323734363030303030302c227461626c6573223a7b2266696c6573223a5b5d2c226964656e746974696573223a5b5b226347567963323975595342705a41222c226157526c626e527064486b67636d566a62334a6b225d5d2c226d65737361676573223a5b5b226332567a63326c76626942756233526c4947746c6551222c2265794a7a5a5845694f6a4639225d5d2c2270696e73223a5b5b2259574e306233496764584a70222c2263476c75626d566b49476c6b5a573530615852354947746c6551225d5d2c227665726966696564223a5b5d7d7ddde289fa"
 }

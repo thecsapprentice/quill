@@ -181,13 +181,19 @@ const MNEMONICS: [&str; 5] = [
     "000102030405060708090a0b0c0d0e0f",
 ];
 
+use ruzstd::encoding::CompressionLevel as Level;
+
+fn compress(data: &[u8], level: Level) -> Vec<u8> {
+    ruzstd::encoding::compress_to_vec(data, level)
+}
+
 fn entropy(h: &str) -> [u8; 16] {
     ::hex::decode(h).unwrap().try_into().unwrap()
 }
 
-/// The plaintext of the sealed example: the backup's real format, with a
+/// The JSON inside the sealed example: the backup's real format, with a
 /// few made-up rows.
-fn backup_plaintext() -> Vec<u8> {
+fn backup_json(version: u32) -> Vec<u8> {
     let mut tables = BTreeMap::new();
     tables.insert(
         "identities".into(),
@@ -205,7 +211,7 @@ fn backup_plaintext() -> Vec<u8> {
     tables.insert("files".into(), Vec::new());
     serde_json::to_vec(&backup::Contents {
         format: backup::FORMAT.into(),
-        version: backup::VERSION,
+        version,
         created_ms: 1_792_746_000_000,
         tables,
     })
@@ -226,21 +232,26 @@ fn backups() -> Value {
         .collect();
     let code = entropy(MNEMONICS[4]);
     let passphrase = backup::passphrase(&code);
-    let plain = backup_plaintext();
-    // Keep the committed file while it still opens to this plaintext.
+    let json = backup_json(backup::VERSION);
+    let opens_to_json =
+        |plain: &[u8]| backup::unpack(plain).is_ok_and(|c| serde_json::to_vec(&c).unwrap() == json);
+    // Keep the committed file while it still opens to this JSON.
     let sealed = committed("backup.json")
         .and_then(|v| unb64(v["sealed"]["file"].as_str()?))
         .filter(|f| {
             AgeCrate
                 .open(&passphrase, f)
-                .is_ok_and(|p| p.as_slice() == plain.as_slice())
+                .is_ok_and(|p| opens_to_json(&p))
         })
         .unwrap_or_else(|| {
             assert!(
                 writing(),
                 "backup.json's sealed file no longer opens; set QUILL_WRITE_VECTORS=1"
             );
-            AgeCrate.seal(&passphrase, &plain).unwrap()
+            let contents = backup::unpack(&compress(&json, Level::Fastest)).unwrap();
+            AgeCrate
+                .seal(&passphrase, &backup::pack(&contents).unwrap())
+                .unwrap()
         });
     // The last word carries the checksum's 4 bits: the same entropy with
     // one checksum bit flipped.
@@ -248,7 +259,7 @@ fn backups() -> Value {
     bytes.push(Sha256::digest(code)[0] ^ 0x10);
     let bad_checksum = words::take(&bytes, 12);
     json!({
-        "description": "Backups (protocol draft, section 6, as built in 2j). The recovery code is 128 bits of entropy written as a BIP-39 mnemonic: the entropy and the first 4 bits of its SHA-256, 11 bits per word, big-endian, English list. Reading accepts any case and spacing. The age passphrase is the 12 words, lowercase, joined by single spaces. A backup is an age v1 file with one scrypt recipient (work factor 15; readers allow up to 20) over the plaintext: UTF-8 JSON {format: \"quill-backup\", version: 1, createdMs, tables}, where tables maps the client store's identities, pins, verified, messages and files tables to lists of [key, value] in base64url (the rows' contents are the client's own). sealed.file is base64url; it is randomized, so a new implementation checks it opens rather than reproducing it.",
+        "description": "Backups (protocol draft, section 6, as built in 2j). The recovery code is 128 bits of entropy written as a BIP-39 mnemonic: the entropy and the first 4 bits of its SHA-256, 11 bits per word, big-endian, English list. Reading accepts any case and spacing. The age passphrase is the 12 words, lowercase, joined by single spaces. A backup is an age v1 file with one scrypt recipient (work factor 15; readers allow up to 20) over the plaintext: one zstd frame (RFC 8878) holding UTF-8 JSON {format: \"quill-backup\", version: 2, createdMs, tables}, where tables maps the client store's identities, pins, verified, messages and files tables to lists of [key, value] in base64url (the rows' contents are the client's own). Readers decompress at most 1 GiB. Compressors differ, so any valid frame must be read (uncompressedFrame stores the same JSON without compression). sealed.file is base64url; it is randomized, so a new implementation checks it opens rather than reproducing it. invalidPlaintexts must be refused after the file opens.",
         "codes": codes,
         "acceptedSpellings": [
             words::mnemonic(&code).join(" ").to_uppercase(),
@@ -262,10 +273,20 @@ fn backups() -> Value {
         ],
         "sealed": {
             "entropy": MNEMONICS[4],
-            "plaintext": String::from_utf8(plain).unwrap(),
+            "json": String::from_utf8(json.clone()).unwrap(),
             "file": b64(&sealed),
             "wrongCode": MNEMONICS[0],
         },
+        "uncompressedFrame": hex(&compress(&json, Level::Uncompressed)),
+        "invalidPlaintexts": [
+            { "name": "JSON that isn't compressed (version 1)", "plaintext": hex(&backup_json(1)) },
+            { "name": "a compressed version 1", "plaintext": hex(&compress(&backup_json(1), Level::Fastest)) },
+            { "name": "a truncated frame", "plaintext": hex(&{
+                let mut f = compress(&json, Level::Fastest);
+                f.truncate(f.len() / 2);
+                f
+            }) },
+        ],
     })
 }
 
@@ -314,15 +335,22 @@ fn backup_vectors() {
     let file = unb64(s["file"].as_str().unwrap()).unwrap();
     assert!(file.starts_with(b"age-encryption.org/v1\n-> scrypt "));
     let plain = AgeCrate.open(&backup::passphrase(&code), &file).unwrap();
-    assert_eq!(
-        plain.as_slice(),
-        s["plaintext"].as_str().unwrap().as_bytes()
-    );
-    let contents: backup::Contents = serde_json::from_slice(&plain).unwrap();
+    let json = s["json"].as_str().unwrap().as_bytes();
+    let contents = backup::unpack(&plain).unwrap();
+    assert_eq!(serde_json::to_vec(&contents).unwrap(), json);
     assert_eq!(
         (contents.format.as_str(), contents.version),
         (backup::FORMAT, backup::VERSION)
     );
+    let raw = backup::unpack(&unhex(&v["uncompressedFrame"])).unwrap();
+    assert_eq!(serde_json::to_vec(&raw).unwrap(), json);
+    for case in v["invalidPlaintexts"].as_array().unwrap() {
+        assert!(
+            backup::unpack(&unhex(&case["plaintext"])).is_err(),
+            "{}",
+            case["name"]
+        );
+    }
     let wrong = entropy(s["wrongCode"].as_str().unwrap());
     assert!(AgeCrate.open(&backup::passphrase(&wrong), &file).is_err());
     let mut damaged = file.clone();

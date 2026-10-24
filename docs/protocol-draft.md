@@ -365,13 +365,13 @@ As built in 2j, on one server: the request goes to `POST /sessions/{id}/rejoin`,
 
 - **Container:** `age` v1 file using the scrypt passphrase recipient. The passphrase is the recovery code: 128 random bits shown as 12 BIP-39 words.
 
-- **Plaintext:** a JSON object: `version`, identity private keys and versions, TOFU pins, and per-session history (decrypted notes with every version, channels, attachments). Never MLS group state. (Changed in 2m from zstd-compressed deterministic CBOR: nothing signs or hashes the plaintext, so it needs no canonical encoding, and JSON is what the rest of the client uses.)
+- **Plaintext:** zstd-compressed JSON: `version`, identity private keys and versions, TOFU pins, and per-session history (decrypted notes with every version, channels, attachments). Never MLS group state. (Changed in 2m from zstd-compressed deterministic CBOR: nothing signs or hashes the plaintext, so it needs no canonical encoding, and JSON is what the rest of the client uses.)
 
 - **Incremental:** one full snapshot plus numbered append-only chunks, each its own `age` file, stored at `PUT /api/v1/backup/{seq}`. A new snapshot replaces the chain.
 
 As built in 2j:
 - The recovery code is a BIP-39 mnemonic: 128 bits plus a 4-bit checksum, 12 words. The passphrase is the words, lowercase, joined by single spaces. scrypt's work factor is 15: the code is random, so it needs no stretching.
-- The plaintext is JSON, not CBOR: `{format: "quill-backup", version: 1, createdMs, tables}`, where `tables` maps the client store's `identities`, `pins`, `verified`, `messages` and `files` tables to lists of `[key, value]` in base64url. It is not compressed.
+- The plaintext is one zstd frame holding JSON, not CBOR: `{format: "quill-backup", version: 2, createdMs, tables}`, where `tables` maps the client store's `identities`, `pins`, `verified`, `messages` and `files` tables to lists of `[key, value]` in base64url. Version 1 (2j) was the same JSON uncompressed; 2m added the compression, and readers take version 2 only. Readers decompress at most 1 GiB. The client compresses with `ruzstd`, which is pure Rust.
 - There are no incremental chunks yet: each backup replaces the last whole. It's uploaded in parts of up to 8 MiB (`PUT /backup/{generation}/{part}`), then committed (`POST /backup/{generation}/commit`), so a failed upload never replaces a good backup.
 - The `age` crate does the work, behind a small interface so our own implementation of the format can replace it.
 

@@ -26,6 +26,7 @@ redb.workspace = true
 sha2.workspace = true
 aes-gcm.workspace = true
 age.workspace = true
+ruzstd.workspace = true
 reqwest = { workspace = true, features = ["rustls"] }
 serde.workspace = true
 serde_json.workspace = true
