@@ -956,6 +956,15 @@ before the gate move to 2m, and Phase 2 closes after 2m.
 Done when: the canary test and the audit test pass in CI, the audit covers
 every column, and the roadmap marks Phase 2's gate as passed pending 2m.
 
+As built: the canary test checks 286 secrets in four dumps (after the story
+is written, while a history bundle waits on the server, after a backup,
+and at the end) and in the trace-level logs of the server and the
+libraries it serves with (client libraries are left out: a client's logs
+stay on its device). OpenMLS's secrets are found in its state by the
+fields that name a private key or a secret. A negative control plants the
+canary, base64url-encoded at an odd alignment, in a persona's public
+profile and checks the search catches it.
+
 ### 2m: Conformance artifacts
 
 Planned. The protocol draft (section 11) asks for these before the Phase 2
