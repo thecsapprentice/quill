@@ -301,7 +301,7 @@ encrypts yet: 2c uses these keys for MLS.
 - **Actor URIs.** Every persona gets its permanent identifier,
   `https://{domain}/users/{handle}`, shown in the personas API. Handles are
   never renamed or reused, so it's stable. Certificates sign it, so changing
-  the server's domain later invalidates them (fine before Phase 3).
+  the server's domain later invalidates them (fine before federation, Phase 5).
 - **Keys, all Ed25519 and generated on the client:**
   - an **identity key** per persona, with a version that goes up when it's
     replaced;
@@ -748,7 +748,7 @@ messages can carry attachments that a later client can show.
   personas to logins. Sizes and counts of ciphertext only.
 
 Not in 2i: inline base64 images, image cleaning and rendering (GUI), and
-fetching blobs through one's own server from another (Phase 3).
+fetching blobs through one's own server from another (Phase 5).
 
 Done when: a file attached on one device arrives intact on every device of
 both writers; a changed byte is caught; the server sees only bucketed
@@ -938,7 +938,7 @@ before the gate move to 2m, and Phase 2 closes after 2m.
     level for the whole run.
   - Positive controls show the search works: the prompt's public text is
     found as text, and a public key is found as hex.
-  - The plan also names the federation queue, which arrives in Phase 3;
+  - The plan also names the federation queue, which arrives in Phase 5;
     the test gains it then.
 - **Database audit** (`docs/server-data.md`): every column of every table,
   what it holds and why that's acceptable, in one of a few classes: public
@@ -995,7 +995,7 @@ CI against the code, so it can't drift.
     committed (`QUILL_WRITE_OPENAPI=1` rewrites it), so every API change
     shows up in review. An end-to-end test checks real responses from a
     running server against the file's schemas.
-  - Fuzzing a server from the file (e.g. with Schemathesis) is part of 4b.
+  - Fuzzing a server from the file (e.g. with Schemathesis) is part of 6b.
 - **JSON Schemas** (`schemas/`, draft 2020-12), written by hand as the
   spec, for what OpenAPI doesn't cover: the activities in session messages
   (`Create`, `Update` and `Delete` of notes, `wr:Channel`), the
@@ -1005,7 +1005,7 @@ CI against the code, so it can't drift.
     and check that must-reject examples fail both the schema and the
     client's parser, and that unknown terms are accepted by both.
   - The federated objects (`Prompt`, the session request's `Offer`, the
-    actor extensions) don't exist as ActivityPub JSON until Phase 3; their
+    actor extensions) don't exist as ActivityPub JSON until Phase 5; their
     schemas come with them, along with the `wr:` context document.
 - **Test vectors** (`test-vectors/`), generated from fixed seeds by the
   crate holding each format, like 2b's, and checked both ways: regenerating
@@ -1055,27 +1055,78 @@ as malformed), one byte more gets 413. Vector files: `linking`, `backup`,
 `names` and `limits` from `quill-proto`; `test-vectors/README.md` lists
 them all. Schemas are checked with `boon`, a test-only dependency.
 
-## Phase 3: Federation
+Reordered on 2026-10-23 (see Decisions): the desktop GUI and the web
+client come next, before federation and hardening, so people can use the
+project on one server without the CLI. Federation and hardening follow
+unchanged in content.
+
+## Phase 3: Desktop GUI
+
+`quill-gui`, on Dioxus desktop ([plan](plan.md#future-clients-gui-framework-options)):
+the app logic, `quill-core` included, runs as native Rust and only DOM
+updates reach the webview, so keys never enter webview JavaScript. Views
+live in a shared `quill-ui` crate the web client reuses. A first cut;
+each sub-phase gets its detailed section when it's next.
+
+| Sub-phase | Scope | Status |
+| --- | --- | --- |
+| 3a | Spike: the session view (channels, long-form editor, an image attachment) in Dioxus on desktop and in the browser; IME, spellcheck and screen readers; confirm Dioxus or fall back to Leptos + Tauri 2 | next |
+| 3b | `quill-ui` and the `quill-gui` shell: unlocking the store, register and sign in, personas, settings | planned |
+| 3c | The board in the GUI: browse, search, post and edit prompts, through the board's shared components | planned |
+| 3d | Keys and devices: identity keys, linking by QR code or words, the device list, revoking, safety numbers | planned |
+| 3e | Requests: sending with a pitch, the inbox, accepting and declining, status | planned |
+| 3f | Sessions: the session list, reading and writing, channels, replies, edits and deletions with their history, live updates | planned |
+| 3g | Attachments: attaching, opening and saving files; images shown inline, with metadata stripped before sending (deferred from 2i); storage use | planned |
+| 3h | Backup and recovery, history sync and rejoining, notices; anything the CLI does that the GUI doesn't yet | planned |
+| 3i | Packaging for Windows, macOS and Linux | planned |
+
+Gate: the GUI does everything the CLI does, and the end-to-end tests that
+drive `quill-core` pass unchanged.
+
+## Phase 4: Web client
+
+`quill-web`: Rust compiled to WebAssembly, on its own origin, sharing
+`quill-core` and `quill-ui` with the desktop GUI. It must adopt every
+mitigation in the plan's
+[web client security requirements](plan.md#web-client-security-requirements-for-the-separate-proposal).
+A first cut.
+
+| Sub-phase | Scope | Status |
+| --- | --- | --- |
+| 4a | The web client proposal: how each security requirement is met, the threat model's web-specific risks, and what the server serves | planned |
+| 4b | `quill-core` on WebAssembly: the store over IndexedDB wrapped by a non-extractable WebCrypto key, HTTP through `fetch`, the RustCrypto provider, the browser's randomness; the test vectors run on WebAssembly in CI (deferred from 2m) | planned |
+| 4c | `quill-web` on its own origin: the shared views, strict CSP with Trusted Types, decrypted content in a sandboxed frame | planned |
+| 4d | Web devices: linking as a limited device by default, onboarding to a backup or a second device, persistent storage, warnings about clearing site data | planned |
+| 4e | Verifiable code: reproducible builds, a signed release manifest, Subresource Integrity, a pinned version through a service worker, loading the bundle from any origin | planned |
+
+Gate: the web client passes the same end-to-end tests in a browser,
+including the plaintext-canary test, and a second build from the same
+source is byte-identical.
+
+## Phase 5: Federation
 
 | Sub-phase | Scope |
 | --- | --- |
-| 3a | Actors, WebFinger, HTTP Signatures |
-| 3b | Board federation: follows, prompt delivery, remote prompts on the board |
-| 3c | Remote collaboration requests and KeyPackage claims |
-| 3d | Cross-server sessions sequenced by the prompt author's server |
-| 3e | Two-instance test harness; interop with a real Mastodon instance |
+| 5a | Actors, WebFinger, HTTP Signatures |
+| 5b | Board federation: follows, prompt delivery, remote prompts on the board |
+| 5c | Remote collaboration requests and KeyPackage claims |
+| 5d | Cross-server sessions sequenced by the prompt author's server |
+| 5e | Two-instance test harness; interop with a real Mastodon instance |
 
-## Phase 4: Hardening and review
+The GUI and web client gain what federation adds (remote prompts and
+writers) in the same sub-phases as the CLI.
+
+## Phase 6: Hardening and review
 
 | Sub-phase | Scope |
 | --- | --- |
-| 4a | Malicious-server test suite |
-| 4b | Fuzzing of every untrusted-input parser |
-| 4c | Operations runbook, disclosure policy, Tor onion service |
-| 4d | Settings review: every hard-coded limit and tuning value becomes a server setting or a client configuration entry (see below) |
-| 4e | External review and fixes |
+| 6a | Malicious-server test suite, run against every client |
+| 6b | Fuzzing of every untrusted-input parser, and of the API from the OpenAPI file |
+| 6c | Operations runbook, disclosure policy, Tor onion service |
+| 6d | Settings review: every hard-coded limit and tuning value becomes a server setting or a client configuration entry (see below) |
+| 6e | External review and fixes, the web client included |
 
-### 4d: Settings review (planned)
+### 6d: Settings review (planned)
 
 Requested 2026-10-23. Many values are constants in the code today; this
 pass lists them all and moves each into server settings or a client
@@ -1107,11 +1158,6 @@ ranges. Known so far:
   unanswered requests (30 days), waiting for a sibling before asking the
   other writer to rejoin (1 day), history part size (4 MiB).
 
-## Phases 5 and 6
-
-The desktop GUI and the web client get their own sub-phases when Phase 4 is
-done.
-
 ## Decisions
 
 - **1f, JavaScript on the board (decided 2026-10-22): none.** Adding a tag
@@ -1142,7 +1188,7 @@ done.
   new backend module (about 150 lines, since the interface is plain tables of
   keys and values), dropping the page layer, and adding OpenSSL to client
   builds; nothing else changes. Once real users exist, a one-time local
-  conversion is needed too. Decide for good before the Phase 4 review.
+  conversion is needed too. Decide for good before the Phase 6 review.
 - **2e, scope (decided 2026-10-23):** the request carries the session's
   real MLS group from the start, as the protocol draft says, so 2e builds
   the group, the Welcome and the pitch, and acceptance registers the group
@@ -1157,6 +1203,12 @@ done.
   plaintext-canary test and the database audit; the OpenAPI file, JSON
   Schemas and remaining test vectors become 2m, and Phase 2 closes after
   it, before federation needs them.
+- **Phase order (decided 2026-10-23):** the desktop GUI (now Phase 3)
+  and the web client (Phase 4) move ahead of federation (Phase 5) and
+  hardening and review (Phase 6), so the project is usable on one server
+  without the CLI sooner. Sub-phases keep their content under the new
+  numbers (the settings review is 6d). Hardening still comes before any
+  public launch, and it now covers the web client too.
 - **2m, conformance (decided 2026-10-23):** the backup's plaintext stays
   JSON as built (one fewer format in the client; nothing signs or hashes
   it, so it needs no deterministic encoding) but is now zstd-compressed,

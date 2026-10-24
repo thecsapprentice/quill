@@ -788,7 +788,7 @@ async fn delete_prompt(
 
 /// Deletes a prompt posted by one of `account`'s personas.
 pub async fn remove_own_prompt(state: &AppState, account: Uuid, id: Uuid) -> Result<(), ApiError> {
-    // Phase 3 adds a federated `Delete`. Waiting requests expire at once;
+    // Federation (Phase 5) adds a federated `Delete`. Waiting requests expire at once;
     // sessions carry on.
     let mut tx = state.pool.begin().await?;
     let own: bool = sqlx::query_scalar(

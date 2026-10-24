@@ -406,7 +406,7 @@ async fn delete_persona(
 
 /// Deletes one of `account`'s personas, and with it the persona's prompts.
 pub async fn remove_persona(state: &AppState, account: Uuid, id: Uuid) -> Result<(), ApiError> {
-    // Phase 3 adds a federated `Delete` for the actor and its prompts here.
+    // Federation (Phase 5) adds a federated `Delete` for the actor and its prompts here.
     let result = sqlx::query("DELETE FROM actors WHERE id = $1 AND account_id = $2")
         .bind(id)
         .bind(account)

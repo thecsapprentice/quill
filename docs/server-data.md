@@ -46,7 +46,7 @@ From `metadata` and `public` columns, the server (and anyone with a dump):
 
 It can't learn what was written: pitches, notes, edits, deletions, replies,
 channels, files, history sent between devices, backups, the recovery code,
-or any private key. Federation (Phase 3) adds what the other server learns
+or any private key. Federation (Phase 5) adds what the other server learns
 about its own users' sessions, as the plan describes.
 
 ## Every column
