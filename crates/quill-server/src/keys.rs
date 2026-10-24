@@ -7,15 +7,15 @@
 //! themselves.
 
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, Query, State},
-    routing::{get, post, put},
 };
 use quill_certs::{CertError, DeviceCertificate, DeviceRevocation, Expected};
 use quill_proto::keys::{
     ClaimedKeyPackage, DeviceInfo, KeyPackageClaim, KeyPackageStatus, PersonaKeys, RegisterDevice,
     RevokeDevice, SetIdentityKey, UploadKeyPackages, actor_uri, b64, unb64,
 };
+use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
 use crate::{
@@ -29,26 +29,14 @@ use crate::{
 /// refill below the same number).
 const POOL_LOW: i64 = 10;
 
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/personas/{id}/identity-key", put(set_identity_key))
-        .route(
-            "/personas/{id}/devices",
-            get(own_keys).post(register_device),
-        )
-        .route(
-            "/personas/{id}/devices/{device}/revoke",
-            post(revoke_device),
-        )
-        .route("/actors/{handle}/keys", get(public_keys))
-        .route(
-            "/personas/{id}/devices/{device}/key-packages",
-            get(key_package_status).post(upload_key_packages),
-        )
-        .route(
-            "/actors/{handle}/key-packages/claim",
-            post(claim_key_packages),
-        )
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(set_identity_key))
+        .routes(routes!(own_keys, register_device))
+        .routes(routes!(revoke_device))
+        .routes(routes!(public_keys))
+        .routes(routes!(key_package_status, upload_key_packages))
+        .routes(routes!(claim_key_packages))
 }
 
 /// A persona and its current identity key.
@@ -137,6 +125,18 @@ async fn keys_of(state: &AppState, p: &Persona) -> Result<PersonaKeys, ApiError>
 
 /// `PUT /personas/{id}/identity-key`: sets the first key, or replaces it
 /// with a higher version. Repeating the current key is accepted.
+#[utoipa::path(
+    put, path = "/personas/{id}/identity-key", tag = "keys", security(("bearer" = [])),
+    summary = "Publish a persona's identity key, or a new version of it",
+    description = "A new version must be the next number; devices certified under an older version stop being valid.",
+    params(("id" = Uuid, Path, description = "The persona")),
+    request_body = SetIdentityKey,
+    responses(
+        (status = 200, body = PersonaKeys),
+        (status = 404, description = "Not one of the login's personas"),
+        (status = 409, description = "Not the next version, or the same key again"),
+    ),
+)]
 async fn set_identity_key(
     State(state): State<AppState>,
     authed: Authed,
@@ -181,6 +181,12 @@ async fn set_identity_key(
     keys_of(&state, &p).await.map(Json)
 }
 
+#[utoipa::path(
+    get, path = "/personas/{id}/devices", tag = "keys", security(("bearer" = [])),
+    summary = "A persona's identity key and devices, as the login sees them",
+    params(("id" = Uuid, Path, description = "The persona")),
+    responses((status = 200, body = PersonaKeys), (status = 404, description = "Not one of the login's personas")),
+)]
 async fn own_keys(
     State(state): State<AppState>,
     authed: Authed,
@@ -193,6 +199,18 @@ async fn own_keys(
 /// `POST /personas/{id}/devices`: registers a device whose certificate
 /// verifies under the persona's current identity key, or certifies an
 /// existing device again after the identity key was replaced.
+#[utoipa::path(
+    post, path = "/personas/{id}/devices", tag = "keys", security(("bearer" = [])),
+    summary = "Add a device: its key and certificate, signed by the identity key",
+    description = "The server checks the certificate (protocol draft, section 6) and refuses one that doesn't verify.",
+    params(("id" = Uuid, Path, description = "The persona")),
+    request_body = RegisterDevice,
+    responses(
+        (status = 200, body = DeviceInfo),
+        (status = 404, description = "Not one of the login's personas"),
+        (status = 409, description = "No identity key yet, a key already used, or a certificate for another version"),
+    ),
+)]
 async fn register_device(
     State(state): State<AppState>,
     authed: Authed,
@@ -300,6 +318,17 @@ async fn register_device(
 
 /// `POST /personas/{id}/devices/{device}/revoke`: records a revocation
 /// signed by the persona's identity key. Permanent.
+#[utoipa::path(
+    post, path = "/personas/{id}/devices/{device}/revoke", tag = "keys", security(("bearer" = [])),
+    summary = "Revoke a device with a signed revocation",
+    params(("id" = Uuid, Path, description = "The persona"), ("device" = Uuid, Path)),
+    request_body = RevokeDevice,
+    responses(
+        (status = 200, body = DeviceInfo),
+        (status = 404, description = "No such device"),
+        (status = 409, description = "Already revoked"),
+    ),
+)]
 async fn revoke_device(
     State(state): State<AppState>,
     authed: Authed,
@@ -360,6 +389,13 @@ async fn revoke_device(
 }
 
 /// `GET /actors/{handle}/keys`: public, for other writers' clients.
+#[utoipa::path(
+    get, path = "/actors/{handle}/keys", tag = "keys", security(()),
+    summary = "A persona's public keys: identity key, devices, certificates and revocations",
+    description = "No timestamps, so it says nothing about when a device was used.",
+    params(("handle" = String, Path, description = "The persona's handle")),
+    responses((status = 200, body = PersonaKeys), (status = 404, description = "No such persona")),
+)]
 async fn public_keys(
     State(state): State<AppState>,
     Path(handle): Path<String>,
@@ -437,6 +473,12 @@ async fn pool_status(state: &AppState, device: Uuid) -> Result<KeyPackageStatus,
     })
 }
 
+#[utoipa::path(
+    get, path = "/personas/{id}/devices/{device}/key-packages", tag = "keys", security(("bearer" = [])),
+    summary = "How many KeyPackages a device has left on the server",
+    params(("id" = Uuid, Path, description = "The persona"), ("device" = Uuid, Path)),
+    responses((status = 200, body = KeyPackageStatus), (status = 404, description = "No such device")),
+)]
 async fn key_package_status(
     State(state): State<AppState>,
     authed: Authed,
@@ -491,6 +533,18 @@ fn check_upload(
 }
 
 /// `POST /personas/{id}/devices/{device}/key-packages`.
+#[utoipa::path(
+    post, path = "/personas/{id}/devices/{device}/key-packages", tag = "keys", security(("bearer" = [])),
+    summary = "Upload KeyPackages for a device",
+    description = "Each must be an MLS KeyPackage whose leaf carries the device's certificate and signature key.",
+    params(("id" = Uuid, Path, description = "The persona"), ("device" = Uuid, Path)),
+    request_body = UploadKeyPackages,
+    responses(
+        (status = 200, body = KeyPackageStatus),
+        (status = 404, description = "No such device"),
+        (status = 409, description = "The device is revoked, or its pool is full"),
+    ),
+)]
 async fn upload_key_packages(
     State(state): State<AppState>,
     authed: Authed,
@@ -566,6 +620,17 @@ async fn upload_key_packages(
 /// `POST /actors/{handle}/key-packages/claim`: one package per current
 /// device, removing one-time packages and falling back to the last-resort
 /// one. Devices with nothing in date are left out.
+#[utoipa::path(
+    post, path = "/actors/{handle}/key-packages/claim", tag = "keys", security(("bearer" = [])),
+    summary = "Claim one KeyPackage per current device of a persona",
+    description = "Each package is handed out once. `device` limits the claim to one device.",
+    params(("handle" = String, Path, description = "The persona's handle"), quill_proto::keys::ClaimQuery),
+    responses(
+        (status = 200, body = KeyPackageClaim),
+        (status = 404, description = "No such persona or device"),
+        (status = 409, description = "A device has no packages left"),
+    ),
+)]
 async fn claim_key_packages(
     State(state): State<AppState>,
     authed: Authed,

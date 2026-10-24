@@ -47,6 +47,11 @@ crate::board::string_enum! {
 
 /// `GET /admin/reserved-handles` query.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct ReservedQuery {
     /// Text the pattern contains.
@@ -62,6 +67,7 @@ pub struct ReservedQuery {
 
 /// `GET /admin/reserved-handles` response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ReservedList {
     pub entries: Vec<ReservedHandle>,
@@ -76,6 +82,7 @@ pub struct ReservedList {
 
 /// `POST /admin/reserved-handles`: reserve several at once.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AddReserved {
     pub kind: ReservedKind,
@@ -84,6 +91,7 @@ pub struct AddReserved {
 
 /// Response to `POST /admin/reserved-handles`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AddedReserved {
     /// Entries newly reserved; ones already present aren't counted.
@@ -92,6 +100,7 @@ pub struct AddedReserved {
 
 /// `GET /admin/reserved-handles/check?handle=…`: would a writer be refused?
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ReservedCheck {
     /// The handle as it would be stored.
@@ -103,6 +112,7 @@ pub struct ReservedCheck {
 
 /// One reserved entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ReservedHandle {
     pub pattern: String,

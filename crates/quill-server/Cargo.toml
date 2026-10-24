@@ -19,7 +19,7 @@ path = "src/main.rs"
 # dependency tree. `scripts/check-server-deps.sh` enforces this in CI.
 [dependencies]
 quill-certs.workspace = true
-quill-proto.workspace = true
+quill-proto = { workspace = true, features = ["openapi"] }
 quill-mls-envelope.workspace = true
 quill-board-ui.workspace = true
 
@@ -41,6 +41,8 @@ tokio = { workspace = true, features = ["sync", "time"] }
 futures-util.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+utoipa.workspace = true
+utoipa-axum.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
 

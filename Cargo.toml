@@ -33,6 +33,8 @@ quill-certs = { path = "crates/quill-certs" }
 
 # Shared third-party dependencies
 anyhow = "1"
+# Compresses backup plaintext (2m); pure Rust, so no C toolchain in client builds.
+ruzstd = "0.9"
 age = { version = "0.11", default-features = false }
 aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
 argon2 = { version = "0.6", features = ["zeroize"] }
@@ -75,6 +77,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 unicode-normalization = "0.1"
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
+# The OpenAPI file (2m): the server and quill-proto's `openapi` feature.
+utoipa = { version = "6", default-features = false, features = ["macros", "uuid", "time"] }
+utoipa-axum = "0.3"
 zeroize = { version = "1", features = ["derive", "serde"] }
 
 [profile.release]

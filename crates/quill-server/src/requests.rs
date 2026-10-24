@@ -10,10 +10,9 @@
 //! log, starting with the pitch.
 
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, post},
 };
 use quill_mls_envelope::private_message::{self, ContentType};
 use quill_proto::{
@@ -26,6 +25,7 @@ use quill_proto::{
 };
 use sqlx::PgConnection;
 use time::OffsetDateTime;
+use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
 use crate::{AppState, auth::Authed, error::ApiError, routes::ApiJson};
@@ -35,13 +35,13 @@ const REQUESTS_PER_HOUR: usize = 20;
 /// The unique index behind "one waiting request per login per prompt".
 const ONE_WAITING: &str = "session_requests_one_waiting_idx";
 
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/requests", get(list_own).post(send))
-        .route("/requests/{id}", get(status).delete(withdraw))
-        .route("/requests/{id}/accept", post(accept))
-        .route("/requests/{id}/reject", post(decline))
-        .route("/prompts/{id}/requests", get(queue))
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(list_own, send))
+        .routes(routes!(status, withdraw))
+        .routes(routes!(accept))
+        .routes(routes!(decline))
+        .routes(routes!(queue))
 }
 
 fn decode(field: &str, text: &str) -> Result<Vec<u8>, ApiError> {
@@ -88,6 +88,20 @@ pub(crate) async fn release_held(conn: &mut PgConnection, prompt: Uuid) -> Resul
 
 /// `POST /requests`: files a request by the prompt's state. The answer is
 /// the same whether it's pending, held or refused.
+#[utoipa::path(
+    post, path = "/requests", tag = "requests", security(("bearer" = [])),
+    summary = "Ask to write with a prompt's author",
+    description = "Carries the session's MLS group from the start: a Welcome for the author's devices, and the encrypted pitch. One waiting request per prompt per persona.",
+    request_body = SendRequest,
+    responses(
+        (status = 201, body = RequestSent),
+        (status = 403, description = "The prompt isn't taking requests"),
+        (status = 404, description = "No such prompt"),
+        (status = 409, description = "One is already waiting, or the group id is taken"),
+        (status = 413, description = "An MLS object is over limits.maxMessageBytes"),
+        (status = 429, description = "Too many requests"),
+    ),
+)]
 async fn send(
     State(state): State<AppState>,
     authed: Authed,
@@ -251,6 +265,12 @@ fn author_view(state: &str) -> RequestStatus {
 type OwnRow = (Uuid, Option<Uuid>, Uuid, String, Vec<u8>, OffsetDateTime);
 
 /// `GET /requests`: the login's own requests, newest first.
+#[utoipa::path(
+    get, path = "/requests", tag = "requests", security(("bearer" = [])),
+    summary = "The login's own requests",
+    description = "As a requester may see them: waiting, a session, or no response. Declined, held and expired requests all read as waiting until they expire, then as no response.",
+    responses((status = 200, body = Vec<OutgoingRequest>)),
+)]
 async fn list_own(
     State(state): State<AppState>,
     authed: Authed,
@@ -303,6 +323,12 @@ async fn sides(conn: &mut PgConnection, id: Uuid, lock: bool) -> Result<SidesRow
 }
 
 /// `GET /requests/{id}`: its status, as the caller's side may see it.
+#[utoipa::path(
+    get, path = "/requests/{id}", tag = "requests", security(("bearer" = [])),
+    summary = "One request, as the caller's side may see it",
+    params(("id" = Uuid, Path, description = "The request")),
+    responses((status = 200, body = RequestState), (status = 404, description = "Not a request the login sent or received")),
+)]
 async fn status(
     State(state): State<AppState>,
     authed: Authed,
@@ -326,6 +352,16 @@ async fn status(
 
 /// `DELETE /requests/{id}`: the requester withdraws a request that isn't
 /// a session (or dismisses one that got no response).
+#[utoipa::path(
+    delete, path = "/requests/{id}", tag = "requests", security(("bearer" = [])),
+    summary = "Withdraw a request the login sent",
+    params(("id" = Uuid, Path, description = "The request")),
+    responses(
+        (status = 204, description = "Withdrawn"),
+        (status = 404, description = "Not a request the login sent"),
+        (status = 409, description = "It's already a session"),
+    ),
+)]
 async fn withdraw(
     State(state): State<AppState>,
     authed: Authed,
@@ -362,6 +398,13 @@ type QueueRow = (
 
 /// `GET /prompts/{id}/requests?state=pending|held`: the author's queue.
 /// Asking for held requests releases them to pending first.
+#[utoipa::path(
+    get, path = "/prompts/{id}/requests", tag = "requests", security(("bearer" = [])),
+    summary = "The requests waiting on one of the login's prompts",
+    description = "`state=held` lists requests held back by the author's settings, and reading them releases them to pending.",
+    params(("id" = Uuid, Path, description = "The prompt"), QueueQuery),
+    responses((status = 200, body = Queue), (status = 404, description = "Not one of the login's prompts")),
+)]
 async fn queue(
     State(state): State<AppState>,
     authed: Authed,
@@ -440,6 +483,16 @@ type AcceptRow = (String, Uuid, Vec<u8>, i64, Option<Vec<u8>>, Uuid, Uuid);
 
 /// `POST /requests/{id}/accept`: the group becomes a session. Its log
 /// starts with the pitch, and both personas' logins can use it.
+#[utoipa::path(
+    post, path = "/requests/{id}/accept", tag = "requests", security(("bearer" = [])),
+    summary = "Accept a request: the session starts",
+    params(("id" = Uuid, Path, description = "The request")),
+    responses(
+        (status = 200, body = GroupState),
+        (status = 404, description = "Not a request to one of the login's prompts"),
+        (status = 409, description = "Already a session, declined or expired"),
+    ),
+)]
 async fn accept(
     State(state): State<AppState>,
     authed: Authed,
@@ -530,6 +583,17 @@ async fn accept(
 
 /// `POST /requests/{id}/reject`: declines. Nothing reaches the requester;
 /// the record stays, without ciphertext, until it expires.
+#[utoipa::path(
+    post, path = "/requests/{id}/reject", tag = "requests", security(("bearer" = [])),
+    summary = "Decline a request, silently",
+    description = "The requester is never told; to them it stays waiting until it expires.",
+    params(("id" = Uuid, Path, description = "The request")),
+    responses(
+        (status = 204, description = "Declined"),
+        (status = 404, description = "Not a request to one of the login's prompts"),
+        (status = 409, description = "It's already a session"),
+    ),
+)]
 async fn decline(
     State(state): State<AppState>,
     authed: Authed,

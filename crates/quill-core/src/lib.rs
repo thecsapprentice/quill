@@ -21,6 +21,8 @@ pub mod sessions;
 pub mod store;
 #[cfg(feature = "test-tools")]
 pub mod testing;
+#[cfg(test)]
+mod vectors;
 pub mod words;
 
 pub use client::{Client, CoreError};

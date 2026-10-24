@@ -36,27 +36,62 @@ const TABLES: [Table; 5] = [
     Table::Messages,
     Table::Files,
 ];
-const FORMAT: &str = "quill-backup";
-const VERSION: u32 = 1;
+pub(crate) const FORMAT: &str = "quill-backup";
+/// 2: the JSON is zstd-compressed (2m).
+pub(crate) const VERSION: u32 = 2;
+/// The most a backup's plaintext may decompress to, so a damaged or hostile
+/// file can't exhaust memory.
+pub(crate) const MAX_PLAINTEXT_BYTES: u64 = 1024 * 1024 * 1024;
 const K_CODE: &[u8] = b"code";
 
 fn err(msg: impl Into<String>) -> CoreError {
     CoreError::Keys(msg.into())
 }
 
-/// The backup's plaintext: JSON (the protocol draft's CBOR is noted as a
-/// difference there), tables as lists of `[key, value]` in base64url.
+/// The backup's contents: JSON, tables as lists of `[key, value]` in
+/// base64url. The plaintext sealed is this JSON, zstd-compressed
+/// ([`pack`]).
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Contents {
-    format: String,
-    version: u32,
-    created_ms: u64,
-    tables: BTreeMap<String, Vec<[String; 2]>>,
+pub(crate) struct Contents {
+    pub(crate) format: String,
+    pub(crate) version: u32,
+    pub(crate) created_ms: u64,
+    pub(crate) tables: BTreeMap<String, Vec<[String; 2]>>,
+}
+
+/// The plaintext to seal: the contents as JSON, zstd-compressed.
+pub(crate) fn pack(contents: &Contents) -> Result<Zeroizing<Vec<u8>>, CoreError> {
+    let json =
+        Zeroizing::new(serde_json::to_vec(contents).map_err(|_| err("encoding the backup"))?);
+    Ok(Zeroizing::new(ruzstd::encoding::compress_to_vec(
+        json.as_slice(),
+        ruzstd::encoding::CompressionLevel::Fastest,
+    )))
+}
+
+/// The contents of an opened backup's plaintext.
+pub(crate) fn unpack(plain: &[u8]) -> Result<Contents, CoreError> {
+    use std::io::Read;
+    let damaged = || err("the backup's contents can't be read");
+    let decoder = ruzstd::decoding::StreamingDecoder::new(plain).map_err(|_| damaged())?;
+    let mut json = Zeroizing::new(Vec::new());
+    decoder
+        .take(MAX_PLAINTEXT_BYTES + 1)
+        .read_to_end(&mut json)
+        .map_err(|_| damaged())?;
+    if json.len() as u64 > MAX_PLAINTEXT_BYTES {
+        return Err(err("the backup is larger than this client will open"));
+    }
+    let contents: Contents = serde_json::from_slice(&json).map_err(|_| damaged())?;
+    if contents.format != FORMAT || contents.version != VERSION {
+        return Err(err("a backup from a newer or different client"));
+    }
+    Ok(contents)
 }
 
 /// The passphrase a code gives: its 12 words, lowercase, single spaces.
-fn passphrase(entropy: &[u8; 16]) -> Zeroizing<String> {
+pub(crate) fn passphrase(entropy: &[u8; 16]) -> Zeroizing<String> {
     Zeroizing::new(words::mnemonic(entropy).join(" "))
 }
 
@@ -104,15 +139,12 @@ pub async fn create(store: &Store, client: &Client, new_code: bool) -> Result<Cr
             .collect();
         tables.insert(t.name().to_owned(), rows);
     }
-    let plain = Zeroizing::new(
-        serde_json::to_vec(&Contents {
-            format: FORMAT.into(),
-            version: VERSION,
-            created_ms: keys::now_ms(),
-            tables,
-        })
-        .map_err(|_| err("encoding the backup"))?,
-    );
+    let plain = pack(&Contents {
+        format: FORMAT.into(),
+        version: VERSION,
+        created_ms: keys::now_ms(),
+        tables,
+    })?;
     let sealed = AgeCrate.seal(&passphrase(&entropy), &plain)?;
     let max = client.instance().await?.limits.max_backup_bytes;
     if sealed.len() as u64 > max {
@@ -185,11 +217,7 @@ pub async fn restore(store: &Store, client: &Client, typed: &str) -> Result<Rest
         sealed.extend_from_slice(&client.backup_part(part).await?);
     }
     let plain = AgeCrate.open(&passphrase(&entropy), &sealed)?;
-    let contents: Contents =
-        serde_json::from_slice(&plain).map_err(|_| err("the backup's contents can't be read"))?;
-    if contents.format != FORMAT || contents.version != VERSION {
-        return Err(err("a backup from a newer or different client"));
-    }
+    let contents = unpack(&plain)?;
     let mut rows: Vec<(Table, Vec<u8>, Zeroizing<Vec<u8>>)> = Vec::new();
     for t in TABLES {
         for [k, v] in contents

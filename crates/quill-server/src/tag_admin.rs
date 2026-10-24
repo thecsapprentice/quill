@@ -2,11 +2,10 @@
 //! administrators. Every change is written to the admin log.
 
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, patch},
 };
 use quill_proto::notices::{NoticeFields, NoticeKind};
 use quill_proto::{
@@ -18,6 +17,7 @@ use quill_proto::{
     validate,
 };
 use sqlx::{PgConnection, QueryBuilder};
+use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
 use crate::{
@@ -33,20 +33,12 @@ use crate::{
 /// Most tags one admin listing returns.
 pub const ADMIN_TAG_LIMIT: u32 = 200;
 
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/admin/tag-namespaces",
-            axum::routing::post(api_create_namespace),
-        )
-        .route("/admin/tag-namespaces/{name}", patch(api_update_namespace))
-        .route("/admin/tags", get(api_list_tags).post(api_create_tag))
-        .route(
-            "/admin/tags/{namespace}/{slug}",
-            get(api_get_tag)
-                .patch(api_update_tag)
-                .delete(api_delete_tag),
-        )
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(api_create_namespace))
+        .routes(routes!(api_update_namespace))
+        .routes(routes!(api_list_tags, api_create_tag))
+        .routes(routes!(api_get_tag, api_update_tag, api_delete_tag))
 }
 
 /// Notice fields naming a tag.
@@ -591,6 +583,12 @@ pub async fn delete_tag(
 
 // ---- JSON API ------------------------------------------------------------
 
+#[utoipa::path(
+    post, path = "/admin/tag-namespaces", tag = "admin", security(("bearer" = [])),
+    summary = "Create a tag namespace",
+    request_body = CreateNamespace,
+    responses((status = 201, body = TagNamespace), (status = 409, description = "It exists")),
+)]
 async fn api_create_namespace(
     State(state): State<AppState>,
     admin: Admin,
@@ -600,6 +598,13 @@ async fn api_create_namespace(
     Ok((StatusCode::CREATED, Json(ns)))
 }
 
+#[utoipa::path(
+    patch, path = "/admin/tag-namespaces/{name}", tag = "admin", security(("bearer" = [])),
+    summary = "Change a namespace: its label, whether it is locked or required",
+    params(("name" = String, Path, description = "The namespace")),
+    request_body = UpdateNamespace,
+    responses((status = 200, body = TagNamespace), (status = 404, description = "No such namespace")),
+)]
 async fn api_update_namespace(
     State(state): State<AppState>,
     admin: Admin,
@@ -611,6 +616,12 @@ async fn api_update_namespace(
         .map(Json)
 }
 
+#[utoipa::path(
+    get, path = "/admin/tags", tag = "admin", security(("bearer" = [])),
+    summary = "Tags with their use and status",
+    params(AdminTagQuery),
+    responses((status = 200, body = Vec<AdminTag>)),
+)]
 async fn api_list_tags(
     State(state): State<AppState>,
     _admin: Admin,
@@ -619,6 +630,12 @@ async fn api_list_tags(
     list_tags(&state, &q).await.map(Json)
 }
 
+#[utoipa::path(
+    get, path = "/admin/tags/{namespace}/{slug}", tag = "admin", security(("bearer" = [])),
+    summary = "One tag",
+    params(("namespace" = String, Path), ("slug" = String, Path)),
+    responses((status = 200, body = AdminTag), (status = 404, description = "No such tag")),
+)]
 async fn api_get_tag(
     State(state): State<AppState>,
     _admin: Admin,
@@ -627,6 +644,12 @@ async fn api_get_tag(
     get_tag(&state, &namespace, &slug).await.map(Json)
 }
 
+#[utoipa::path(
+    post, path = "/admin/tags", tag = "admin", security(("bearer" = [])),
+    summary = "Create a tag, in any namespace",
+    request_body = CreateTag,
+    responses((status = 201, body = Tag), (status = 409, description = "It exists")),
+)]
 async fn api_create_tag(
     State(state): State<AppState>,
     admin: Admin,
@@ -636,6 +659,17 @@ async fn api_create_tag(
     Ok((StatusCode::CREATED, Json(tag)))
 }
 
+#[utoipa::path(
+    patch, path = "/admin/tags/{namespace}/{slug}", tag = "admin", security(("bearer" = [])),
+    summary = "Rename, recolour, approve, merge or hide a tag",
+    params(("namespace" = String, Path), ("slug" = String, Path)),
+    request_body = UpdateTag,
+    responses(
+        (status = 200, body = Tag),
+        (status = 404, description = "No such tag"),
+        (status = 409, description = "The change clashes with another tag"),
+    ),
+)]
 async fn api_update_tag(
     State(state): State<AppState>,
     admin: Admin,
@@ -647,6 +681,12 @@ async fn api_update_tag(
         .map(Json)
 }
 
+#[utoipa::path(
+    delete, path = "/admin/tags/{namespace}/{slug}", tag = "admin", security(("bearer" = [])),
+    summary = "Delete a tag, taking it off every prompt",
+    params(("namespace" = String, Path), ("slug" = String, Path)),
+    responses((status = 200, body = DeletedTag), (status = 404, description = "No such tag")),
+)]
 async fn api_delete_tag(
     State(state): State<AppState>,
     admin: Admin,

@@ -1,13 +1,13 @@
 //! Prompt board handlers: prompts, tags and account settings.
 
 use std::collections::HashMap;
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::get,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use quill_proto::{
@@ -32,16 +32,13 @@ use crate::{
     server_settings,
 };
 
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/account", get(get_account).patch(update_account))
-        .route("/prompts", get(list_prompts).post(create_prompt))
-        .route(
-            "/prompts/{id}",
-            get(get_prompt).patch(update_prompt).delete(delete_prompt),
-        )
-        .route("/tag-namespaces", get(list_namespaces))
-        .route("/tags", get(list_tags).post(create_user_tag))
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(get_account, update_account))
+        .routes(routes!(list_prompts, create_prompt))
+        .routes(routes!(get_prompt, update_prompt, delete_prompt))
+        .routes(routes!(list_namespaces))
+        .routes(routes!(list_tags, create_user_tag))
 }
 
 pub(crate) fn parse_enum<T: std::str::FromStr>(value: &str) -> Result<T, ApiError> {
@@ -114,6 +111,11 @@ pub async fn update_account_settings(
     account_settings(state, account).await
 }
 
+#[utoipa::path(
+    get, path = "/account", tag = "account", security(("bearer" = [])),
+    summary = "The login's board settings",
+    responses((status = 200, body = AccountSettings)),
+)]
 async fn get_account(
     State(state): State<AppState>,
     authed: Authed,
@@ -121,6 +123,12 @@ async fn get_account(
     account_settings(&state, authed.account_id).await.map(Json)
 }
 
+#[utoipa::path(
+    patch, path = "/account", tag = "account", security(("bearer" = [])),
+    summary = "Change the login's board settings",
+    request_body = UpdateAccountSettings,
+    responses((status = 200, body = AccountSettings)),
+)]
 async fn update_account(
     State(state): State<AppState>,
     authed: Authed,
@@ -437,6 +445,13 @@ fn decode_cursor(cursor: &str) -> Result<(OffsetDateTime, Uuid), ApiError> {
     Ok((at, id.parse().map_err(|_| bad())?))
 }
 
+#[utoipa::path(
+    get, path = "/prompts", tag = "prompts", security((), ("bearer" = [])),
+    summary = "Search the board",
+    description = "Newest first, filtered by tags, maturity, text and origin. Without a token, maturity is capped at the server's default; with one, at the login's setting. Pages by `cursor`, which the previous page returns.",
+    params(PromptQuery),
+    responses((status = 200, body = PromptPage)),
+)]
 async fn list_prompts(
     State(state): State<AppState>,
     MaybeAuthed(authed): MaybeAuthed,
@@ -551,6 +566,12 @@ pub async fn search_prompts(
 
 /// `GET /prompts/{id}`. The maturity cap is not applied to a direct link;
 /// clients warn before showing a prompt above the viewer's setting.
+#[utoipa::path(
+    get, path = "/prompts/{id}", tag = "prompts", security((), ("bearer" = [])),
+    summary = "One prompt",
+    params(("id" = Uuid, Path, description = "The prompt")),
+    responses((status = 200, body = Prompt), (status = 404, description = "No such prompt, or not visible to the caller")),
+)]
 async fn get_prompt(
     State(state): State<AppState>,
     MaybeAuthed(authed): MaybeAuthed,
@@ -565,6 +586,15 @@ async fn get_prompt(
 
 // ---- Writing prompts -----------------------------------------------------
 
+#[utoipa::path(
+    post, path = "/prompts", tag = "prompts", security(("bearer" = [])),
+    summary = "Post a prompt as one of the login's personas",
+    request_body = CreatePrompt,
+    responses(
+        (status = 201, body = Prompt),
+        (status = 403, description = "This server doesn't allow new tags, or the namespace is locked"),
+    ),
+)]
 async fn create_prompt(
     State(state): State<AppState>,
     authed: Authed,
@@ -619,6 +649,17 @@ pub async fn post_prompt(
         .ok_or(ApiError::NotFound)
 }
 
+#[utoipa::path(
+    patch, path = "/prompts/{id}", tag = "prompts", security(("bearer" = [])),
+    summary = "Edit a prompt, or change its state",
+    params(("id" = Uuid, Path, description = "The prompt")),
+    request_body = UpdatePrompt,
+    responses(
+        (status = 200, body = Prompt),
+        (status = 403, description = "An administrator removed the prompt"),
+        (status = 404, description = "Not one of the login's prompts"),
+    ),
+)]
 async fn update_prompt(
     State(state): State<AppState>,
     authed: Authed,
@@ -729,6 +770,13 @@ pub async fn edit_prompt(
         .ok_or(ApiError::NotFound)
 }
 
+#[utoipa::path(
+    delete, path = "/prompts/{id}", tag = "prompts", security(("bearer" = [])),
+    summary = "Withdraw a prompt",
+    description = "Its waiting requests expire; sessions it started continue.",
+    params(("id" = Uuid, Path, description = "The prompt")),
+    responses((status = 204, description = "Withdrawn"), (status = 404, description = "Not one of the login's prompts")),
+)]
 async fn delete_prompt(
     State(state): State<AppState>,
     authed: Authed,
@@ -765,6 +813,11 @@ pub async fn remove_own_prompt(state: &AppState, account: Uuid, id: Uuid) -> Res
 
 // ---- Tags ----------------------------------------------------------------
 
+#[utoipa::path(
+    get, path = "/tag-namespaces", tag = "tags", security(()),
+    summary = "Tag namespaces, with whether each takes new tags",
+    responses((status = 200, body = Vec<TagNamespace>)),
+)]
 async fn list_namespaces(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<TagNamespace>>, ApiError> {
@@ -843,6 +896,12 @@ pub(crate) fn escape_like(input: &str) -> String {
         .replace('_', "\\_")
 }
 
+#[utoipa::path(
+    get, path = "/tags", tag = "tags", security(()),
+    summary = "Autocomplete tags",
+    params(TagQuery),
+    responses((status = 200, body = Vec<Tag>)),
+)]
 async fn list_tags(
     State(state): State<AppState>,
     Query(q): Query<TagQuery>,
@@ -893,6 +952,16 @@ pub(crate) async fn load_tag(
 }
 
 /// `POST /tags`: create a user tag ahead of using it.
+#[utoipa::path(
+    post, path = "/tags", tag = "tags", security(("bearer" = [])),
+    summary = "Create a tag in an unlocked namespace, as the server's tag policy allows",
+    request_body = CreateTag,
+    responses(
+        (status = 201, description = "Created", body = Tag),
+        (status = 200, description = "It already existed", body = Tag),
+        (status = 403, description = "The policy or the namespace doesn't allow it"),
+    ),
+)]
 async fn create_user_tag(
     State(state): State<AppState>,
     _authed: Authed,

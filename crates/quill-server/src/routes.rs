@@ -1,17 +1,17 @@
 //! `/api/v1` handlers for Phase 0: instance info, accounts and personas.
 
 use axum::{
-    Json, Router,
+    Json,
     extract::{FromRequest, Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, patch, post},
 };
 use quill_proto::{
     api::{CreatePersona, Credentials, InstanceInfo, Persona, TokenResponse, UpdatePersona},
     validate,
 };
 use time::{Duration, OffsetDateTime};
+use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
 use crate::{
@@ -25,17 +25,15 @@ use crate::{
 #[from_request(via(axum::Json), rejection(ApiError))]
 pub struct ApiJson<T>(pub T);
 
-pub fn api() -> Router<AppState> {
-    Router::new()
-        .route("/instance", get(instance))
-        .route("/auth/register", post(register))
-        .route("/auth/login", post(login))
-        .route("/auth/logout", post(logout))
-        .route("/personas", get(list_personas).post(create_persona))
-        .route(
-            "/personas/{id}",
-            patch(update_persona).delete(delete_persona),
-        )
+/// Every `/api/v1` route, each registered with its documentation.
+pub fn api() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(instance))
+        .routes(routes!(register))
+        .routes(routes!(login))
+        .routes(routes!(logout))
+        .routes(routes!(list_personas, create_persona))
+        .routes(routes!(update_persona, delete_persona))
         .merge(crate::prompts::router())
         .merge(crate::reports::router())
         .merge(crate::tag_admin::router())
@@ -52,6 +50,11 @@ pub fn api() -> Router<AppState> {
         .merge(crate::backups::router())
 }
 
+#[utoipa::path(
+    get, path = "/instance", tag = "instance", security(()),
+    summary = "What this server is: its domain, software, protocol versions, limits and policies",
+    responses((status = 200, body = InstanceInfo)),
+)]
 async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, ApiError> {
     let settings = crate::server_settings::settings(&state).await?;
     Ok(Json(InstanceInfo {
@@ -89,6 +92,17 @@ async fn issue_token(state: &AppState, account_id: Uuid) -> Result<TokenResponse
     })
 }
 
+#[utoipa::path(
+    post, path = "/auth/register", tag = "auth", security(()),
+    summary = "Create a login and sign in",
+    description = "Login names are 1-30 of a-z, 0-9 and underscore (folded to lowercase); passwords at least 12 characters and at most 1024 bytes.",
+    request_body = Credentials,
+    responses(
+        (status = 201, description = "Signed in", body = TokenResponse),
+        (status = 403, description = "Registration is closed"),
+        (status = 409, description = "The login name is taken"),
+    ),
+)]
 async fn register(
     State(state): State<AppState>,
     ApiJson(creds): ApiJson<Credentials>,
@@ -125,6 +139,17 @@ pub async fn create_account(state: &AppState, creds: Credentials) -> Result<Uuid
     Ok(account_id)
 }
 
+#[utoipa::path(
+    post, path = "/auth/login", tag = "auth", security(()),
+    summary = "Sign in",
+    description = "An unknown login and a wrong password fail identically, in the same time (one Argon2 check either way). At most 10 attempts per login name every 15 minutes.",
+    request_body = Credentials,
+    responses(
+        (status = 200, body = TokenResponse),
+        (status = 401, description = "Invalid username or password"),
+        (status = 429, description = "Too many attempts for this login name"),
+    ),
+)]
 async fn login(
     State(state): State<AppState>,
     ApiJson(creds): ApiJson<Credentials>,
@@ -173,6 +198,11 @@ pub async fn check_credentials(state: &AppState, creds: Credentials) -> Result<U
     }
 }
 
+#[utoipa::path(
+    post, path = "/auth/logout", tag = "auth", security(("bearer" = [])),
+    summary = "End this token",
+    responses((status = 204, description = "Signed out")),
+)]
 async fn logout(State(state): State<AppState>, authed: Authed) -> Result<StatusCode, ApiError> {
     sqlx::query("DELETE FROM api_tokens WHERE token_hash = $1")
         .bind(&authed.token_hash)
@@ -197,6 +227,11 @@ fn persona_from_row(
     }
 }
 
+#[utoipa::path(
+    get, path = "/personas", tag = "personas", security(("bearer" = [])),
+    summary = "The login's personas, oldest first",
+    responses((status = 200, body = Vec<Persona>)),
+)]
 async fn list_personas(
     State(state): State<AppState>,
     authed: Authed,
@@ -219,6 +254,16 @@ pub async fn personas(state: &AppState, account: Uuid) -> Result<Vec<Persona>, A
         .collect())
 }
 
+#[utoipa::path(
+    post, path = "/personas", tag = "personas", security(("bearer" = [])),
+    summary = "Create a persona",
+    request_body = CreatePersona,
+    responses(
+        (status = 201, body = Persona),
+        (status = 403, description = "The login has as many personas as the server allows"),
+        (status = 409, description = "The handle isn't available (taken, retired or reserved; the reply doesn't say which)"),
+    ),
+)]
 async fn create_persona(
     State(state): State<AppState>,
     authed: Authed,
@@ -304,6 +349,14 @@ async fn insert_persona(
     }
 }
 
+#[utoipa::path(
+    patch, path = "/personas/{id}", tag = "personas", security(("bearer" = [])),
+    summary = "Change a persona's display name or summary",
+    description = "A field left out stays; an empty string clears it.",
+    params(("id" = Uuid, Path, description = "The persona")),
+    request_body = UpdatePersona,
+    responses((status = 200, body = Persona), (status = 404, description = "Not one of the login's personas")),
+)]
 async fn update_persona(
     State(state): State<AppState>,
     authed: Authed,
@@ -335,6 +388,13 @@ async fn update_persona(
         .ok_or(ApiError::NotFound)
 }
 
+#[utoipa::path(
+    delete, path = "/personas/{id}", tag = "personas", security(("bearer" = [])),
+    summary = "Delete a persona, its prompts, and its waiting requests",
+    description = "Its handle is retired: no one can take it again.",
+    params(("id" = Uuid, Path, description = "The persona")),
+    responses((status = 204, description = "Deleted"), (status = 404, description = "Not one of the login's personas")),
+)]
 async fn delete_persona(
     State(state): State<AppState>,
     authed: Authed,

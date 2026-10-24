@@ -1,12 +1,12 @@
 //! Prompt reports, the administrators' inbox and the append-only admin log.
 
 use std::time::Duration;
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, post},
 };
 use quill_proto::board::{
     AdminAction, AdminLogDetail, AdminLogEntry, AdminLogPrompt, AdminLogQuery, AdminLogTarget,
@@ -34,13 +34,13 @@ const ACCOUNT_REPORTS_PER_HOUR: usize = 20;
 /// per-visitor limit because the server does not track IP addresses.
 const ANONYMOUS_REPORTS_PER_HOUR: usize = 60;
 
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/reports", post(create_report))
-        .route("/admin/reports", get(list_reports))
-        .route("/admin/reports/{id}/resolve", post(resolve_report))
-        .route("/admin/log", get(read_log))
-        .route("/admin/log/{id}", get(read_log_entry))
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(create_report))
+        .routes(routes!(list_reports))
+        .routes(routes!(resolve_report))
+        .routes(routes!(read_log))
+        .routes(routes!(read_log_entry))
 }
 
 /// SHA-256 of the prompt's title and body, recorded instead of its text.
@@ -66,6 +66,17 @@ fn parse_reason(raw: &str) -> Result<ReportReason, ApiError> {
 
 /// `POST /reports`. Files a Review Message in the administrators' inbox.
 /// The reporter's account, if any, is kept for abuse control only.
+#[utoipa::path(
+    post, path = "/reports", tag = "reports", security((), ("bearer" = [])),
+    summary = "Report a prompt to the administrators",
+    description = "Signing in is optional. The author never learns who reported, and reports are rate-limited per reporter.",
+    request_body = CreateReport,
+    responses(
+        (status = 202, description = "Received"),
+        (status = 404, description = "No such prompt"),
+        (status = 429, description = "Too many reports"),
+    ),
+)]
 async fn create_report(
     State(state): State<AppState>,
     MaybeAuthed(authed): MaybeAuthed,
@@ -164,6 +175,12 @@ async fn to_report(state: &AppState, row: ReportRow) -> Result<Report, ApiError>
 }
 
 /// `GET /admin/reports?state=open|all`, oldest open reports first.
+#[utoipa::path(
+    get, path = "/admin/reports", tag = "admin", security(("bearer" = [])),
+    summary = "Reports, open ones by default",
+    params(ReportQuery),
+    responses((status = 200, body = Vec<Report>)),
+)]
 async fn list_reports(
     State(state): State<AppState>,
     _admin: Admin,
@@ -198,6 +215,13 @@ pub async fn reports(state: &AppState, all: bool) -> Result<Vec<Report>, ApiErro
 
 /// `POST /admin/reports/{id}/resolve`: discard the report, or remove the
 /// prompt from the board. Both are logged.
+#[utoipa::path(
+    post, path = "/admin/reports/{id}/resolve", tag = "admin", security(("bearer" = [])),
+    summary = "Resolve a report: dismiss it, or remove or restore the prompt",
+    params(("id" = Uuid, Path, description = "The report")),
+    request_body = ResolveReport,
+    responses((status = 200, body = Report), (status = 404, description = "No such report")),
+)]
 async fn resolve_report(
     State(state): State<AppState>,
     Admin(admin): Admin,
@@ -382,6 +406,13 @@ impl LogRow {
 }
 
 /// `GET /admin/log`, newest first.
+#[utoipa::path(
+    get, path = "/admin/log", tag = "admin", security(("bearer" = [])),
+    summary = "The append-only administrator log, newest first",
+    description = "Pages by `before`, the last id of the previous page.",
+    params(AdminLogQuery),
+    responses((status = 200, body = Vec<AdminLogEntry>)),
+)]
 async fn read_log(
     State(state): State<AppState>,
     _admin: Admin,
@@ -391,6 +422,12 @@ async fn read_log(
 }
 
 /// `GET /admin/log/{id}`: one entry and a page of the accounts it was against.
+#[utoipa::path(
+    get, path = "/admin/log/{id}", tag = "admin", security(("bearer" = [])),
+    summary = "One log entry, with a page of the accounts it touched",
+    params(("id" = i64, Path, description = "The entry"), AdminLogTargetQuery),
+    responses((status = 200, body = AdminLogDetail), (status = 404, description = "No such entry")),
+)]
 async fn read_log_entry(
     State(state): State<AppState>,
     _admin: Admin,

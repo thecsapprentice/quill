@@ -5,15 +5,15 @@
 //! to logins.
 
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, State},
-    routing::get,
 };
 use quill_proto::{
     keys::b64,
     sessions::{AccountStorage, AccountStorageSummary, ServerStorage, SessionStorage},
 };
 use sqlx::PgConnection;
+use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
 use crate::{
@@ -22,11 +22,11 @@ use crate::{
     error::ApiError,
 };
 
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/account/storage", get(own))
-        .route("/admin/storage", get(server))
-        .route("/admin/storage/{account}", get(one))
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(own))
+        .routes(routes!(server))
+        .routes(routes!(one))
 }
 
 fn n(v: i64) -> u64 {
@@ -136,6 +136,11 @@ pub(crate) async fn account_storage(
 }
 
 /// `GET /account/storage`: the caller's own.
+#[utoipa::path(
+    get, path = "/account/storage", tag = "account", security(("bearer" = [])),
+    summary = "What the login's attachments take, per session, against its quota",
+    responses((status = 200, body = AccountStorage)),
+)]
 async fn own(
     State(state): State<AppState>,
     authed: Authed,
@@ -152,6 +157,12 @@ async fn own(
 }
 
 /// `GET /admin/storage/{account}`: one login, without persona handles.
+#[utoipa::path(
+    get, path = "/admin/storage/{account}", tag = "admin", security(("bearer" = [])),
+    summary = "One login's storage, per session, without persona handles",
+    params(("account" = Uuid, Path)),
+    responses((status = 200, body = AccountStorage), (status = 404, description = "No such login")),
+)]
 async fn one(
     State(state): State<AppState>,
     _admin: Admin,
@@ -240,6 +251,11 @@ pub(crate) async fn server_storage(
 }
 
 /// `GET /admin/storage`.
+#[utoipa::path(
+    get, path = "/admin/storage", tag = "admin", security(("bearer" = [])),
+    summary = "What attachments take on the server, per login (sizes only)",
+    responses((status = 200, body = ServerStorage)),
+)]
 async fn server(
     State(state): State<AppState>,
     _admin: Admin,

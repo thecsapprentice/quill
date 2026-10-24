@@ -1,0 +1,1102 @@
+{
+  "description": "JSON objects (protocol draft, sections 5 and 11) against the schemas in schemas/. Every `valid` object is what the client produces and passes its schema; `unknownTerms` adds terms nobody defined, which schema and reader both accept; `invalid` objects fail the schema. readerTakes says whether the client's reader still parses one (then it discards it or reads it leniently, as `why` says); a reader must never take an object missing a required field.",
+  "invalid": [
+    {
+      "name": "no object",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 1,
+        "channel": "story",
+        "hlc": "1792746000123-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556601",
+        "type": "Create"
+      },
+      "readerTakes": false,
+      "schema": "activity.json",
+      "why": "required"
+    },
+    {
+      "name": "no id",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 1,
+        "channel": "story",
+        "hlc": "1792746000123-0000",
+        "object": {
+          "content": "The ledger's last page was still wet.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Create"
+      },
+      "readerTakes": false,
+      "schema": "activity.json",
+      "why": "required"
+    },
+    {
+      "name": "no @context",
+      "object": {
+        "authorSeq": 1,
+        "channel": "story",
+        "hlc": "1792746000123-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556601",
+        "object": {
+          "content": "The ledger's last page was still wet.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Create"
+      },
+      "readerTakes": false,
+      "schema": "activity.json",
+      "why": "required"
+    },
+    {
+      "name": "a note without content",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 1,
+        "channel": "story",
+        "hlc": "1792746000123-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556601",
+        "object": {
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Create"
+      },
+      "readerTakes": false,
+      "schema": "activity.json",
+      "why": "required"
+    },
+    {
+      "name": "a channel without a name",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 7,
+        "channel": "world",
+        "hlc": "1792746000700-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-44445555660a",
+        "object": {
+          "summary": "Places and people",
+          "type": "wr:Channel"
+        },
+        "type": "Update"
+      },
+      "readerTakes": false,
+      "schema": "activity.json",
+      "why": "required"
+    },
+    {
+      "name": "a Read activity",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 1,
+        "channel": "story",
+        "hlc": "1792746000123-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556601",
+        "object": {
+          "content": "The ledger's last page was still wet.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Read"
+      },
+      "readerTakes": true,
+      "schema": "activity.json",
+      "why": "never sent; a reader discards it"
+    },
+    {
+      "name": "a malformed clock",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 1,
+        "channel": "story",
+        "hlc": "12-1",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556601",
+        "object": {
+          "content": "The ledger's last page was still wet.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Create"
+      },
+      "readerTakes": true,
+      "schema": "activity.json",
+      "why": "a reader reads it as 0-0000"
+    },
+    {
+      "name": "a malformed channel",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 1,
+        "channel": "Story",
+        "hlc": "1792746000123-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556601",
+        "object": {
+          "content": "The ledger's last page was still wet.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Create"
+      },
+      "readerTakes": true,
+      "schema": "activity.json",
+      "why": "a reader files the note under story"
+    },
+    {
+      "name": "authorSeq 0",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 0,
+        "channel": "story",
+        "hlc": "1792746000123-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556601",
+        "object": {
+          "content": "The ledger's last page was still wet.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Create"
+      },
+      "readerTakes": true,
+      "schema": "activity.json",
+      "why": "counts start at 1"
+    },
+    {
+      "name": "a deletion carrying a note",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 5,
+        "channel": "story",
+        "hlc": "1792746000500-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556608",
+        "object": {
+          "content": "The ledger's last page was still wet.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Delete"
+      },
+      "readerTakes": true,
+      "schema": "activity.json",
+      "why": "a reader deletes the note it names"
+    },
+    {
+      "name": "an id that isn't a urn:uuid",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 1,
+        "channel": "story",
+        "hlc": "1792746000123-0000",
+        "id": "https://writers.example/notes/1",
+        "object": {
+          "content": "The ledger's last page was still wet.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Create"
+      },
+      "readerTakes": true,
+      "schema": "activity.json",
+      "why": "ids inside sessions are urn:uuid"
+    },
+    {
+      "name": "no key",
+      "object": {
+        "blobToken": "blob-token",
+        "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+        "encAlg": "A256GCM",
+        "hashAlg": "sha-256",
+        "mediaType": "text/plain",
+        "name": "notes.txt",
+        "nonce": "AwMDAwMDAwMDAwMD",
+        "size": 23,
+        "type": "EncryptedAttachment",
+        "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+      },
+      "readerTakes": false,
+      "schema": "encrypted-attachment.json",
+      "why": "required"
+    },
+    {
+      "name": "another cipher",
+      "object": {
+        "blobToken": "blob-token",
+        "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+        "encAlg": "A128GCM",
+        "hashAlg": "sha-256",
+        "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+        "mediaType": "text/plain",
+        "name": "notes.txt",
+        "nonce": "AwMDAwMDAwMDAwMD",
+        "size": 23,
+        "type": "EncryptedAttachment",
+        "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+      },
+      "readerTakes": true,
+      "schema": "encrypted-attachment.json",
+      "why": "a reader refuses to open it"
+    },
+    {
+      "name": "a 16-byte key",
+      "object": {
+        "blobToken": "blob-token",
+        "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+        "encAlg": "A256GCM",
+        "hashAlg": "sha-256",
+        "key": "AQEBAQEBAQEBAQEBAQEBAQ",
+        "mediaType": "text/plain",
+        "name": "notes.txt",
+        "nonce": "AwMDAwMDAwMDAwMD",
+        "size": 23,
+        "type": "EncryptedAttachment",
+        "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+      },
+      "readerTakes": true,
+      "schema": "encrypted-attachment.json",
+      "why": "a reader refuses to open it"
+    },
+    {
+      "name": "a bundle without last",
+      "object": {
+        "forDevice": "0192f3d0-2222-7000-8000-000000000001",
+        "from": 1,
+        "parts": [
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          },
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            },
+            "file": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+          }
+        ],
+        "session": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+        "to": 40,
+        "type": "historyBundle"
+      },
+      "readerTakes": false,
+      "schema": "device-payload.json",
+      "why": "required"
+    },
+    {
+      "name": "a type nobody defined",
+      "object": {
+        "from": 1,
+        "session": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+        "to": 18446744073709551615,
+        "type": "settings"
+      },
+      "readerTakes": false,
+      "schema": "device-payload.json",
+      "why": "a reader skips it"
+    },
+    {
+      "name": "a request without to",
+      "object": {
+        "from": 1,
+        "session": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+        "type": "historyRequest"
+      },
+      "readerTakes": false,
+      "schema": "device-payload.json",
+      "why": "required"
+    },
+    {
+      "name": "an identity key that isn't 32 bytes",
+      "object": {
+        "devices": [
+          {
+            "device": "0192f3d0-2222-7000-8000-000000000003",
+            "personas": [
+              {
+                "device": "0192f3d0-2222-7000-8000-000000000004",
+                "persona": "0192f3d0-2222-7000-8000-000000000002"
+              }
+            ]
+          }
+        ],
+        "identities": [
+          {
+            "key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ",
+            "keyVersion": 1,
+            "persona": "0192f3d0-2222-7000-8000-000000000002"
+          }
+        ],
+        "pins": [
+          {
+            "actorUri": "https://writers.example/users/bo",
+            "key": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+            "keyVersion": 2
+          }
+        ],
+        "type": "deviceGrant"
+      },
+      "readerTakes": true,
+      "schema": "device-payload.json",
+      "why": "a reader refuses the grant"
+    },
+    {
+      "name": "11 parts",
+      "object": {
+        "forDevice": "0192f3d0-2222-7000-8000-000000000001",
+        "from": 1,
+        "last": true,
+        "parts": [
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          },
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          },
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          },
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          },
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          },
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          },
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          },
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          },
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          },
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          },
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          }
+        ],
+        "session": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+        "to": 40,
+        "type": "historyBundle"
+      },
+      "readerTakes": true,
+      "schema": "device-payload.json",
+      "why": "senders split bundles into messages of at most 10"
+    },
+    {
+      "name": "a note without versions",
+      "object": {
+        "channels": [
+          {
+            "name": "world",
+            "notes": 0,
+            "summary": "Places and people",
+            "unseen": 0,
+            "versions": [
+              {
+                "content": "Places and people",
+                "hlc": "1792746000700-0000",
+                "seq": 13
+              }
+            ]
+          }
+        ],
+        "notes": [
+          {
+            "attachments": [],
+            "authorSeq": 1,
+            "channel": "story",
+            "content": "The ledger's last page was dry.",
+            "deleted": false,
+            "device": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU",
+            "hlc": "1792746000123-0000",
+            "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+            "inReplyTo": null,
+            "own": false,
+            "sender": "https://writers.example/users/ink_fox",
+            "seq": 12
+          }
+        ],
+        "seen": [
+          [
+            "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU",
+            [
+              1,
+              2,
+              4
+            ]
+          ]
+        ]
+      },
+      "readerTakes": false,
+      "schema": "history-rows.json",
+      "why": "required"
+    }
+  ],
+  "unknownTerms": [
+    {
+      "name": "on the activity and the note",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 1,
+        "channel": "story",
+        "hlc": "1792746000123-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556601",
+        "object": {
+          "content": "The ledger's last page was still wet.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "summary": "ignored",
+          "type": "Note"
+        },
+        "type": "Create",
+        "wr:mood": "tense"
+      },
+      "schema": "activity.json"
+    },
+    {
+      "name": "an image's size",
+      "object": {
+        "blobToken": "blob-token",
+        "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+        "encAlg": "A256GCM",
+        "hashAlg": "sha-256",
+        "height": 800,
+        "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+        "mediaType": "text/plain",
+        "name": "notes.txt",
+        "nonce": "AwMDAwMDAwMDAwMD",
+        "size": 23,
+        "type": "EncryptedAttachment",
+        "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001",
+        "width": 1200
+      },
+      "schema": "encrypted-attachment.json"
+    },
+    {
+      "name": "a later field",
+      "object": {
+        "from": 1,
+        "priority": 3,
+        "session": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+        "to": 18446744073709551615,
+        "type": "historyRequest"
+      },
+      "schema": "device-payload.json"
+    },
+    {
+      "name": "a later table",
+      "object": {
+        "channels": [
+          {
+            "name": "world",
+            "notes": 0,
+            "summary": "Places and people",
+            "unseen": 0,
+            "versions": [
+              {
+                "content": "Places and people",
+                "hlc": "1792746000700-0000",
+                "seq": 13
+              }
+            ]
+          }
+        ],
+        "notes": [
+          {
+            "attachments": [],
+            "authorSeq": 1,
+            "channel": "story",
+            "content": "The ledger's last page was dry.",
+            "deleted": false,
+            "device": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU",
+            "hlc": "1792746000123-0000",
+            "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+            "inReplyTo": null,
+            "own": false,
+            "sender": "https://writers.example/users/ink_fox",
+            "seq": 12,
+            "versions": [
+              {
+                "content": "The ledger's last page was still wet.",
+                "hlc": "1792746000123-0000",
+                "seq": 12
+              },
+              {
+                "content": "The ledger's last page was dry.",
+                "hlc": "1792746000400-0000",
+                "seq": 15
+              }
+            ]
+          }
+        ],
+        "reactions": [],
+        "seen": [
+          [
+            "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU",
+            [
+              1,
+              2,
+              4
+            ]
+          ]
+        ]
+      },
+      "schema": "history-rows.json"
+    }
+  ],
+  "valid": [
+    {
+      "name": "a note",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 1,
+        "channel": "story",
+        "hlc": "1792746000123-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556601",
+        "object": {
+          "content": "The ledger's last page was still wet.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Create"
+      },
+      "schema": "activity.json"
+    },
+    {
+      "name": "a reply in another channel",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 2,
+        "channel": "planning",
+        "hlc": "1792746000200-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556603",
+        "object": {
+          "content": "See planning.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556604",
+          "inReplyTo": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Create"
+      },
+      "schema": "activity.json"
+    },
+    {
+      "name": "a note with a file",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 3,
+        "channel": "story",
+        "hlc": "1792746000300-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556605",
+        "object": {
+          "attachment": [
+            {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          ],
+          "content": "A map.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556606",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Create"
+      },
+      "schema": "activity.json"
+    },
+    {
+      "name": "an edit",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 4,
+        "channel": "story",
+        "hlc": "1792746000400-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556607",
+        "object": {
+          "content": "The ledger's last page was dry.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Update"
+      },
+      "schema": "activity.json"
+    },
+    {
+      "name": "a deletion",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 5,
+        "channel": "story",
+        "hlc": "1792746000500-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556608",
+        "object": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+        "type": "Delete"
+      },
+      "schema": "activity.json"
+    },
+    {
+      "name": "naming a channel",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 6,
+        "channel": "world",
+        "hlc": "1792746000600-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556609",
+        "object": {
+          "name": "world",
+          "type": "wr:Channel"
+        },
+        "type": "Create"
+      },
+      "schema": "activity.json"
+    },
+    {
+      "name": "describing a channel",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 7,
+        "channel": "world",
+        "hlc": "1792746000700-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-44445555660a",
+        "object": {
+          "name": "world",
+          "summary": "Places and people",
+          "type": "wr:Channel"
+        },
+        "type": "Update"
+      },
+      "schema": "activity.json"
+    },
+    {
+      "name": "no channel (story)",
+      "object": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://quill.example/ns/wr/1.0"
+        ],
+        "authorSeq": 1,
+        "hlc": "1792746000123-0000",
+        "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556601",
+        "object": {
+          "content": "The ledger's last page was still wet.",
+          "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+          "mediaType": "text/markdown",
+          "type": "Note"
+        },
+        "type": "Create"
+      },
+      "schema": "activity.json"
+    },
+    {
+      "name": "an attachment",
+      "object": {
+        "blobToken": "blob-token",
+        "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+        "encAlg": "A256GCM",
+        "hashAlg": "sha-256",
+        "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+        "mediaType": "text/plain",
+        "name": "notes.txt",
+        "nonce": "AwMDAwMDAwMDAwMD",
+        "size": 23,
+        "type": "EncryptedAttachment",
+        "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+      },
+      "schema": "encrypted-attachment.json"
+    },
+    {
+      "name": "a history request for an ended session",
+      "object": {
+        "from": 1,
+        "session": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+        "to": 18446744073709551615,
+        "type": "historyRequest"
+      },
+      "schema": "device-payload.json"
+    },
+    {
+      "name": "a history bundle",
+      "object": {
+        "forDevice": "0192f3d0-2222-7000-8000-000000000001",
+        "from": 1,
+        "last": true,
+        "parts": [
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            }
+          },
+          {
+            "blob": {
+              "blobToken": "blob-token",
+              "contentHash": "9qlUpoVVGH2IzZoCaUDRWrKn4kx1F9Ic7rAo6TyW8xg",
+              "encAlg": "A256GCM",
+              "hashAlg": "sha-256",
+              "key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+              "mediaType": "text/plain",
+              "name": "notes.txt",
+              "nonce": "AwMDAwMDAwMDAwMD",
+              "size": 23,
+              "type": "EncryptedAttachment",
+              "url": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+            },
+            "file": "https://writers.example/api/v1/blobs/0192f3d0-2222-7000-8000-000000000001"
+          }
+        ],
+        "session": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+        "to": 40,
+        "type": "historyBundle"
+      },
+      "schema": "device-payload.json"
+    },
+    {
+      "name": "a device grant",
+      "object": {
+        "devices": [
+          {
+            "device": "0192f3d0-2222-7000-8000-000000000003",
+            "personas": [
+              {
+                "device": "0192f3d0-2222-7000-8000-000000000004",
+                "persona": "0192f3d0-2222-7000-8000-000000000002"
+              }
+            ]
+          }
+        ],
+        "identities": [
+          {
+            "key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+            "keyVersion": 1,
+            "persona": "0192f3d0-2222-7000-8000-000000000002"
+          }
+        ],
+        "pins": [
+          {
+            "actorUri": "https://writers.example/users/bo",
+            "key": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+            "keyVersion": 2
+          }
+        ],
+        "type": "deviceGrant"
+      },
+      "schema": "device-payload.json"
+    },
+    {
+      "name": "device keys",
+      "object": {
+        "device": "0192f3d0-2222-7000-8000-000000000003",
+        "personas": [
+          {
+            "device": "0192f3d0-2222-7000-8000-000000000004",
+            "persona": "0192f3d0-2222-7000-8000-000000000002"
+          }
+        ],
+        "type": "deviceKeys"
+      },
+      "schema": "device-payload.json"
+    },
+    {
+      "name": "rows",
+      "object": {
+        "channels": [
+          {
+            "name": "world",
+            "notes": 0,
+            "summary": "Places and people",
+            "unseen": 0,
+            "versions": [
+              {
+                "content": "Places and people",
+                "hlc": "1792746000700-0000",
+                "seq": 13
+              }
+            ]
+          }
+        ],
+        "notes": [
+          {
+            "attachments": [],
+            "authorSeq": 1,
+            "channel": "story",
+            "content": "The ledger's last page was dry.",
+            "deleted": false,
+            "device": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU",
+            "hlc": "1792746000123-0000",
+            "id": "urn:uuid:0192f3d0-1111-7222-8333-444455556602",
+            "inReplyTo": null,
+            "own": false,
+            "sender": "https://writers.example/users/ink_fox",
+            "seq": 12,
+            "versions": [
+              {
+                "content": "The ledger's last page was still wet.",
+                "hlc": "1792746000123-0000",
+                "seq": 12
+              },
+              {
+                "content": "The ledger's last page was dry.",
+                "hlc": "1792746000400-0000",
+                "seq": 15
+              }
+            ]
+          }
+        ],
+        "seen": [
+          [
+            "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU",
+            [
+              1,
+              2,
+              4
+            ]
+          ]
+        ]
+      },
+      "schema": "history-rows.json"
+    }
+  ]
+}

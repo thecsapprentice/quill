@@ -8,12 +8,11 @@
 //! the quota does, and the login may delete them once read.
 
 use axum::{
-    Json, Router,
+    Json,
     body::Body,
     extract::{DefaultBodyLimit, Path, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{get, post},
 };
 use quill_proto::{
     keys::{b64, unb64},
@@ -21,23 +20,19 @@ use quill_proto::{
     sessions::{BLOB_TOKEN_HEADER, BlobUploaded},
 };
 use sha2::{Digest, Sha256};
+use utoipa_axum::router::UtoipaMethodRouterExt;
+use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
 use crate::{AppState, auth::Authed, error::ApiError};
 
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/sessions/{id}/blobs",
-            // The attachment limit is enforced while reading, below; the
-            // API's smaller envelope limit doesn't apply here.
-            post(upload).layer(DefaultBodyLimit::disable()),
-        )
-        .route(
-            "/groups/{id}/blobs",
-            post(upload).layer(DefaultBodyLimit::disable()),
-        )
-        .route("/blobs/{id}", get(fetch).delete(remove))
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        // The attachment limit is enforced while reading, below; the API's
+        // smaller envelope limit doesn't apply here.
+        .routes(routes!(upload).layer(DefaultBodyLimit::disable()))
+        .routes(routes!(upload_to_group).layer(DefaultBodyLimit::disable()))
+        .routes(routes!(fetch, remove))
 }
 
 fn quota_full() -> ApiError {
@@ -46,8 +41,46 @@ fn quota_full() -> ApiError {
     )
 }
 
+/// `POST /groups/{id}/blobs`: [`upload`], documented for the login's
+/// device group.
+#[utoipa::path(
+    post, path = "/groups/{id}/blobs", tag = "blobs", security(("bearer" = [])),
+    summary = "Upload an encrypted blob to a session or the login's own device group",
+    description = "As for sessions; the login's device group takes them for history bundles, whatever the attachments setting, and within the quota.",
+    params(("id" = String, Path, description = "The group id, base64url")),
+    request_body(content = Vec<u8>, content_type = "application/octet-stream", description = "The padded ciphertext: AES-256-GCM output padded with zeros to a size bucket, a power of two from 4 KiB or limits.maxAttachmentBytes itself (see test-vectors/limits.json)"),
+    responses(
+        (status = 201, body = BlobUploaded),
+        (status = 403, description = "The session has ended, the server takes no attachments, or the login's quota is full"),
+        (status = 404, description = "Not a group of the login's"),
+        (status = 413, description = "Over limits.maxAttachmentBytes"),
+    ),
+)]
+async fn upload_to_group(
+    state: State<AppState>,
+    authed: Authed,
+    id: Path<String>,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<(StatusCode, Json<BlobUploaded>), ApiError> {
+    upload(state, authed, id, headers, body).await
+}
+
 /// `POST /sessions/{id}/blobs` (or `/groups/{id}/blobs`, which also takes
 /// the login's device group): the body is the padded ciphertext.
+#[utoipa::path(
+    post, path = "/sessions/{id}/blobs", tag = "blobs", security(("bearer" = [])),
+    summary = "Upload an encrypted attachment to a session",
+    description = "Returns the blob's id and its token, which the server keeps only as a hash; both go inside the MLS message that carries the file's key.",
+    params(("id" = String, Path, description = "The session: its group id, base64url")),
+    request_body(content = Vec<u8>, content_type = "application/octet-stream", description = "The padded ciphertext: AES-256-GCM output padded with zeros to a size bucket, a power of two from 4 KiB or limits.maxAttachmentBytes itself (see test-vectors/limits.json)"),
+    responses(
+        (status = 201, body = BlobUploaded),
+        (status = 403, description = "The session has ended, the server takes no attachments, or the login's quota is full"),
+        (status = 404, description = "Not a session of the login's"),
+        (status = 413, description = "Over limits.maxAttachmentBytes"),
+    ),
+)]
 async fn upload(
     State(state): State<AppState>,
     authed: Authed,
@@ -161,6 +194,16 @@ fn token_of(headers: &HeaderMap) -> Result<Vec<u8>, ApiError> {
 /// `GET /blobs/{id}`: needs a login in the blob's session (or whose device
 /// group it's in) and the blob's token (header `Blob-Token`). Anything
 /// else looks like a missing blob.
+#[utoipa::path(
+    get, path = "/blobs/{id}", tag = "blobs", security(("bearer" = [])),
+    summary = "Fetch a blob",
+    description = "Needs a login in the blob's group and the blob's token.",
+    params(("id" = Uuid, Path, description = "The blob"), ("Blob-Token" = String, Header, description = "The token the message carried")),
+    responses(
+        (status = 200, description = "The padded ciphertext", content_type = "application/octet-stream", body = Vec<u8>),
+        (status = 404, description = "No such blob, a wrong token, or not in its group (the reply doesn't say which)"),
+    ),
+)]
 async fn fetch(
     State(state): State<AppState>,
     authed: Authed,
@@ -188,6 +231,15 @@ async fn fetch(
 /// `DELETE /blobs/{id}`: a blob in the login's own device group, once the
 /// device it was for has it (2k). Session attachments go only with their
 /// messages.
+#[utoipa::path(
+    delete, path = "/blobs/{id}", tag = "blobs", security(("bearer" = [])),
+    summary = "Delete a blob in the login's own device group, once read",
+    params(("id" = Uuid, Path, description = "The blob"), ("Blob-Token" = String, Header, description = "The token the message carried")),
+    responses(
+        (status = 204, description = "Deleted"),
+        (status = 404, description = "No such blob in the login's device group, or a wrong token"),
+    ),
+)]
 async fn remove(
     State(state): State<AppState>,
     authed: Authed,

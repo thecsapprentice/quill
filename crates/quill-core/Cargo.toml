@@ -26,6 +26,7 @@ redb.workspace = true
 sha2.workspace = true
 aes-gcm.workspace = true
 age.workspace = true
+ruzstd.workspace = true
 reqwest = { workspace = true, features = ["rustls"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -54,6 +55,9 @@ zbus-secret-service-keyring-store = { version = "1", features = ["rt-async-io-cr
 # Cross-checks the server's KeyPackage parser against real packages.
 quill-mls-envelope.workspace = true
 tempfile = "3"
+hex = "0.4"
+# Checks the JSON Schemas in schemas/ against what the client produces.
+boon = "0.6"
 
 [features]
 # Helpers for end-to-end tests that play a dishonest client.

@@ -1,9 +1,10 @@
 //! Settings administrators change while the server runs, stored in the
 //! database. Environment variables only supply their starting values.
 
-use axum::{Json, Router, extract::State, routing::get};
+use axum::{Json, extract::State};
 use quill_proto::board::{AdminAction, ServerSettings, TagPolicy, UpdateServerSettings};
 use sqlx::{PgConnection, PgPool};
+use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
 use crate::{
@@ -16,8 +17,8 @@ const NEW_TAGS: &str = "new_tags";
 /// Whether sessions take attachments.
 const ATTACHMENTS: &str = "attachments";
 
-pub fn router() -> Router<AppState> {
-    Router::new().route("/admin/settings", get(api_get).patch(api_update))
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new().routes(routes!(api_get, api_update))
 }
 
 /// Stores starting values for settings that have never been set.
@@ -133,6 +134,11 @@ pub async fn update(
     settings(state).await
 }
 
+#[utoipa::path(
+    get, path = "/admin/settings", tag = "admin", security(("bearer" = [])),
+    summary = "The server's settings",
+    responses((status = 200, body = ServerSettings)),
+)]
 async fn api_get(
     State(state): State<AppState>,
     _admin: Admin,
@@ -140,6 +146,12 @@ async fn api_get(
     settings(&state).await.map(Json)
 }
 
+#[utoipa::path(
+    patch, path = "/admin/settings", tag = "admin", security(("bearer" = [])),
+    summary = "Change the server's settings",
+    request_body = UpdateServerSettings,
+    responses((status = 200, body = ServerSettings)),
+)]
 async fn api_update(
     State(state): State<AppState>,
     admin: Admin,

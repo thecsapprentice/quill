@@ -34,6 +34,7 @@ crate::board::string_enum! {
 
 /// Kind-specific details. Absent fields don't apply to the kind.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct NoticeFields {
     /// The tag acted on, as `namespace:slug`.
@@ -58,6 +59,7 @@ pub struct NoticeFields {
 
 /// One of the account's prompts as it was when the action was taken.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct NoticePrompt {
     pub id: Uuid,
@@ -67,6 +69,7 @@ pub struct NoticePrompt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AccountNotice {
     pub id: i64,

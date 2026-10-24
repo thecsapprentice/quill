@@ -10,13 +10,13 @@
 //! candidates are looked up in the indexed table, so large lists stay fast.
 
 use std::path::Path;
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 use anyhow::{Context, bail};
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path as UrlPath, Query, State},
     http::StatusCode,
-    routing::{delete, get},
 };
 use quill_proto::{
     board::AdminAction,
@@ -45,14 +45,11 @@ pub const LIST_LIMIT: u32 = 500;
 /// Marks that the defaults were seeded, so removed ones stay removed.
 const DEFAULTS_SEEDED: &str = "reserved_defaults_seeded";
 
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/admin/reserved-handles", get(api_list).post(api_add))
-        .route("/admin/reserved-handles/check", get(api_check))
-        .route(
-            "/admin/reserved-handles/{kind}/{pattern}",
-            delete(api_remove),
-        )
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(api_list, api_add))
+        .routes(routes!(api_check))
+        .routes(routes!(api_remove))
 }
 
 // ---- Startup ---------------------------------------------------------------
@@ -353,6 +350,12 @@ pub async fn remove(
 
 // ---- JSON API --------------------------------------------------------------
 
+#[utoipa::path(
+    get, path = "/admin/reserved-handles", tag = "admin", security(("bearer" = [])),
+    summary = "Handles reserved for the server's staff",
+    params(ReservedQuery),
+    responses((status = 200, body = ReservedList)),
+)]
 async fn api_list(
     State(state): State<AppState>,
     _admin: Admin,
@@ -361,6 +364,12 @@ async fn api_list(
     list(&state, &q).await.map(Json)
 }
 
+#[utoipa::path(
+    post, path = "/admin/reserved-handles", tag = "admin", security(("bearer" = [])),
+    summary = "Reserve handles: exact names or patterns",
+    request_body = AddReserved,
+    responses((status = 201, body = AddedReserved)),
+)]
 async fn api_add(
     State(state): State<AppState>,
     admin: Admin,
@@ -370,11 +379,19 @@ async fn api_add(
     Ok((StatusCode::CREATED, Json(added)))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 struct CheckQuery {
+    /// The handle to check.
     handle: String,
 }
 
+#[utoipa::path(
+    get, path = "/admin/reserved-handles/check", tag = "admin", security(("bearer" = [])),
+    summary = "Whether a handle is reserved, and by which entry",
+    params(CheckQuery),
+    responses((status = 200, body = ReservedCheck)),
+)]
 async fn api_check(
     State(state): State<AppState>,
     _admin: Admin,
@@ -383,6 +400,12 @@ async fn api_check(
     check(&state, &q.handle).await.map(Json)
 }
 
+#[utoipa::path(
+    delete, path = "/admin/reserved-handles/{kind}/{pattern}", tag = "admin", security(("bearer" = [])),
+    summary = "Remove a reservation",
+    params(("kind" = ReservedKind, Path), ("pattern" = String, Path, description = "Percent-encoded")),
+    responses((status = 204, description = "Removed"), (status = 404, description = "No such entry")),
+)]
 async fn api_remove(
     State(state): State<AppState>,
     admin: Admin,

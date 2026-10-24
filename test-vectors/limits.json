@@ -1,0 +1,225 @@
+{
+  "blobBuckets": [
+    {
+      "bucket": 4096,
+      "length": 0,
+      "max": 10485760
+    },
+    {
+      "bucket": 4096,
+      "length": 1,
+      "max": 10485760
+    },
+    {
+      "bucket": 4096,
+      "length": 4096,
+      "max": 10485760
+    },
+    {
+      "bucket": 8192,
+      "length": 4097,
+      "max": 10485760
+    },
+    {
+      "bucket": 65536,
+      "length": 65536,
+      "max": 10485760
+    },
+    {
+      "bucket": 131072,
+      "length": 65537,
+      "max": 10485760
+    },
+    {
+      "bucket": 10485760,
+      "length": 10485759,
+      "max": 10485760
+    },
+    {
+      "bucket": 10485760,
+      "length": 10485760,
+      "max": 10485760
+    },
+    {
+      "bucket": null,
+      "length": 10485761,
+      "max": 10485760
+    },
+    {
+      "bucket": 6000,
+      "length": 5000,
+      "max": 6000
+    },
+    {
+      "bucket": 6000,
+      "length": 6000,
+      "max": 6000
+    },
+    {
+      "bucket": null,
+      "length": 6001,
+      "max": 6000
+    }
+  ],
+  "defaults": {
+    "accountQuotaBytes": 524288000,
+    "backupPartBytes": 8388608,
+    "blobMinBucket": 4096,
+    "maxAttachmentBytes": 10485760,
+    "maxBackupBytes": 268435456,
+    "maxEnvelopeBytes": 95573,
+    "maxMessageBytes": 65536,
+    "maxPageSize": 100,
+    "messagesPerMinute": 30,
+    "mlsPaddingBytes": 256,
+    "pageSize": 20,
+    "promptMaxTags": 15,
+    "requestExpiryDays": 30,
+    "retentionDays": 30,
+    "searchQueryMaxChars": 200
+  },
+  "description": "Default limits (an instance may change them and publishes its own in GET /api/v1/instance). Text limits: each field's rule applied to `repeat` written `times` times, exactly at the limit (atLimit), and once more (overLimit); limits count Unicode scalar values unless countedIn says bytes. Blob buckets (limits::blob_bucket): the length of a sealed attachment, AES-GCM tag included, is padded with zeros to the smallest power of two from 4096 that holds it, or to the maximum when that is smaller; a length over the maximum has no bucket (null). Servers refuse uploads whose length is not a bucket (notBuckets). MLS application messages are padded to a multiple of mlsPaddingBytes (OpenMLS padding_size).",
+  "notBuckets": [
+    {
+      "length": 0,
+      "max": 10485760
+    },
+    {
+      "length": 1000,
+      "max": 10485760
+    },
+    {
+      "length": 4095,
+      "max": 10485760
+    },
+    {
+      "length": 5000,
+      "max": 10485760
+    },
+    {
+      "length": 20971520,
+      "max": 10485760
+    }
+  ],
+  "passwordMinimum": {
+    "atMinimum": true,
+    "minChars": 12,
+    "repeat": "é",
+    "underMinimum": false
+  },
+  "promptTags": {
+    "atLimit": true,
+    "duplicatesCountOnce": true,
+    "overLimit": false
+  },
+  "text": [
+    {
+      "atLimit": true,
+      "countedIn": "characters",
+      "field": "username",
+      "limit": 30,
+      "overLimit": false,
+      "repeat": "a",
+      "times": 30
+    },
+    {
+      "atLimit": true,
+      "countedIn": "bytes",
+      "field": "password",
+      "limit": 1024,
+      "overLimit": false,
+      "repeat": "é",
+      "times": 512
+    },
+    {
+      "atLimit": true,
+      "countedIn": "bytes",
+      "field": "password",
+      "limit": 1024,
+      "overLimit": false,
+      "repeat": "a",
+      "times": 1024
+    },
+    {
+      "atLimit": true,
+      "countedIn": "characters",
+      "field": "displayName",
+      "limit": 100,
+      "overLimit": false,
+      "repeat": "é",
+      "times": 100
+    },
+    {
+      "atLimit": true,
+      "countedIn": "characters",
+      "field": "summary",
+      "limit": 2000,
+      "overLimit": false,
+      "repeat": "é",
+      "times": 2000
+    },
+    {
+      "atLimit": true,
+      "countedIn": "characters",
+      "field": "promptTitle",
+      "limit": 200,
+      "overLimit": false,
+      "repeat": "é",
+      "times": 200
+    },
+    {
+      "atLimit": true,
+      "countedIn": "characters",
+      "field": "promptBody",
+      "limit": 20000,
+      "overLimit": false,
+      "repeat": "é",
+      "times": 20000
+    },
+    {
+      "atLimit": true,
+      "countedIn": "characters",
+      "field": "reportDetails",
+      "limit": 2000,
+      "overLimit": false,
+      "repeat": "é",
+      "times": 2000
+    },
+    {
+      "atLimit": true,
+      "countedIn": "characters",
+      "field": "tagDisplay",
+      "limit": 40,
+      "overLimit": false,
+      "repeat": "é",
+      "times": 40
+    },
+    {
+      "atLimit": true,
+      "countedIn": "characters",
+      "field": "namespace",
+      "limit": 32,
+      "overLimit": false,
+      "repeat": "a",
+      "times": 32
+    },
+    {
+      "atLimit": true,
+      "countedIn": "characters",
+      "field": "tagSlug",
+      "limit": 40,
+      "overLimit": false,
+      "repeat": "a",
+      "times": 40
+    },
+    {
+      "atLimit": true,
+      "countedIn": "characters",
+      "field": "channel",
+      "limit": 32,
+      "overLimit": false,
+      "repeat": "a",
+      "times": 32
+    }
+  ]
+}

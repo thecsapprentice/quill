@@ -299,6 +299,8 @@ As built in 2k, for history:
 - The server deletes ciphertext older than `retentionDays` whether or not it was read. A server that keeps it regardless of age (`QUILL_RETENTION_DAYS=-1`) publishes `retentionDays: null`; messages then go only once every device has read them.
 - These are JSON objects tagged by `type` inside the device group's MLS messages, like the 2d payloads, not ActivityStreams activities.
 
+As built (2d, 2k), the types are `deviceGrant` (identity keys, trust pins and the login's known devices, for a newly linked device), `deviceKeys` (which persona devices belong to the sending device), `historyRequest` and `historyBundle`; `Settings` and `Personas` aren't built. Schema: [`schemas/device-payload.json`](../schemas/device-payload.json).
+
 ## 6. Binary formats
 
 All structures use TLS presentation language (as in RFC 9420) and are signed with `SignWithLabel` under distinct labels. Every format needs published test vectors before Phase 2 ends.
@@ -363,13 +365,13 @@ As built in 2j, on one server: the request goes to `POST /sessions/{id}/rejoin`,
 
 - **Container:** `age` v1 file using the scrypt passphrase recipient. The passphrase is the recovery code: 128 random bits shown as 12 BIP-39 words.
 
-- **Plaintext:** zstd-compressed CBOR map: `version`, identity private key and version, TOFU pins, settings, personas, and per-session history (decrypted payload activities). Never MLS group state.
+- **Plaintext:** zstd-compressed JSON: `version`, identity private keys and versions, TOFU pins, and per-session history (decrypted notes with every version, channels, attachments). Never MLS group state. (Changed in 2m from zstd-compressed deterministic CBOR: nothing signs or hashes the plaintext, so it needs no canonical encoding, and JSON is what the rest of the client uses.)
 
 - **Incremental:** one full snapshot plus numbered append-only chunks, each its own `age` file, stored at `PUT /api/v1/backup/{seq}`. A new snapshot replaces the chain.
 
 As built in 2j:
 - The recovery code is a BIP-39 mnemonic: 128 bits plus a 4-bit checksum, 12 words. The passphrase is the words, lowercase, joined by single spaces. scrypt's work factor is 15: the code is random, so it needs no stretching.
-- The plaintext is JSON, not CBOR: `{format: "quill-backup", version: 1, createdMs, tables}`, where `tables` maps the client store's `identities`, `pins`, `verified`, `messages` and `files` tables to lists of `[key, value]` in base64url. It is not compressed.
+- The plaintext is one zstd frame holding JSON, not CBOR: `{format: "quill-backup", version: 2, createdMs, tables}`, where `tables` maps the client store's `identities`, `pins`, `verified`, `messages` and `files` tables to lists of `[key, value]` in base64url. Version 1 (2j) was the same JSON uncompressed; 2m added the compression, and readers take version 2 only. Readers decompress at most 1 GiB. The client compresses with `ruzstd`, which is pure Rust.
 - There are no incremental chunks yet: each backup replaces the last whole. It's uploaded in parts of up to 8 MiB (`PUT /backup/{generation}/{part}`), then committed (`POST /backup/{generation}/commit`), so a failed upload never replaces a good backup.
 - The `age` crate does the work, behind a small interface so our own implementation of the format can replace it.
 
@@ -498,6 +500,12 @@ Administrator pages live in the board UI behind an admin role; the CLI gets `qui
 
 The OpenAPI file, JSON Schemas and test vectors are built alongside the code, not before it; they must be complete before the Phase 2 gate. What the spec must pin now are the decisions they would otherwise force later.
 
+As built in 2m, each is in the repository and checked in CI against the code:
+
+- **OpenAPI file:** [`docs/openapi.json`](openapi.json) (OpenAPI 3.1, 81 operations), generated from the server's routes; the server also serves it at `/api/v1/openapi.json`. A test fails when the committed file differs from what the code generates, and another runs a story through a server and checks every answer's status, media type and JSON body against the file.
+- **JSON Schemas:** [`schemas/`](../schemas/) for what travels inside encrypted messages: session activities, `EncryptedAttachment`, device group payloads and history rows. Written by hand and checked against what the client produces. The federated objects' schemas come with federation (Phase 3).
+- **Test vectors:** [`test-vectors/`](../test-vectors/), one file per format, listed in its README.
+
 ### Pinned now
 
 - **Labels:** MLS `SignWithLabel` prepends `"MLS 1.0 "`, so the signed labels are `"MLS 1.0 wr device cert v1"`, `"MLS 1.0 wr device revoke v1"` and `"MLS 1.0 wr rejoin v1"`.
@@ -508,7 +516,6 @@ The OpenAPI file, JSON Schemas and test vectors are built alongside the code, no
 
 - **Encoding:** base64url without padding everywhere except the SWICG MLS `content` fields (standard base64).
 
-- **CBOR:** backup plaintext uses RFC 8949 core deterministic encoding.
 
 ### OpenAPI file
 
@@ -518,7 +525,7 @@ The OpenAPI file, JSON Schemas and test vectors are built alongside the code, no
 
 - States the privacy behaviors explicitly: identical login and reset responses whether or not an account exists, and no distinction between held, pending, declined or expired for requesters.
 
-- Used to fuzz a test server (e.g. with Schemathesis) for malformed and oversized input.
+- Used to fuzz a test server (e.g. with Schemathesis) for malformed and oversized input (Phase 4b).
 
 ### JSON Schemas
 
@@ -535,7 +542,7 @@ JSON files in `test-vectors/`, produced by a generator crate from fixed seeds an
 | Leaf extension     | KeyPackage with `0xF0A1`; group config requiring it             | Leaf without it                                                                                        |
 | Revocation, rejoin | Full structures incl. nested KeyPackage and removals            | Bad signature, unknown reason                                                                          |
 | Linking            | KeyPackage → fingerprint, QR string, word code                  | Mismatched fingerprint                                                                                 |
-| Backup             | Code ↔ words; deterministic CBOR; decrypting a fixed `age` file | Wrong code, corrupted file                                                                             |
+| Backup             | Code ↔ words; the plaintext's format; decrypting a fixed `age` file | Wrong code, corrupted file                                                                             |
 | Attachment         | Key, nonce, plaintext → ciphertext and hash                     | Tampered tag, wrong hash                                                                               |
 | Ordering clock     | Format, parse, sort including ties                              | Malformed values                                                                                       |
 | Tag normalization  | Tricky Unicode → slug                                           | Emoji, over-length                                                                                     |

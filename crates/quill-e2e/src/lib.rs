@@ -16,6 +16,59 @@ use tokio::task::JoinHandle;
 
 pub const DATABASE_ENV: &str = "QUILL_TEST_DATABASE_URL";
 
+/// One request and its response, as the server answered it.
+#[derive(Debug, Clone)]
+pub struct Exchange {
+    pub method: String,
+    /// Without the query, as requested (`/api/v1/...`).
+    pub path: String,
+    pub status: u16,
+    pub content_type: Option<String>,
+    pub body: Vec<u8>,
+}
+
+/// What a recording server answered, in order.
+#[derive(Debug, Clone, Default)]
+pub struct Recording(std::sync::Arc<std::sync::Mutex<Vec<Exchange>>>);
+
+impl Recording {
+    pub fn exchanges(&self) -> Vec<Exchange> {
+        self.0.lock().map(|e| e.clone()).unwrap_or_default()
+    }
+}
+
+async fn record(
+    recording: Recording,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let method = req.method().to_string();
+    let path = req.uri().path().to_owned();
+    let response = next.run(req).await;
+    let content_type = response
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    if content_type.as_deref() == Some("text/event-stream") {
+        return response;
+    }
+    let (parts, body) = response.into_parts();
+    let bytes = axum::body::to_bytes(body, usize::MAX)
+        .await
+        .unwrap_or_default();
+    if let Ok(mut e) = recording.0.lock() {
+        e.push(Exchange {
+            method,
+            path,
+            status: parts.status.as_u16(),
+            content_type,
+            body: bytes.to_vec(),
+        });
+    }
+    axum::response::Response::from_parts(parts, axum::body::Body::from(bytes))
+}
+
 /// A running server plus the database it owns.
 pub struct TestServer {
     pub addr: SocketAddr,
@@ -35,6 +88,23 @@ impl TestServer {
 
     /// Like [`TestServer::start`], letting the caller adjust the config.
     pub async fn start_with(tweak: impl FnOnce(&mut Config)) -> Result<Option<Self>> {
+        Self::start_inner(tweak, None).await
+    }
+
+    /// Like [`TestServer::start`], keeping every API exchange (the
+    /// streams of `GET /events` aside) so a test can check them against
+    /// the OpenAPI file.
+    pub async fn start_recording() -> Result<Option<(Self, Recording)>> {
+        let recording = Recording::default();
+        Ok(Self::start_inner(|_| {}, Some(recording.clone()))
+            .await?
+            .map(|s| (s, recording)))
+    }
+
+    async fn start_inner(
+        tweak: impl FnOnce(&mut Config),
+        recording: Option<Recording>,
+    ) -> Result<Option<Self>> {
         let Ok(admin_url) = std::env::var(DATABASE_ENV) else {
             if std::env::var_os("CI").is_some() {
                 anyhow::bail!("{DATABASE_ENV} must be set in CI");
@@ -61,7 +131,12 @@ impl TestServer {
 
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
         let addr = listener.local_addr()?;
-        let app = router(state);
+        let mut app = router(state);
+        if let Some(recording) = recording {
+            app = app.layer(axum::middleware::from_fn(move |req, next| {
+                record(recording.clone(), req, next)
+            }));
+        }
         let task = tokio::spawn(async move {
             let _ = axum_serve(listener, app).await;
         });

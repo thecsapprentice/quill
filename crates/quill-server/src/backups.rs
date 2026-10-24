@@ -4,33 +4,31 @@
 //! backup only once the new one is complete.
 
 use axum::{
-    Json, Router,
+    Json,
     body::Body,
     extract::{DefaultBodyLimit, Path, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{get, post, put},
 };
 use quill_proto::{
     limits::BACKUP_PART_BYTES,
     sessions::{BackupInfo, CommitBackup},
 };
 use time::OffsetDateTime;
+use utoipa_axum::router::UtoipaMethodRouterExt;
+use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
 use crate::{AppState, auth::Authed, error::ApiError, routes::ApiJson};
 
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/backup", get(info).delete(remove))
-        .route("/backup/{part}", get(fetch))
-        .route(
-            "/backup/{generation}/{part}",
-            // Parts are larger than the API's envelope limit; the part limit
-            // is enforced while reading, below.
-            put(upload).layer(DefaultBodyLimit::disable()),
-        )
-        .route("/backup/{generation}/commit", post(commit))
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(info, remove))
+        .routes(routes!(fetch))
+        // Parts are larger than the API's envelope limit; the part limit is
+        // enforced while reading, below.
+        .routes(routes!(upload).layer(DefaultBodyLimit::disable()))
+        .routes(routes!(commit))
 }
 
 fn too_big(max: u64) -> ApiError {
@@ -41,6 +39,18 @@ fn too_big(max: u64) -> ApiError {
 }
 
 /// `PUT /backup/{generation}/{part}`: one part of a new backup.
+#[utoipa::path(
+    put, path = "/backup/{generation}/{part}", tag = "backup", security(("bearer" = [])),
+    summary = "Upload one part of a new backup",
+    description = "Parts are at most 8 MiB; a new generation drops any unfinished one. Nothing replaces the committed backup until the commit.",
+    params(("generation" = Uuid, Path, description = "A fresh id for this upload"), ("part" = u32, Path, description = "From 0")),
+    request_body(content = Vec<u8>, content_type = "application/octet-stream", description = "Part of an age file sealed with the recovery code"),
+    responses(
+        (status = 204, description = "Stored"),
+        (status = 403, description = "The backup would be over limits.maxBackupBytes"),
+        (status = 413, description = "Over 8 MiB"),
+    ),
+)]
 async fn upload(
     State(state): State<AppState>,
     authed: Authed,
@@ -112,6 +122,17 @@ async fn upload(
 
 /// `POST /backup/{generation}/commit`: parts `0..parts` are all there; the
 /// new backup replaces the old.
+#[utoipa::path(
+    post, path = "/backup/{generation}/commit", tag = "backup", security(("bearer" = [])),
+    summary = "Commit an uploaded backup, replacing the last one",
+    params(("generation" = Uuid, Path)),
+    request_body = CommitBackup,
+    responses(
+        (status = 200, body = BackupInfo),
+        (status = 404, description = "No such upload"),
+        (status = 409, description = "Parts are missing"),
+    ),
+)]
 async fn commit(
     State(state): State<AppState>,
     authed: Authed,
@@ -164,6 +185,11 @@ async fn commit(
 }
 
 /// `GET /backup`: the committed backup, if any.
+#[utoipa::path(
+    get, path = "/backup", tag = "backup", security(("bearer" = [])),
+    summary = "The login's backup: its generation, parts, size and time",
+    responses((status = 200, body = BackupInfo), (status = 404, description = "It has none")),
+)]
 async fn info(State(state): State<AppState>, authed: Authed) -> Result<Json<BackupInfo>, ApiError> {
     let row: Option<(Uuid, i32, i64, OffsetDateTime)> = sqlx::query_as(
         "SELECT generation, parts, bytes, created_at FROM backups WHERE account_id = $1",
@@ -181,6 +207,15 @@ async fn info(State(state): State<AppState>, authed: Authed) -> Result<Json<Back
 }
 
 /// `GET /backup/{part}`: one part of the committed backup.
+#[utoipa::path(
+    get, path = "/backup/{part}", tag = "backup", security(("bearer" = [])),
+    summary = "One part of the committed backup",
+    params(("part" = u32, Path, description = "From 0")),
+    responses(
+        (status = 200, description = "The part's bytes: concatenated in order, they are one age file", content_type = "application/octet-stream", body = Vec<u8>),
+        (status = 404, description = "No backup, or no such part"),
+    ),
+)]
 async fn fetch(
     State(state): State<AppState>,
     authed: Authed,
@@ -200,6 +235,11 @@ async fn fetch(
 }
 
 /// `DELETE /backup`: the backup and any unfinished upload.
+#[utoipa::path(
+    delete, path = "/backup", tag = "backup", security(("bearer" = [])),
+    summary = "Delete the backup and any unfinished upload",
+    responses((status = 204, description = "Deleted")),
+)]
 async fn remove(State(state): State<AppState>, authed: Authed) -> Result<StatusCode, ApiError> {
     let mut tx = state.pool.begin().await?;
     sqlx::query("DELETE FROM backups WHERE account_id = $1")

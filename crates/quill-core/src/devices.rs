@@ -894,17 +894,19 @@ pub async fn start_link(store: &Store, client: &Client) -> Result<PendingLink, C
             key_package: b64(&package),
         })
         .await?;
-    let fingerprint = Sha256::digest(&package);
-    Ok(PendingLink {
-        code: format!(
-            "{LINK_PREFIX}{}:{}:{}",
-            client.host(),
-            started.link_id,
-            b64(&fingerprint)
-        ),
+    Ok(pending_link(&client.host(), started.link_id, &package))
+}
+
+/// The code a new device shows for its KeyPackage (`package`, the
+/// serialized `MLSMessage`): its SHA-256 in the QR string, and the first
+/// 66 bits of it as 6 words.
+pub(crate) fn pending_link(host: &str, link_id: String, package: &[u8]) -> PendingLink {
+    let fingerprint = Sha256::digest(package);
+    PendingLink {
+        code: format!("{LINK_PREFIX}{host}:{link_id}:{}", b64(&fingerprint)),
         words: words::words(&fingerprint),
-        link_id: started.link_id,
-    })
+        link_id,
+    }
 }
 
 /// On the new device: waits for the answer and joins the group. Returns
@@ -1048,6 +1050,18 @@ impl std::str::FromStr for LinkCode {
     }
 }
 
+impl LinkCode {
+    /// Whether `package`, the KeyPackage the mailbox holds, is the one the
+    /// code was made for.
+    pub fn matches(&self, package: &[u8]) -> bool {
+        let fingerprint = Sha256::digest(package);
+        match &self.check {
+            Check::Fingerprint(fp) => fp.as_slice() == fingerprint.as_slice(),
+            Check::Words(w) => words::matches(&fingerprint, w),
+        }
+    }
+}
+
 /// What [`approve`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Approved {
@@ -1083,12 +1097,7 @@ pub async fn approve(
         }
     })?;
     let package = unb64(&mailbox.key_package).ok_or_else(|| err("server sent bad base64"))?;
-    let fingerprint = Sha256::digest(&package);
-    let ok = match &code.check {
-        Check::Fingerprint(fp) => fp.as_slice() == fingerprint.as_slice(),
-        Check::Words(w) => words::matches(&fingerprint, w),
-    };
-    if !ok {
+    if !code.matches(&package) {
         return Err(err(
             "the new device's key doesn't match the code: don't link it. The server may have swapped it.",
         ));

@@ -1,0 +1,150 @@
+{
+  "description": "The hybrid logical clock (protocol draft, section 5): `ms-counter`, the wall clock in milliseconds since the Unix epoch (1-16 ASCII digits) and a 4-digit counter. Sending: if the wall clock is past the last value, (now, 0); otherwise the last value with the counter up one, a full counter (9999) carrying into the next millisecond. Reading a value: the clock becomes the larger of the two, unless the value is more than 24 hours ahead of the wall clock, when it is ignored. Display order sorts by clock (ms, then counter; a malformed value counts as 0-0000), then the sender's actor URI by its UTF-8 bytes, then authorSeq. `order` lists the notes' indices in display order.",
+  "parse": {
+    "invalid": [
+      "",
+      "1-1",
+      "1-00001",
+      "-0001",
+      "x-0001",
+      "1760861400123",
+      "1-00a1",
+      "+1-0001",
+      "1 -0001",
+      "12345678901234567-0000",
+      "1-０００１"
+    ],
+    "valid": [
+      {
+        "counter": 4,
+        "ms": 1760861400123,
+        "value": "1760861400123-0004"
+      },
+      {
+        "counter": 0,
+        "ms": 5,
+        "value": "5-0000"
+      },
+      {
+        "counter": 0,
+        "ms": 0,
+        "value": "0-0000"
+      },
+      {
+        "counter": 9999,
+        "ms": 9999999999999999,
+        "value": "9999999999999999-9999"
+      }
+    ]
+  },
+  "read": [
+    {
+      "last": "0-0000",
+      "nowMs": 990000,
+      "remote": "1000000-0000",
+      "result": "1000000-0000",
+      "why": "a remote value ahead of the local clock moves it"
+    },
+    {
+      "last": "1000000-0005",
+      "nowMs": 1000000,
+      "remote": "1000000-0002",
+      "result": "1000000-0005",
+      "why": "a value behind it doesn't"
+    },
+    {
+      "last": "0-0000",
+      "nowMs": 1000000,
+      "remote": "87400000-0000",
+      "result": "87400000-0000",
+      "why": "at most a day ahead of the wall clock is taken"
+    },
+    {
+      "last": "0-0000",
+      "nowMs": 1000000,
+      "remote": "87400001-0000",
+      "result": "0-0000",
+      "why": "further ahead is ignored"
+    }
+  ],
+  "send": [
+    {
+      "last": "0-0000",
+      "nowMs": 1000000,
+      "result": "1000000-0000",
+      "why": "a fresh clock takes the wall clock"
+    },
+    {
+      "last": "1000000-0000",
+      "nowMs": 1000500,
+      "result": "1000500-0000",
+      "why": "the wall clock moved on: counter back to 0"
+    },
+    {
+      "last": "1000000-0003",
+      "nowMs": 1000000,
+      "result": "1000000-0004",
+      "why": "the same millisecond: the counter goes up"
+    },
+    {
+      "last": "1000000-0003",
+      "nowMs": 990000,
+      "result": "1000000-0004",
+      "why": "the wall clock is behind what was seen: the counter goes up"
+    },
+    {
+      "last": "7-9999",
+      "nowMs": 7,
+      "result": "8-0000",
+      "why": "a full counter borrows the next millisecond"
+    }
+  ],
+  "sort": {
+    "notes": [
+      {
+        "authorSeq": 3,
+        "hlc": "1000-0001",
+        "sender": "https://b.example/users/bo"
+      },
+      {
+        "authorSeq": 9,
+        "hlc": "1000-0000",
+        "sender": "https://b.example/users/bo"
+      },
+      {
+        "authorSeq": 4,
+        "hlc": "1000-0001",
+        "sender": "https://a.example/users/al"
+      },
+      {
+        "authorSeq": 2,
+        "hlc": "1000-0001",
+        "sender": "https://b.example/users/bo"
+      },
+      {
+        "authorSeq": 1,
+        "hlc": "999-0009",
+        "sender": "https://z.example/users/zed"
+      },
+      {
+        "authorSeq": 5,
+        "hlc": "garbage",
+        "sender": "https://z.example/users/zed"
+      },
+      {
+        "authorSeq": 7,
+        "hlc": "1000-0001",
+        "sender": "https://a.example/users/Al"
+      }
+    ],
+    "order": [
+      5,
+      4,
+      1,
+      6,
+      2,
+      3,
+      0
+    ]
+  }
+}

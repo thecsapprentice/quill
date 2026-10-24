@@ -3,10 +3,9 @@
 //! leaving. Messages go through the group message log (`groups.rs`).
 
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, State},
     http::StatusCode,
-    routing::{delete, get, post},
 };
 use quill_proto::{
     events::Event,
@@ -14,19 +13,20 @@ use quill_proto::{
     sessions::{Ack, DeviceWelcome, LeaveWelcome, Rejoin, SendRejoin, Session, SessionMember},
 };
 use sqlx::PgConnection;
+use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
 use crate::{AppState, auth::Authed, error::ApiError, routes::ApiJson};
 
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/sessions", get(list))
-        .route("/sessions/{id}/welcomes", post(leave_welcome))
-        .route("/sessions/{id}/welcomes/{device}", delete(take_welcome))
-        .route("/sessions/{id}/leave", post(leave))
-        .route("/sessions/{id}/ack", post(ack))
-        .route("/sessions/{id}/rejoin", post(rejoin))
-        .route("/sessions/{id}/rejoins/{rejoin}", delete(rejoin_done))
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(list))
+        .routes(routes!(leave_welcome))
+        .routes(routes!(take_welcome))
+        .routes(routes!(leave))
+        .routes(routes!(ack))
+        .routes(routes!(rejoin))
+        .routes(routes!(rejoin_done))
 }
 
 fn decode(field: &str, text: &str) -> Result<Vec<u8>, ApiError> {
@@ -59,6 +59,12 @@ type SessionRow = (Vec<u8>, Uuid, Option<Uuid>, Vec<u8>, bool, i64, i64);
 type MemberRow = (Vec<u8>, Uuid, String, Option<String>, Uuid);
 
 /// `GET /sessions`: the login's sessions, ended ones included.
+#[utoipa::path(
+    get, path = "/sessions", tag = "sessions", security(("bearer" = [])),
+    summary = "The login's sessions",
+    description = "Members, place in the log, whether each has ended, Welcomes waiting for the login's devices, rejoin requests, and the login's devices that fell behind the deleted part of the log.",
+    responses((status = 200, body = Vec<Session>)),
+)]
 async fn list(
     State(state): State<AppState>,
     authed: Authed,
@@ -168,6 +174,17 @@ async fn list(
 /// `POST /sessions/{id}/welcomes`: a member's device leaves a Welcome for
 /// a device it just added, which must be one of the caller's own persona's
 /// devices in the session.
+#[utoipa::path(
+    post, path = "/sessions/{id}/welcomes", tag = "sessions", security(("bearer" = [])),
+    summary = "Leave a Welcome for one of the caller's own persona's devices just added",
+    params(("id" = String, Path, description = "The session: its group id, base64url")),
+    request_body = LeaveWelcome,
+    responses(
+        (status = 204, description = "Left"),
+        (status = 403, description = "The session has ended"),
+        (status = 404, description = "Not a session of the login's, or not its device"),
+    ),
+)]
 async fn leave_welcome(
     State(state): State<AppState>,
     authed: Authed,
@@ -241,6 +258,12 @@ async fn leave_welcome(
 }
 
 /// `DELETE /sessions/{id}/welcomes/{device}`: the device has joined.
+#[utoipa::path(
+    delete, path = "/sessions/{id}/welcomes/{device}", tag = "sessions", security(("bearer" = [])),
+    summary = "Remove a Welcome once its device has joined",
+    params(("id" = String, Path, description = "The session: its group id, base64url"), ("device" = Uuid, Path)),
+    responses((status = 204, description = "Removed"), (status = 404, description = "No such Welcome")),
+)]
 async fn take_welcome(
     State(state): State<AppState>,
     authed: Authed,
@@ -265,6 +288,12 @@ async fn take_welcome(
 
 /// `POST /sessions/{id}/leave`: with two writers, one leaving ends the
 /// session. Its log stays readable.
+#[utoipa::path(
+    post, path = "/sessions/{id}/leave", tag = "sessions", security(("bearer" = [])),
+    summary = "Leave a session; with two writers, it ends",
+    params(("id" = String, Path, description = "The session: its group id, base64url")),
+    responses((status = 204, description = "Left"), (status = 404, description = "Not a session of the login's")),
+)]
 async fn leave(
     State(state): State<AppState>,
     authed: Authed,
@@ -298,6 +327,14 @@ pub(crate) const GRACE_DAYS: i32 = 7;
 
 /// `POST /sessions/{id}/ack`: one of the caller's devices has read the log
 /// this far. Then deletes what every device has.
+#[utoipa::path(
+    post, path = "/sessions/{id}/ack", tag = "sessions", security(("bearer" = [])),
+    summary = "Say how far one of the login's devices has read",
+    description = "Only the server sees it, to delete what every device has read; it is never relayed.",
+    params(("id" = String, Path, description = "The session: its group id, base64url")),
+    request_body = Ack,
+    responses((status = 204, description = "Recorded"), (status = 404, description = "Not a session of the login's")),
+)]
 async fn ack(
     State(state): State<AppState>,
     authed: Authed,
@@ -406,6 +443,19 @@ const REJOIN_DAYS: i32 = 30;
 /// `POST /sessions/{id}/rejoin`: a restored device asks to be let back in.
 /// The request must be signed by the identity key of the caller's persona
 /// in the session; the other writer's client checks it again.
+#[utoipa::path(
+    post, path = "/sessions/{id}/rejoin", tag = "sessions", security(("bearer" = [])),
+    summary = "Ask to be added back to a session, after a restore or falling behind",
+    description = "A RejoinRequest signed by the persona's identity key (protocol draft, section 6); the server checks the signature, and the other writer's client commits it.",
+    params(("id" = String, Path, description = "The session: its group id, base64url")),
+    request_body = SendRejoin,
+    responses(
+        (status = 204, description = "Sent"),
+        (status = 403, description = "The session has ended"),
+        (status = 404, description = "Not a session of the login's"),
+        (status = 413, description = "Over limits.maxMessageBytes"),
+    ),
+)]
 async fn rejoin(
     State(state): State<AppState>,
     authed: Authed,
@@ -466,6 +516,12 @@ async fn rejoin(
 
 /// `DELETE /sessions/{id}/rejoins/{rejoin}`: a member's client has dealt
 /// with it.
+#[utoipa::path(
+    delete, path = "/sessions/{id}/rejoins/{rejoin}", tag = "sessions", security(("bearer" = [])),
+    summary = "Remove a rejoin request once it has been committed",
+    params(("id" = String, Path, description = "The session: its group id, base64url"), ("rejoin" = Uuid, Path)),
+    responses((status = 204, description = "Removed"), (status = 404, description = "No such request")),
+)]
 async fn rejoin_done(
     State(state): State<AppState>,
     authed: Authed,

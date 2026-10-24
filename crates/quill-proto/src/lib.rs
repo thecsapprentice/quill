@@ -18,6 +18,9 @@ pub mod requests;
 pub mod sessions;
 pub mod validate;
 
+#[cfg(test)]
+mod vectors;
+
 /// Protocol versions this build speaks, advertised in `GET /api/v1/instance`.
 pub const PROTOCOL_VERSIONS: &[&str] = &["0.1"];
 
