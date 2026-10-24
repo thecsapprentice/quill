@@ -1,0 +1,278 @@
+/* The 3a spike's styles. Tokens first; both colour schemes. */
+:root {
+  --paper: #eef1f4;
+  --surface: #ffffff;
+  --ink: #1c2430;
+  --muted: #687284;
+  --line: #d9dee5;
+  --accent: #0e6c78;
+  --accent-soft: #d9eef0;
+  --mine: #f2f7f8;
+  --mark: #9aa3b2;
+  --emph: #7a4a8c;
+  --code-bg: #eef0f3;
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --ui: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --write: "Iowan Old Style", "Charter", "Sitka Text", "Cambria", Georgia, "Noto Serif", serif;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #12161c;
+    --surface: #1a2029;
+    --ink: #e4e8ee;
+    --muted: #93a0b2;
+    --line: #2c3440;
+    --accent: #5cc3cc;
+    --accent-soft: #173a3f;
+    --mine: #1d2731;
+    --mark: #5f6b7d;
+    --emph: #d1a3e0;
+    --code-bg: #232b36;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--ui);
+}
+
+button, input, textarea { font: inherit; color: inherit; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---- Layout: three areas when wide, one column when narrow ---- */
+
+.app {
+  display: grid;
+  grid-template-columns: 13rem minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "bar bar" "channels session";
+  height: 100vh;
+}
+
+.bar {
+  grid-area: bar;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.title { display: flex; align-items: baseline; gap: 0.6rem; min-width: 0; flex: 1; }
+.title h1 { font-family: var(--write); font-size: 1.25rem; font-weight: 600; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.with { color: var(--muted); font-size: 0.9rem; white-space: nowrap; }
+
+.modes { display: flex; background: var(--paper); border-radius: var(--radius-m); padding: 3px; }
+.mode { border: 0; background: none; padding: 0.3rem 0.75rem; border-radius: var(--radius-s); cursor: pointer; color: var(--muted); }
+.mode.on { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+
+.channels {
+  grid-area: channels;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.75rem 0.5rem;
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.channel {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  background: none;
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  color: var(--muted);
+}
+.channel:hover { background: var(--surface); color: var(--ink); }
+.channel.on { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+.hash { color: var(--mark); font-weight: 400; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-left: auto; }
+
+.session {
+  grid-area: session;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+}
+
+.notes {
+  overflow-y: auto;
+  padding: 1.25rem clamp(1rem, 4vw, 3rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.note {
+  max-width: 44rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  padding: 0.8rem 1rem;
+}
+.note.mine { background: var(--mine); }
+.note header { display: flex; align-items: baseline; gap: 0.5rem; }
+.author { font-weight: 600; font-size: 0.9rem; }
+.edited { color: var(--muted); font-size: 0.8rem; }
+.reply { margin-left: auto; opacity: 0; }
+.note:hover .reply, .note:focus-within .reply { opacity: 1; }
+.quoted { margin: 0.4rem 0 0; padding-left: 0.6rem; border-left: 3px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+.inline-image img { max-width: 100%; max-height: 24rem; border-radius: var(--radius-s); display: block; }
+.inline-image { margin: 0.5rem 0 0; }
+
+/* Rendered Markdown, in notes and previews. */
+.rendered { font-family: var(--write); font-size: 1.06rem; line-height: 1.6; overflow-wrap: break-word; }
+.rendered > :first-child { margin-top: 0.3rem; }
+.rendered > :last-child { margin-bottom: 0; }
+.rendered h1, .rendered h2, .rendered h3 { line-height: 1.25; margin: 0.6rem 0 0.4rem; }
+.rendered h1 { font-size: 1.45rem; }
+.rendered h2 { font-size: 1.25rem; }
+.rendered blockquote { margin: 0.5rem 0; padding-left: 0.8rem; border-left: 3px solid var(--accent); color: var(--muted); }
+.rendered code { font-family: var(--mono); font-size: 0.88em; background: var(--code-bg); padding: 0.05em 0.3em; border-radius: 4px; }
+.rendered a { color: var(--accent); }
+
+/* ---- The composer ---- */
+
+.composer {
+  container-type: inline-size;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  padding: 0.75rem clamp(1rem, 4vw, 3rem) 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 60vh;
+}
+.composer.dragging { outline: 2px dashed var(--accent); outline-offset: -6px; }
+
+.replying { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); }
+.replying em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Every editor form shares this box, so the mirror and its text area match
+   to the pixel. */
+.writing {
+  font-family: var(--write);
+  font-size: 1.06rem;
+  line-height: 1.6;
+  letter-spacing: normal;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  margin: 0;
+  width: 100%;
+  min-height: 7.5rem;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  tab-size: 4;
+}
+
+textarea.writing { resize: none; background: var(--surface); }
+
+.split { display: grid; gap: 0.75rem; grid-template-columns: 1fr; min-height: 0; overflow: auto; }
+.split textarea { min-height: 10rem; height: 100%; }
+@container (min-width: 44rem) {
+  .split:not(.single) { grid-template-columns: 1fr 1fr; }
+}
+.preview { padding: 0.6rem 0.75rem; border: 1px dashed var(--line); border-radius: var(--radius-s); overflow: auto; }
+
+/* Live preview: the styled source, with a transparent text area over it.
+   Both sit in one grid cell; the mirror sets the height, so the text area
+   grows with the text and the composer scrolls. */
+.live { display: grid; overflow: auto; min-height: 0; position: relative; }
+.live > .writing { grid-area: 1 / 1; }
+.mirror { color: var(--ink); border-color: transparent; pointer-events: none; }
+/* Each line its own block, laid out on its own. */
+.mirror .line { contain: content; }
+.over {
+  color: transparent;
+  caret-color: var(--ink);
+  background: transparent !important;
+  overflow: hidden;
+}
+.over::placeholder { color: var(--muted); }
+.over::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); color: transparent; }
+/* Styles that don't change any character's width, so text stays aligned. */
+.mirror .mk { color: var(--mark); }
+.mirror .heading { color: var(--accent); text-shadow: 0.015em 0 0 currentColor; }
+.mirror .strong { text-shadow: 0.02em 0 0 currentColor; }
+.mirror .em { color: var(--emph); }
+.mirror .code { background: var(--code-bg); border-radius: 3px; }
+.mirror .quote { color: var(--muted); }
+.mirror .link { color: var(--accent); text-decoration: underline; text-decoration-color: var(--line); }
+
+.rich { overflow: auto; background: var(--surface); }
+.rich:empty::before { content: "Write here…"; color: var(--muted); }
+
+.attachments { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.attachments figure { position: relative; margin: 0; }
+.attachments img { height: 4.5rem; border-radius: var(--radius-s); display: block; }
+.attachments figcaption { font-size: 0.75rem; color: var(--muted); max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachments figure button { position: absolute; top: 2px; right: 2px; background: var(--surface); }
+
+.tools { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.send-group { display: flex; align-items: center; gap: 0.6rem; margin-left: auto; }
+.count { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+.status { color: var(--muted); font-size: 0.85rem; }
+.status:empty { display: none; }
+
+.ghost {
+  border: 1px solid var(--line);
+  background: none;
+  border-radius: var(--radius-s);
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  color: var(--ink);
+}
+.ghost:hover { background: var(--paper); }
+.ghost.small { padding: 0 0.4rem; font-size: 0.85rem; border-color: transparent; }
+.file { position: relative; overflow: hidden; }
+.file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+.send {
+  border: 0;
+  border-radius: var(--radius-s);
+  padding: 0.4rem 1.1rem;
+  background: var(--accent);
+  color: var(--surface);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ---- Focus mode: just the editor ---- */
+
+.app.focus { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "session"; }
+.app.focus .channels, .app.focus .notes { display: none; }
+.app.focus .session { grid-template-rows: minmax(0, 1fr); }
+.app.focus .composer { max-height: none; border-top: 0; background: var(--paper); width: min(46rem, 100%); margin: 0 auto; padding-top: 2rem; }
+.app.focus .composer .writing { min-height: 60vh; }
+
+/* ---- Narrow windows: one column, channels as a row of tabs ---- */
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); grid-template-areas: "bar" "channels" "session"; }
+  .channels { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--line); padding: 0.35rem 0.5rem; overflow-x: auto; }
+  .channel { white-space: nowrap; }
+  .with { display: none; }
+  .bar { flex-wrap: wrap; gap: 0.5rem; }
+  .composer { max-height: 70vh; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .reply, .mode, .channel { transition: opacity 120ms, background-color 120ms; }
+}
