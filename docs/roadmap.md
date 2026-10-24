@@ -247,8 +247,8 @@ before device linking, which needs it.
 | 2i | Attachments and size limits or quotas | done (#17) |
 | 2j | Safety numbers; backup and recovery; rejoining sessions after a restore | done (#18) |
 | 2k | History sync for devices added later; deleting messages by age | done (#19) |
-| 2l | Phase gate: the plaintext-canary test and the database-dump audit | next |
-| 2m | Conformance artifacts: the OpenAPI file, JSON Schemas and the remaining test vectors | planned |
+| 2l | Phase gate: the plaintext-canary test and the database-dump audit | done (#20) |
+| 2m | Conformance artifacts: the OpenAPI file, JSON Schemas and the remaining test vectors | next |
 
 ### 2a: Encrypted local store
 
@@ -967,12 +967,78 @@ profile and checks the search catches it.
 
 ### 2m: Conformance artifacts
 
-Planned. The protocol draft (section 11) asks for these before the Phase 2
-gate: the OpenAPI file generated from the code, JSON Schemas for the
-federated and encrypted objects, and test vectors for the formats that
-don't have them yet (linking, backup, attachment, ordering clock, tag
-normalization, padding and limits, JSON objects). It gets a detailed section
-when it's next.
+The protocol draft (section 11) asks for three kinds of artifact before
+Phase 2 ends, so that another implementation could be written from them:
+an OpenAPI file for the client API, JSON Schemas for the objects inside
+encrypted messages, and test vectors for every format. Each is checked in
+CI against the code, so it can't drift.
+
+- **OpenAPI file** (`docs/openapi.json`), generated from the code with
+  `utoipa`.
+  - `quill-proto`'s types derive their schemas behind an `openapi` feature
+    that only the server turns on; clients don't link `utoipa`.
+  - The server's API routers move to `utoipa-axum`, which registers each
+    route together with its documentation, so a route can't be added
+    without it. The board's HTML pages aren't part of the API and stay as
+    they are.
+  - It covers every `/api/v1` operation: parameters, bodies, responses and
+    their error statuses (RFC 9457 problems, with the `409`, `410`, `413`
+    and `429` cases), bearer auth, size limits (which the instance
+    publishes), cursor paging, and the Server-Sent Events notice types.
+  - Descriptions state the privacy behaviors: sign-in fails the same way
+    whether or not the login exists, and a requester can't tell a held,
+    pending, declined or expired request apart.
+  - A test regenerates the file and fails if it differs from the one
+    committed (`QUILL_WRITE_OPENAPI=1` rewrites it), so every API change
+    shows up in review. An end-to-end test checks real responses from a
+    running server against the file's schemas.
+  - Fuzzing a server from the file (e.g. with Schemathesis) is part of 4b.
+- **JSON Schemas** (`schemas/`, draft 2020-12), written by hand as the
+  spec, for what OpenAPI doesn't cover: the activities in session messages
+  (`Create`, `Update` and `Delete` of notes, `wr:Channel`), the
+  `EncryptedAttachment`, the device group's payloads, and the rejoin
+  request's envelope.
+  - Tests validate what the client code actually produces against them,
+    and check that must-reject examples fail both the schema and the
+    client's parser, and that unknown terms are accepted by both.
+  - The federated objects (`Prompt`, the session request's `Offer`, the
+    actor extensions) don't exist as ActivityPub JSON until Phase 3; their
+    schemas come with them, along with the `wr:` context document.
+- **Test vectors** (`test-vectors/`), generated from fixed seeds by the
+  crate holding each format, like 2b's, and checked both ways: regenerating
+  them reproduces the committed files, and every case gives its recorded
+  result through the public functions.
+  - Linking: KeyPackage bytes to fingerprint, QR string and 6-word code;
+    must reject a mismatched fingerprint, wrong words, a malformed code.
+  - Backup: entropy to 12 words and passphrase and back; the plaintext's
+    format; a fixed `age` file that opens with its code. Must reject a bad
+    checksum, the wrong code and a damaged file. (`age` encryption is
+    randomized, so the generator keeps the committed file as long as it
+    still opens to the expected plaintext.)
+  - Attachment: key, nonce and plaintext to padded blob and hash; must
+    reject a changed tag, a wrong hash and a wrong blob size.
+  - Ordering clock: formatting, parsing, the send and read rules, and
+    display order including ties (clock, then sender, then `authorSeq`);
+    must reject malformed values.
+  - Tag and channel names: tricky Unicode to slug; must reject emoji, other
+    scripts, empty names and over-length ones.
+  - Padding and limits: blob size buckets, MLS padding, and each text limit
+    exactly at and one past it; a server test sends a message exactly at
+    the size limit and one byte over.
+  - JSON objects: the schema examples above, as valid, unknown-terms and
+    must-reject cases.
+  - Not as vectors: the leaf extension (a fixed KeyPackage would expire;
+    2c's `key_packages.rs` tests cover it), and MLS itself (OpenMLS runs
+    the IETF vectors).
+  - The draft also asks for checks on WebAssembly builds; those come with
+    the web client.
+- **The draft catches up** with what was built: the backup's plaintext is
+  JSON, not CBOR, so the "Pinned now" rule on deterministic CBOR goes,
+  and section 11 links each artifact.
+
+Done when: CI regenerates and checks the OpenAPI file, the schemas and
+every vector file, the server's responses match the OpenAPI file, and the
+roadmap marks Phase 2 done.
 
 ## Phase 3: Federation
 
@@ -1076,6 +1142,11 @@ done.
   plaintext-canary test and the database audit; the OpenAPI file, JSON
   Schemas and remaining test vectors become 2m, and Phase 2 closes after
   it, before federation needs them.
+- **2m, conformance (decided 2026-10-23):** the backup's plaintext stays
+  JSON as built (one fewer format in the client; nothing signs or hashes
+  it, so it needs no deterministic encoding) and the draft changes to
+  match. JSON Schemas are written by hand, since they are the spec, and
+  checked against the code; the OpenAPI file is generated from it.
 - **2i, attachments (decided 2026-10-23):** any file type, size caps only;
   no type checks, which renaming defeats. Image cleaning (metadata
   stripping, re-encoding) and rendering wait for the GUI. Administrators
