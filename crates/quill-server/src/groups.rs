@@ -9,10 +9,9 @@
 //! order of commits, which MLS needs.
 
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, post},
 };
 use quill_mls_envelope::private_message::{self, ContentType};
 use quill_proto::{
@@ -22,6 +21,7 @@ use quill_proto::{
     },
     keys::{b64, unb64},
 };
+use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
 use crate::{
@@ -38,20 +38,14 @@ const LINK_SECS: u64 = 10 * 60;
 /// New link mailboxes per login per hour.
 const LINKS_PER_HOUR: usize = 10;
 
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/groups", post(create_group))
-        .route(
-            "/account/device-group",
-            get(device_group).delete(drop_device_group),
-        )
-        .route(
-            "/groups/{id}/messages",
-            get(read_messages).post(post_message),
-        )
-        .route("/link", post(start_link))
-        .route("/link/{id}", get(read_link))
-        .route("/link/{id}/reply", post(reply_link))
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(create_group))
+        .routes(routes!(device_group, drop_device_group))
+        .routes(routes!(read_messages, post_message))
+        .routes(routes!(start_link))
+        .routes(routes!(read_link))
+        .routes(routes!(reply_link))
 }
 
 fn decode(field: &str, text: &str) -> Result<Vec<u8>, ApiError> {
@@ -109,6 +103,15 @@ async fn state_of(
 }
 
 /// `POST /groups`: registers a new group. One personal group per login.
+#[utoipa::path(
+    post, path = "/groups", tag = "groups", security(("bearer" = [])),
+    summary = "Start the login's personal device group",
+    request_body = CreateGroup,
+    responses(
+        (status = 201, body = GroupState),
+        (status = 409, description = "The login has one already, or the group id is taken"),
+    ),
+)]
 async fn create_group(
     State(state): State<AppState>,
     authed: Authed,
@@ -147,6 +150,11 @@ async fn create_group(
 }
 
 /// `GET /account/device-group`: the login's personal device group.
+#[utoipa::path(
+    get, path = "/account/device-group", tag = "groups", security(("bearer" = [])),
+    summary = "The login's personal device group",
+    responses((status = 200, body = GroupState), (status = 404, description = "It has none")),
+)]
 async fn device_group(
     State(state): State<AppState>,
     authed: Authed,
@@ -164,6 +172,21 @@ async fn device_group(
 
 /// `POST /groups/{id}/messages`: appends a message for the group's current
 /// epoch; a commit also advances the epoch.
+#[utoipa::path(
+    post, path = "/groups/{id}/messages", tag = "groups", security(("bearer" = [])),
+    summary = "Append an MLS message to a group's log",
+    description = "The server checks only the envelope: the group, the epoch and the sender's place. The first commit for an epoch wins.",
+    params(("id" = String, Path, description = "The group id, base64url")),
+    request_body = PostMessage,
+    responses(
+        (status = 200, body = Posted),
+        (status = 403, description = "The session has ended"),
+        (status = 404, description = "Not a group the login is in"),
+        (status = 409, description = "A commit for this epoch is already in the log"),
+        (status = 413, description = "The message is over limits.maxMessageBytes"),
+        (status = 429, description = "Over limits.messagesPerMinute"),
+    ),
+)]
 async fn post_message(
     State(state): State<AppState>,
     authed: Authed,
@@ -274,6 +297,17 @@ async fn post_message(
 }
 
 /// `GET /groups/{id}/messages?after=&limit=`: the log, in order.
+#[utoipa::path(
+    get, path = "/groups/{id}/messages", tag = "groups", security(("bearer" = [])),
+    summary = "Read a group's log after a position",
+    description = "Messages in log order, with their positions. Pages by `after`, the last position read.",
+    params(("id" = String, Path, description = "The group id, base64url"), MessagesQuery),
+    responses(
+        (status = 200, body = Messages),
+        (status = 404, description = "Not a group the login is in"),
+        (status = 410, description = "`after` is before the part of the log deleted by age: the device fell behind"),
+    ),
+)]
 async fn read_messages(
     State(state): State<AppState>,
     authed: Authed,
@@ -330,6 +364,13 @@ async fn drop_expired_links(state: &AppState) -> Result<(), ApiError> {
 }
 
 /// `POST /link`: a new device leaves its KeyPackage for 10 minutes.
+#[utoipa::path(
+    post, path = "/link", tag = "groups", security(("bearer" = [])),
+    summary = "Open a linking mailbox for a new device",
+    description = "Holds the new device's KeyPackage for 10 minutes under a random id.",
+    request_body = StartLink,
+    responses((status = 200, body = LinkStarted)),
+)]
 async fn start_link(
     State(state): State<AppState>,
     authed: Authed,
@@ -372,6 +413,12 @@ type MailboxRow = (Vec<u8>, Option<Vec<u8>>, Option<i64>);
 
 /// `GET /link/{id}`: the KeyPackage, and the reply once there is one. A
 /// reply is handed out once: the mailbox is deleted when it's read.
+#[utoipa::path(
+    get, path = "/link/{id}", tag = "groups", security(("bearer" = [])),
+    summary = "Read a linking mailbox: the KeyPackage, and the Welcome once answered",
+    params(("id" = String, Path, description = "The link id")),
+    responses((status = 200, body = LinkMailbox), (status = 404, description = "No such link, or it expired")),
+)]
 async fn read_link(
     State(state): State<AppState>,
     authed: Authed,
@@ -402,6 +449,17 @@ async fn read_link(
 }
 
 /// `POST /link/{id}/reply`: the device already in use answers once.
+#[utoipa::path(
+    post, path = "/link/{id}/reply", tag = "groups", security(("bearer" = [])),
+    summary = "Answer a link with the Welcome to the device group",
+    params(("id" = String, Path, description = "The link id")),
+    request_body = LinkReply,
+    responses(
+        (status = 204, description = "Answered"),
+        (status = 404, description = "No such link, or it expired"),
+        (status = 409, description = "Already answered"),
+    ),
+)]
 async fn reply_link(
     State(state): State<AppState>,
     authed: Authed,
@@ -436,6 +494,11 @@ async fn reply_link(
 
 /// `DELETE /account/device-group`: a restored device starts the login's
 /// device group again, the old one's devices being lost (2j).
+#[utoipa::path(
+    delete, path = "/account/device-group", tag = "groups", security(("bearer" = [])),
+    summary = "Drop the device group, to start again after a restore",
+    responses((status = 204, description = "Dropped"), (status = 404, description = "It has none")),
+)]
 async fn drop_device_group(
     State(state): State<AppState>,
     authed: Authed,

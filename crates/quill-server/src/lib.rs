@@ -11,6 +11,7 @@ pub mod groups;
 pub mod keys;
 mod markdown;
 pub mod notices;
+pub mod openapi;
 pub mod prompts;
 mod ratelimit;
 pub mod reports;
@@ -100,7 +101,19 @@ pub async fn set_admin(pool: &PgPool, login_name: &str, admin: bool) -> Result<b
 pub fn router(state: AppState) -> Router {
     // Bodies over the envelope limit are rejected before they are buffered.
     let body_limit = usize::try_from(state.config.limits.max_envelope_bytes).unwrap_or(usize::MAX);
-    let api = routes::api()
+    let (api, _) = routes::api().split_for_parts();
+    let api = api
+        .route(
+            "/openapi.json",
+            axum::routing::get(|| async {
+                static FILE: std::sync::LazyLock<String> =
+                    std::sync::LazyLock::new(openapi::document_json);
+                (
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    FILE.as_str(),
+                )
+            }),
+        )
         .fallback(|| async { error::ApiError::NotFound })
         .layer(DefaultBodyLimit::max(body_limit));
     Router::new()

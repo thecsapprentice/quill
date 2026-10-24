@@ -7,12 +7,11 @@
 //! `LISTEN`/`NOTIFY` instead.)
 
 use std::{convert::Infallible, time::Duration};
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 use axum::{
-    Router,
     extract::State,
     response::sse::{Event as SseEvent, KeepAlive, Sse},
-    routing::get,
 };
 use futures_util::stream::{self, Stream};
 use quill_proto::events::Event;
@@ -72,8 +71,8 @@ pub(crate) async fn group_accounts(
     .await?)
 }
 
-pub fn router() -> Router<AppState> {
-    Router::new().route("/events", get(events))
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new().routes(routes!(events))
 }
 
 fn sse(event: &Event) -> SseEvent {
@@ -83,6 +82,12 @@ fn sse(event: &Event) -> SseEvent {
 }
 
 /// `GET /events`: the stream. Kept alive with a comment every 15 seconds.
+#[utoipa::path(
+    get, path = "/events", tag = "events", security(("bearer" = [])),
+    summary = "Live notices for the login, as Server-Sent Events",
+    description = "Each event is named after its notice's `type` (message, request, session, keyPackagesLow, resync), with the notice as JSON data. Notices carry no content: clients fetch and decrypt as usual. A comment every 15 seconds keeps the stream open; `resync` means notices were missed.",
+    responses((status = 200, description = "The stream; each event's data is one Event", content_type = "text/event-stream", body = Event)),
+)]
 async fn events(
     State(state): State<AppState>,
     authed: Authed,

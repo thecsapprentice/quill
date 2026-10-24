@@ -6,12 +6,12 @@
 //! a reporter or an administrator.
 
 use std::collections::BTreeMap;
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 use axum::{
-    Json, Router,
+    Json,
     extract::{Query, State},
     http::StatusCode,
-    routing::{get, post},
 };
 use quill_proto::notices::{AccountNotice, NoticeFields, NoticeKind, NoticePrompt};
 use serde::Deserialize;
@@ -21,10 +21,10 @@ use uuid::Uuid;
 
 use crate::{AppState, auth::Authed, error::ApiError, prompts::parse_enum};
 
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/account/notices", get(api_list))
-        .route("/account/notices/read", post(api_mark_read))
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(api_list))
+        .routes(routes!(api_mark_read))
 }
 
 /// An account and its prompts that an action touched.
@@ -175,12 +175,21 @@ pub async fn mark_read(state: &AppState, account: Uuid) -> Result<(), ApiError> 
     Ok(())
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 struct ListQuery {
+    /// Notices older than this id.
     before: Option<i64>,
     limit: Option<u32>,
 }
 
+#[utoipa::path(
+    get, path = "/account/notices", tag = "account", security(("bearer" = [])),
+    summary = "Notices to the login about its prompts, newest first",
+    description = "What administrators did to the login's prompts, and why; never who reported them. Pages by `before`, the last id of the previous page.",
+    params(ListQuery),
+    responses((status = 200, body = Vec<AccountNotice>)),
+)]
 async fn api_list(
     State(state): State<AppState>,
     authed: Authed,
@@ -191,6 +200,11 @@ async fn api_list(
         .map(Json)
 }
 
+#[utoipa::path(
+    post, path = "/account/notices/read", tag = "account", security(("bearer" = [])),
+    summary = "Mark every notice read",
+    responses((status = 204, description = "Marked")),
+)]
 async fn api_mark_read(
     State(state): State<AppState>,
     authed: Authed,
