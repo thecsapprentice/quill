@@ -130,9 +130,12 @@ check on a real Linux desktop.
 
 ### 8. Other notes for 3b
 
-- The release desktop binary is 6.6 MB on Linux (size-optimized, LTO).
-  Windows, macOS and the WebAssembly size come from the "GUI spike"
-  workflow.
+- Sizes of the release builds (size-optimized, LTO), from the "GUI spike"
+  workflow: the desktop binary is 4.9 MB on Windows, 5.6 MB on macOS and
+  6.6 MB on Linux (each uses the system's webview, so that's all of it);
+  the WebAssembly module is 1.9 MB, 0.59 MB gzipped, before `wasm-opt`.
+- All four builds pass in CI: Dioxus 0.7.10 builds unchanged for Windows,
+  macOS, Linux and the browser.
 - Small JavaScript is needed for a few things: reading the selection for
   shortcuts, keeping the caret in view, scrolling the notes. All UI glue,
   no protocol logic, as the web client's requirements allow.
@@ -147,7 +150,7 @@ checked and on what.
 
 | Check | Windows (WebView2) | macOS (WKWebView) | Linux desktop | Chrome | Firefox | Safari |
 | --- | --- | --- | --- | --- | --- | --- |
-| Builds and runs | CI | CI | yes (Xvfb) | CI build | CI build | CI build |
+| Builds (CI) and runs | builds; run: | builds; run: | yes (Xvfb) | builds; run: | run: | run: |
 | Spellcheck in each editor form | | | yes (after switching on) | | | |
 | Input methods: Japanese or Chinese, accents and dead keys, the emoji picker; nothing lost or doubled, in Live especially | | | | | | |
 | Screen reader: notes read, the editor named, everything reachable by keyboard | Narrator or NVDA | VoiceOver | Orca | | | |
