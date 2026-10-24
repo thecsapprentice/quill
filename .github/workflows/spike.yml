@@ -1,0 +1,85 @@
+name: GUI spike
+
+# The 3a spike (spikes/gui) is its own Cargo workspace, outside the main CI.
+# This builds it on each desktop platform and for the browser, and keeps
+# the builds as artifacts so they can be tried by hand.
+on:
+  pull_request:
+    paths: ["spikes/gui/**", ".github/workflows/spike.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  desktop:
+    name: spike desktop on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: spikes/gui
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: WebKitGTK and friends (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: spikes/gui
+      - run: cargo test --locked
+      - run: cargo build --locked --release --features desktop
+      - name: Size
+        run: |
+          bin=target/release/quill-gui-spike${{ runner.os == 'Windows' && '.exe' || '' }}
+          echo "::notice title=Desktop size (${{ runner.os }})::$(wc -c < "$bin") bytes"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: quill-gui-spike-${{ runner.os }}
+          path: spikes/gui/target/release/quill-gui-spike${{ runner.os == 'Windows' && '.exe' || '' }}
+          retention-days: 30
+
+  web:
+    name: spike web build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: spikes/gui
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: spikes/gui
+      - run: cargo build --locked --release --target wasm32-unknown-unknown --features web
+      - name: wasm-bindgen, at the version in Cargo.lock
+        run: |
+          version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          cargo install --locked wasm-bindgen-cli --version "$version"
+          wasm-bindgen --target web --no-typescript --out-dir dist --out-name quill_gui_spike \
+            target/wasm32-unknown-unknown/release/quill-gui-spike.wasm
+          cp web/index.html dist/
+      - name: Size
+        run: |
+          ls -l dist
+          wasm=$(stat -c %s dist/quill_gui_spike_bg.wasm)
+          gz=$(gzip -9 -c dist/quill_gui_spike_bg.wasm | wc -c)
+          echo "::notice title=Web size::wasm ${wasm} bytes, ${gz} gzipped"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: quill-gui-spike-web
+          path: spikes/gui/dist
+          retention-days: 30
