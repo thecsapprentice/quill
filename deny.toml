@@ -28,6 +28,15 @@ ignore = [
   # Remove when i18n-config moves off it, or if our own age implementation
   # replaces the crate.
   { id = "RUSTSEC-2026-0374", reason = "build-time proc macro config parser in age's i18n; client-only" },
+  # crypto-bigint 0.5: timing variability in operations meant to be
+  # constant-time. Used only by the NIST curves (p256, p384, k256) that
+  # OpenMLS's RustCrypto provider and hpke-rs carry for other ciphersuites.
+  # Quill uses only MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 (X25519 and
+  # Ed25519 through the dalek crates, which don't use crypto-bigint), and
+  # its KeyPackages advertise no other suite, so no peer can choose one.
+  # Client-only. The fix (0.7.6) needs elliptic-curve 0.14, which
+  # openmls_rust_crypto 0.6 doesn't use yet; remove when it does.
+  { id = "RUSTSEC-2026-0387", reason = "crypto-bigint, used only by NIST curves Quill's one ciphersuite never uses; client-only" },
 ]
 
 [licenses]
