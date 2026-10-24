@@ -11,6 +11,9 @@
   request each, with status and "done when" checks.
 - [**What the server keeps**](server-data.md): every column of the database,
   what it holds and why that's acceptable; the Phase 2 database audit.
+- [**OpenAPI file**](openapi.json): the client API, generated from the
+  server's code. With the [JSON Schemas](../schemas/) for encrypted objects
+  and the [test vectors](../test-vectors/), the conformance artifacts.
 
 Both are snapshots of a shared design document, exported on 2026-10-22.
 Design changes should be made here by pull request from now on, so the design

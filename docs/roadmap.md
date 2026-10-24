@@ -230,6 +230,9 @@ behaving.
 
 ## Phase 2: Encrypted sessions on one server
 
+Done (2026-10-23): the gate passed in 2l and the conformance artifacts
+followed in 2m.
+
 Reordered on 2026-10-22 (see Decisions): the encrypted local store comes
 first, so private keys never touch disk unprotected, and OpenMLS arrives
 before device linking, which needs it.
@@ -248,7 +251,7 @@ before device linking, which needs it.
 | 2j | Safety numbers; backup and recovery; rejoining sessions after a restore | done (#18) |
 | 2k | History sync for devices added later; deleting messages by age | done (#19) |
 | 2l | Phase gate: the plaintext-canary test and the database-dump audit | done (#20) |
-| 2m | Conformance artifacts: the OpenAPI file, JSON Schemas and the remaining test vectors | next |
+| 2m | Conformance artifacts: the OpenAPI file, JSON Schemas and the remaining test vectors | done (#21) |
 
 ### 2a: Encrypted local store
 
@@ -1039,6 +1042,17 @@ CI against the code, so it can't drift.
 Done when: CI regenerates and checks the OpenAPI file, the schemas and
 every vector file, the server's responses match the OpenAPI file, and the
 roadmap marks Phase 2 done.
+
+As built: the OpenAPI file covers 81 operations and validates as OpenAPI
+3.1; operation ids come from the method and path, since handler names
+repeat. The end-to-end check runs a story touching 71 of them and checks
+about 200 JSON bodies; it found the string enums made by a macro
+documented with Rust's variant names, which now write their schemas out.
+A message exactly at the size limit passes the size check (and is refused
+as malformed), one byte more gets 413. Vector files: `linking`, `backup`,
+`attachment`, `ordering-clock` and `json-objects` from `quill-core`;
+`names` and `limits` from `quill-proto`; `test-vectors/README.md` lists
+them all. Schemas are checked with `boon`, a test-only dependency.
 
 ## Phase 3: Federation
 
