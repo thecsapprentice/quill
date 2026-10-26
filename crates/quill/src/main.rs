@@ -3,6 +3,7 @@
 //! Covers the server address, accounts, personas and the prompt board. Each
 //! later phase adds the commands that exercise its server features.
 
+mod announce_cmd;
 mod backup_cmd;
 mod board;
 mod keys_cmd;
@@ -75,7 +76,10 @@ enum Command {
         #[arg(long)]
         details: Option<String>,
     },
-    /// Administrator tools: reports, the admin log and tags.
+    /// Read the server administrators' announcements.
+    #[command(subcommand)]
+    Announcements(announce_cmd::AnnouncementsCommand),
+    /// Administrator tools: reports, the admin log, tags and announcements.
     #[command(subcommand)]
     Admin(board::AdminCommand),
     /// The encrypted local store holding this client's login and keys.
@@ -285,6 +289,7 @@ async fn run(cli: Cli) -> Result<()> {
             reason,
             details,
         } => board::report(&ctx, prompt, reason, details).await?,
+        Command::Announcements(cmd) => announce_cmd::announcements(&ctx, cmd).await?,
         Command::Admin(cmd) => board::admin(&ctx, cmd).await?,
         Command::Store(cmd) => local::command(&mut ctx, cmd)?,
         Command::Keys(cmd) => keys_cmd::keys(&ctx, cmd).await?,
@@ -308,6 +313,7 @@ fn needs_upkeep(command: &Command) -> bool {
         command,
         Command::Server { .. }
             | Command::Instance
+            | Command::Announcements(_)
             | Command::Register(_)
             | Command::Login(_)
             | Command::Logout

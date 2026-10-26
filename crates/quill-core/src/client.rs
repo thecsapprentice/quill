@@ -1,6 +1,9 @@
 //! Typed client for the `/api/v1` client API.
 
 use quill_proto::{
+    announcements::{
+        Announcement, AnnouncementPage, AnnouncementQuery, CreateAnnouncement, UpdateAnnouncement,
+    },
     api::{
         CreatePersona, Credentials, InstanceInfo, PROBLEM_CONTENT_TYPE, Persona, Problem,
         TokenResponse, UpdatePersona,
@@ -297,6 +300,40 @@ impl Client {
 
     pub async fn delete_prompt(&self, id: Uuid) -> Result<(), CoreError> {
         Self::empty(self.authed(Method::DELETE, &format!("/prompts/{id}"))?).await
+    }
+
+    // ---- Announcements ----------------------------------------------------
+
+    pub async fn announcements(
+        &self,
+        query: &AnnouncementQuery,
+    ) -> Result<AnnouncementPage, CoreError> {
+        Self::json(self.request(Method::GET, "/announcements")?.query(query)).await
+    }
+
+    pub async fn announcement(&self, id: Uuid) -> Result<Announcement, CoreError> {
+        Self::json(self.request(Method::GET, &format!("/announcements/{id}"))?).await
+    }
+
+    pub async fn admin_post_announcement(
+        &self,
+        body: &CreateAnnouncement,
+    ) -> Result<Announcement, CoreError> {
+        let builder = self.authed(Method::POST, "/admin/announcements")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn admin_update_announcement(
+        &self,
+        id: Uuid,
+        body: &UpdateAnnouncement,
+    ) -> Result<Announcement, CoreError> {
+        let builder = self.authed(Method::PATCH, &format!("/admin/announcements/{id}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn admin_delete_announcement(&self, id: Uuid) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::DELETE, &format!("/admin/announcements/{id}"))?).await
     }
 
     // ---- Tags -----------------------------------------------------------

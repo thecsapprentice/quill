@@ -44,7 +44,7 @@ pub struct BodyArgs {
 }
 
 impl BodyArgs {
-    fn read(&self) -> Result<Option<String>> {
+    pub(crate) fn read(&self) -> Result<Option<String>> {
         match (&self.body, &self.body_file) {
             (Some(b), _) => Ok(Some(b.clone())),
             (None, Some(path)) if path == "-" => {
@@ -153,6 +153,9 @@ pub enum AdminCommand {
     /// Storage used by each login's sessions (sizes only), or one login's
     /// sessions.
     Storage { account: Option<Uuid> },
+    /// Post, edit and delete announcements.
+    #[command(subcommand)]
+    Announce(crate::announce_cmd::AnnounceCommand),
     /// Show open reports (or all with --all).
     Reports {
         #[arg(long)]
@@ -550,6 +553,7 @@ pub async fn report(
 pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
     let client = ctx.client()?;
     match cmd {
+        AdminCommand::Announce(cmd) => crate::announce_cmd::announce(ctx, cmd).await,
         AdminCommand::Reports { all } => {
             let reports = client.admin_reports(all).await?;
             ctx.print(&reports, |list| {
