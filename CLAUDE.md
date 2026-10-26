@@ -13,6 +13,16 @@
   implements in the description (`Closes #N` when it finishes the issue,
   `Refs #N` when it's partial). If a PR covers several issues, list each one.
   Tick off the issue's checklist items as they land.
+- **Record every major phase as an epic.** Each major phase (for example the
+  GUI client) is a GitHub issue labelled `epic`, titled `Epic: Phase N: <name>`.
+  Every step of the phase, and every related issue that comes up during it, is
+  opened as a feature issue and linked to the epic as a sub-issue (GitHub's
+  sub-issues, not just a mention). Open the epic before the phase's first step.
+- **Review the epic before continuing work.** Before continuing work on any
+  phase or phase step, review the applicable epic and its linked issues. If
+  additional issues have arisen that might affect the current task, ask the
+  user to confirm the implementation order, unless the order is immediately
+  obvious and trivial.
 - If work turns up that isn't covered by an issue, open one before or with the
   PR rather than leaving it in a note.
 
