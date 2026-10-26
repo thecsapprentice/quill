@@ -14,7 +14,10 @@ use quill_core::{
 };
 use quill_e2e::{Exchange, TEST_PASSWORD, TestServer};
 use quill_proto::{
-    announcements::{AnnouncementQuery, CreateAnnouncement, UpdateAnnouncement},
+    announcements::{
+        AnnouncementQuery, CommentQuery, CreateAnnouncement, CreateComment, RemoveComment,
+        ReportComment, UpdateAnnouncement,
+    },
     api::{CreatePersona, Credentials, Persona, UpdatePersona},
     board::{
         AdminLogTargetQuery, AdminTagQuery, CreateNamespace, CreatePrompt, CreateReport, CreateTag,
@@ -304,6 +307,59 @@ async fn story(server: &TestServer) {
         .await
         .unwrap();
     anon.announcement(news.id).await.unwrap();
+    admin
+        .admin_update_announcement(
+            news.id,
+            &UpdateAnnouncement {
+                comments_open: Some(true),
+                ..UpdateAnnouncement::default()
+            },
+        )
+        .await
+        .unwrap();
+    let said = alice_c
+        .post_comment(
+            news.id,
+            &CreateComment {
+                persona: fox.id,
+                body: "Thanks".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let kept = alice_c
+        .post_comment(
+            news.id,
+            &CreateComment {
+                persona: fox.id,
+                body: "More".into(),
+            },
+        )
+        .await
+        .unwrap();
+    anon.comments(news.id, &CommentQuery::default())
+        .await
+        .unwrap();
+    anon.report_comment(
+        said.id,
+        &ReportComment {
+            reason: ReportReason::Spam,
+            details: None,
+        },
+    )
+    .await
+    .unwrap();
+    admin.admin_reports(false).await.unwrap();
+    admin
+        .admin_remove_comment(
+            said.id,
+            &RemoveComment {
+                reason: ReportReason::Spam,
+            },
+        )
+        .await
+        .unwrap();
+    alice_c.delete_comment(kept.id).await.unwrap();
     admin.admin_delete_announcement(news.id).await.unwrap();
     anon.announcement(news.id).await.unwrap_err();
     alice_c.notices(None).await.unwrap();
