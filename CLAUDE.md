@@ -29,3 +29,14 @@
   any unexpected or edge-case scenarios that shaped the code. A code comment
   that needs a complex explanation points to the relevant section of that
   document instead of repeating it.
+
+## User experience principles
+
+General principles to maintain for how the software feels to use:
+
+- **Moderation without prying.** Server admins need to balance their ability to
+  moderate the public side of the service with their desire not to know too
+  much about what people are writing about privately.
+- **Smooth, low-barrier clients.** The client experience should be smooth and
+  frictionless, with low barriers to entry, because Quill competes with
+  established ecosystems and software that have a strong user base.
