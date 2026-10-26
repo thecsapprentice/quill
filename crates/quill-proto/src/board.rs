@@ -177,6 +177,7 @@ string_enum! {
         EditAnnouncement => "edit_announcement",
         DeleteAnnouncement => "delete_announcement",
         SetAnnouncementComments => "set_announcement_comments",
+        DeleteComment => "delete_comment",
     }
 }
 
@@ -563,19 +564,42 @@ pub struct CreateReport {
     pub details: Option<String>,
 }
 
+string_enum! {
+    /// What a report is about.
+    ReportKind {
+        Prompt => "prompt",
+        /// A comment on an announcement.
+        Comment => "comment",
+    }
+}
+
+// `string_enum!` writes the derives, so the default is implemented by hand.
+#[allow(clippy::derivable_impls)]
+impl Default for ReportKind {
+    fn default() -> Self {
+        Self::Prompt
+    }
+}
+
 /// A Review Message in the administrators' inbox.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
     pub id: Uuid,
+    /// Whether `prompt` or `comment` was reported.
+    #[serde(default)]
+    pub kind: ReportKind,
     /// `None` once the prompt itself has been deleted by its author.
     #[serde(default)]
     pub prompt: Option<Prompt>,
+    /// The reported comment; `None` once its author deleted it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<crate::announcements::Comment>,
     pub reason: ReportReason,
     #[serde(default)]
     pub details: Option<String>,
-    /// Hex SHA-256 of the prompt as it was when reported.
+    /// Hex SHA-256 of the prompt or comment as it was when reported.
     pub prompt_hash: String,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
@@ -620,7 +644,11 @@ pub struct AdminLogEntry {
     pub report_id: Option<Uuid>,
     #[serde(default)]
     pub prompt_id: Option<Uuid>,
-    /// Hex SHA-256 of the prompt as reported (report entries only).
+    /// The comment an entry concerns, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment_id: Option<Uuid>,
+    /// Hex SHA-256 of the prompt or comment as reported (report entries
+    /// and removals only).
     #[serde(default)]
     pub prompt_hash: Option<String>,
     /// Report entries only.

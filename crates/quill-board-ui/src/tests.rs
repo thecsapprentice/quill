@@ -3,7 +3,7 @@ use quill_proto::{
     board::{
         AccountSettings, AdminAction, AdminLogDetail, AdminLogEntry, AdminLogPrompt,
         AdminLogTarget, AdminTag, LogActor, Maturity, Prompt, PromptAuthor, PromptState, Report,
-        ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy, TagStatus,
+        ReportKind, ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy, TagStatus,
     },
 };
 use time::macros::datetime;
@@ -322,7 +322,9 @@ fn other_pages_render() {
         AdminReportsView {
             reports: vec![Report {
                 id: Uuid::nil(),
+                kind: ReportKind::Prompt,
                 prompt: Some(prompt("Spam", Maturity::General)),
+                comment: None,
                 reason: ReportReason::Spam,
                 details: Some("<b>bad</b>".into()),
                 prompt_hash: "ab".repeat(32),
@@ -480,6 +482,7 @@ fn admin_log_shows_tag_and_report_entries() {
         action,
         report_id: None,
         prompt_id: subject.is_none().then(Uuid::nil),
+        comment_id: None,
         prompt_hash: subject.is_none().then(|| "00ff00ff00ff00ff".into()),
         reason: subject.is_none().then_some(ReportReason::Spam),
         subject: subject.map(str::to_owned),
@@ -547,6 +550,7 @@ fn admin_log_entry_lists_accounts_and_their_prompts() {
         action: AdminAction::DeleteTag,
         report_id: None,
         prompt_id: None,
+        comment_id: None,
         prompt_hash: None,
         reason: None,
         subject: Some("genre:horror".into()),

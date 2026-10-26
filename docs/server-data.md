@@ -63,8 +63,8 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `id`         | `metadata`   | Notice id.                                                                             |
 | `account_id` | `metadata`   | The login the notice is for.                                                           |
 | `log_id`     | `metadata`   | The admin-log entry it came from.                                                      |
-| `kind`       | `moderation` | What administrators did (a prompt removed, a tag changed).                             |
-| `fields`     | `moderation` | The tag or reason involved.                                                            |
+| `kind`       | `moderation` | What administrators did (a prompt or comment removed, a tag changed).                  |
+| `fields`     | `moderation` | The tag, reason or announcement involved.                                              |
 | `prompts`    | `public`     | The login's affected prompts as they were: id, title and handle, all public on the board. |
 | `created_at` | `metadata`   | When.                                                                                  |
 | `read_at`    | `metadata`   | When the login read it.                                                                |
@@ -102,13 +102,14 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `action`      | `moderation` | What happened (report received, prompt removed, tag changed).               |
 | `report_id`   | `metadata`   | The report it concerns.                                                     |
 | `prompt_id`   | `metadata`   | The prompt it concerns.                                                     |
-| `prompt_hash` | `digest`     | SHA-256 of the prompt as reported, so its text needn't be kept.             |
+| `prompt_hash` | `digest`     | SHA-256 of the prompt or comment as reported, so its text needn't be kept.  |
 | `reason`      | `moderation` | The report's reason category.                                               |
 | `admin_id`    | `metadata`   | The administrator who acted.                                                |
 | `subject`     | `moderation` | The tag acted on, e.g. `genre:horror`.                                      |
 | `detail`      | `moderation` | What changed about it.                                                      |
 | `actor`       | `moderation` | Who acted: an administrator, the server, or a reporter (left unnamed).      |
 | `admin_login` | `moderation` | The acting administrator's login name, as it was.                          |
+| `comment_id`  | `metadata`   | The comment it concerns.                                                    |
 
 ### `admin_log_targets`
 
@@ -131,6 +132,19 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `created_at`    | `public`   | When it was posted.                                                    |
 | `updated_at`    | `public`   | When it last changed.                                                  |
 | `deleted_at`    | `metadata` | When an administrator deleted it; it then shows nowhere.               |
+
+### `announcement_comments`
+
+| Column            | Class        | What                                                                    |
+|-------------------|--------------|-------------------------------------------------------------------------|
+| `id`              | `metadata`   | Comment id.                                                             |
+| `announcement_id` | `metadata`   | The announcement it's on.                                               |
+| `actor_id`        | `public`     | The persona that wrote it, shown beside it.                             |
+| `body_md`         | `public`     | Its Markdown text, public under the announcement.                       |
+| `body_html`       | `public`     | The same, rendered and sanitized.                                       |
+| `created_at`      | `public`     | When it was posted.                                                     |
+| `removed_at`      | `moderation` | When an administrator removed it; then only its author sees it.         |
+| `removed_reason`  | `moderation` | The reason category for the removal.                                    |
 
 ### `api_tokens`
 
@@ -252,13 +266,15 @@ Not listed column by column: sqlx's own record of which migrations ran
 |--------------------|--------------|--------------------------------------------------------------------------|
 | `id`               | `metadata`   | Report id.                                                               |
 | `prompt_id`        | `metadata`   | The prompt reported.                                                     |
+| `comment_id`       | `metadata`   | The comment reported.                                                    |
+| `kind`             | `moderation` | Whether a prompt or a comment was reported.                              |
 | `reporter_account` | `metadata`   | Who reported it, for abuse control; never shown to the prompt's author. |
 | `reason`           | `moderation` | The reason category.                                                     |
 | `details`          | `moderation` | What the reporter wrote, for administrators.                             |
-| `prompt_hash`      | `digest`     | SHA-256 of the prompt as reported.                                       |
+| `prompt_hash`      | `digest`     | SHA-256 of the prompt or comment as reported.                            |
 | `created_at`       | `metadata`   | When.                                                                    |
 | `resolved_at`      | `metadata`   | When it was dealt with.                                                  |
-| `resolution`       | `moderation` | Discarded, or the prompt deleted.                                        |
+| `resolution`       | `moderation` | Discarded, or the prompt or comment removed.                             |
 | `resolved_by`      | `metadata`   | The administrator who dealt with it.                                     |
 
 ### `reserved_handles`

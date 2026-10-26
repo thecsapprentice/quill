@@ -148,6 +148,11 @@ pub fn announcement_body(input: &str) -> Result<String, ValidationError> {
     markdown_body(input, ANNOUNCEMENT_BODY_MAX_CHARS)
 }
 
+/// Comments are Markdown too, shorter than prompts.
+pub fn comment_body(input: &str) -> Result<String, ValidationError> {
+    markdown_body(input, COMMENT_BODY_MAX_CHARS)
+}
+
 /// Required Markdown text, its line endings normalized to `\n`.
 fn markdown_body(input: &str, max: usize) -> Result<String, ValidationError> {
     let normalized = input.replace("\r\n", "\n").replace('\r', "\n");

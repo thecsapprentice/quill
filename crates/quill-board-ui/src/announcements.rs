@@ -22,6 +22,11 @@ pub fn announcement_url(id: Uuid) -> String {
     format!("/announcements/{id}")
 }
 
+/// A comment's own address, which leads to it under its announcement.
+pub fn comment_url(id: Uuid) -> String {
+    format!("/comments/{id}")
+}
+
 pub fn admin_announcement_url(id: Uuid) -> String {
     format!("/admin/settings/announcements/{id}")
 }

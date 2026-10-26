@@ -724,12 +724,16 @@ fn action_label(action: AdminAction) -> &'static str {
         AdminAction::EditAnnouncement => "Announcement edited",
         AdminAction::DeleteAnnouncement => "Announcement deleted",
         AdminAction::SetAnnouncementComments => "Announcement comments changed",
+        AdminAction::DeleteComment => "Comment removed",
     }
 }
 
 fn log_subject(e: &AdminLogEntry) -> Element {
     if let Some(subject) = &e.subject {
         return rsx! { code { "{subject}" } };
+    }
+    if let Some(id) = e.comment_id {
+        return rsx! { a { href: "{crate::comment_url(id)}", "View comment" } };
     }
     match e.prompt_id {
         Some(id) => rsx! { a { href: "{prompt_url(id)}?show=1", "View prompt" } },
