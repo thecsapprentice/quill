@@ -4,7 +4,11 @@
 //! client implements.
 
 pub mod backend;
+#[cfg(test)]
+mod fake;
 pub mod field;
+pub mod model;
+pub mod rules;
 
 pub use backend::Backend;
 
