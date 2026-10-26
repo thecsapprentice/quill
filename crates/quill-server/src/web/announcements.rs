@@ -48,16 +48,17 @@ fn dismissed(headers: &HeaderMap) -> Option<Uuid> {
         .and_then(|(_, value)| value.parse().ok())
 }
 
-/// The newest announcement for the board's banner, unless this reader
-/// dismissed it or a newer one. Ids are UUIDv7, so they order by posting
-/// time: deleting the newest doesn't bring back one already dismissed.
-pub(super) async fn banner(
+/// The board's banners: every sticky announcement, which can't be
+/// dismissed, and the newest other one, unless this reader dismissed it or
+/// a newer one. Ids are UUIDv7, so they order by posting time: deleting the
+/// newest doesn't bring back one already dismissed.
+pub(super) async fn banners(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<Option<Announcement>, ApiError> {
-    let latest = announcements::latest(state).await?;
+) -> Result<(Vec<Announcement>, Option<Announcement>), ApiError> {
+    let (sticky, newest) = announcements::banners(state).await?;
     let seen = dismissed(headers);
-    Ok(latest.filter(|a| seen.is_none_or(|s| a.id > s)))
+    Ok((sticky, newest.filter(|a| seen.is_none_or(|s| a.id > s))))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -98,6 +99,7 @@ pub async fn list(
     let query = AnnouncementQuery {
         cursor: opt(&p.cursor).map(str::to_owned),
         limit: None,
+        sticky: None,
     };
     match announcements::list(&state, &query).await {
         Ok(page) => html(
@@ -226,6 +228,8 @@ pub struct AnnouncementForm {
     body: Option<String>,
     /// The "Allow comments" box: present only when ticked.
     comments: Option<String>,
+    /// The "Sticky" box: present only when ticked.
+    sticky: Option<String>,
 }
 
 async fn render_admin_list(
@@ -239,6 +243,7 @@ async fn render_admin_list(
     let query = AnnouncementQuery {
         cursor: opt(&params.cursor).map(str::to_owned),
         limit: None,
+        sticky: None,
     };
     let loaded = async {
         let page = announcements::list(state, &query).await?;
@@ -266,6 +271,7 @@ async fn render_admin_list(
                 body: form.and_then(|f| f.body.clone()).unwrap_or_default(),
                 // A new form starts with comments allowed.
                 comments_open: form.is_none_or(|f| f.comments.is_some()),
+                sticky: form.is_some_and(|f| f.sticky.is_some()),
                 error,
                 comment_visibility,
             },
@@ -300,6 +306,7 @@ pub async fn admin_post(
         title: form.title.clone().unwrap_or_default(),
         body: form.body.clone().unwrap_or_default(),
         comments_open: form.comments.is_some(),
+        sticky: form.sticky.is_some(),
     };
     match announcements::post(&state, s.account_id, &body).await {
         Ok(a) => redirect(&format!(
@@ -385,6 +392,7 @@ pub async fn admin_edit(
         title: Some(form.title.clone().unwrap_or_default()),
         body: Some(form.body.clone().unwrap_or_default()),
         comments_open: None,
+        sticky: None,
     };
     match announcements::update(&state, s.account_id, uuid, &body).await {
         Ok(a) => redirect(&format!(
@@ -466,6 +474,44 @@ pub async fn admin_comments(
     };
     match announcements::update(&state, s.account_id, id, &body).await {
         Ok(_) => redirect("/admin/settings/announcements?notice=announcement-comments"),
+        Err(e) => error_page(&c, e),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct StickyForm {
+    csrf: Option<String>,
+    sticky: Option<String>,
+}
+
+pub async fn admin_sticky(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Path(id): Path<String>,
+    Form(form): Form<StickyForm>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let c = chrome(&state, Some(&s), Nav::ServerSettings, None);
+    if !s.csrf_matches(form.csrf.as_deref()) {
+        return csrf_failed(&c);
+    }
+    let Ok(id) = id.parse::<Uuid>() else {
+        return error_page(&c, ApiError::NotFound);
+    };
+    let sticky = match opt(&form.sticky) {
+        Some("on") => true,
+        Some("off") => false,
+        _ => return error_page(&c, ApiError::BadRequest("Choose a setting.".into())),
+    };
+    let body = UpdateAnnouncement {
+        sticky: Some(sticky),
+        ..UpdateAnnouncement::default()
+    };
+    match announcements::update(&state, s.account_id, id, &body).await {
+        Ok(_) => redirect("/admin/settings/announcements?notice=announcement-sticky"),
         Err(e) => error_page(&c, e),
     }
 }

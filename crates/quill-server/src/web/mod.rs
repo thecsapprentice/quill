@@ -115,6 +115,10 @@ pub fn router() -> Router<AppState> {
             post(announcements::admin_delete),
         )
         .route(
+            "/admin/settings/announcements/{id}/sticky",
+            post(announcements::admin_sticky),
+        )
+        .route(
             "/admin/settings/comment-visibility",
             post(announcements::admin_comment_visibility),
         )
@@ -357,6 +361,7 @@ fn notice_text(key: &str) -> Option<&'static str> {
         "announcement-posted" => "Announcement posted.",
         "announcement-saved" => "Changes saved.",
         "announcement-comments" => "Setting saved.",
+        "announcement-sticky" => "Setting saved.",
         "announcement-deleted" => "Announcement deleted.",
         "comment-visibility-saved" => "Setting saved.",
         "comment-posted" => "Comment posted.",

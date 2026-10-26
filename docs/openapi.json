@@ -2712,7 +2712,7 @@
           "announcements"
         ],
         "summary": "The administrators' announcements, newest first",
-        "description": "Pages by `cursor`, which the previous page returns.",
+        "description": "Pages by `cursor`, which the previous page returns. `sticky=true` gives the sticky ones, whose banners clients show at the top of the board without a way to dismiss them.",
         "operationId": "get_announcements",
         "parameters": [
           {
@@ -2731,6 +2731,15 @@
               "type": "integer",
               "format": "int32",
               "minimum": 0
+            }
+          },
+          {
+            "name": "sticky",
+            "in": "query",
+            "description": "Only sticky announcements (`true`), or only the others (`false`).",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -7962,6 +7971,7 @@
           "edit_announcement",
           "delete_announcement",
           "set_announcement_comments",
+          "set_announcement_sticky",
           "delete_comment"
         ]
       },
@@ -8223,6 +8233,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "sticky": {
+            "type": "boolean",
+            "description": "Sticky announcements each keep a banner at the top of the board that\nreaders can't dismiss."
+          },
           "title": {
             "type": "string"
           },
@@ -8443,6 +8457,10 @@
           "commentsOpen": {
             "type": "boolean",
             "description": "Whether writers may comment. Defaults to true."
+          },
+          "sticky": {
+            "type": "boolean",
+            "description": "Keep its banner at the top of the board. Defaults to false."
           },
           "title": {
             "type": "string"
@@ -10451,6 +10469,12 @@
             ]
           },
           "commentsOpen": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "sticky": {
             "type": [
               "boolean",
               "null"

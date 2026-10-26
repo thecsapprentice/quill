@@ -76,6 +76,7 @@ pub struct AdminAnnouncementsView {
     pub title: String,
     pub body: String,
     pub comments_open: bool,
+    pub sticky: bool,
     pub error: Option<String>,
     /// The server-wide setting: who can read comments.
     pub comment_visibility: CommentVisibility,
@@ -90,17 +91,22 @@ pub struct AdminAnnouncementView {
     pub error: Option<String>,
 }
 
-/// The one-line banner at the top of the board: the newest title, a link
-/// to it, and a button that hides it until there's a newer one.
-pub(crate) fn banner(a: &Announcement) -> Element {
+/// A one-line banner at the top of the board: the title and a link to it.
+/// The newest announcement's banner has a button that hides it until
+/// there's a newer one; sticky announcements' banners don't.
+pub(crate) fn banner(a: &Announcement, dismissible: bool) -> Element {
     rsx! {
-        aside { class: "announcement-banner", "aria-label": "Announcement",
+        aside {
+            class: if dismissible { "announcement-banner" } else { "announcement-banner sticky" },
+            "aria-label": "Announcement",
             span { class: "banner-label", "Announcement" }
             a { href: "{announcement_url(a.id)}", "{a.title}" }
-            form { method: "post", action: DISMISS_PATH,
-                input { r#type: "hidden", name: "id", value: "{a.id}" }
-                button { class: "link-button", r#type: "submit",
-                    "aria-label": "Dismiss this announcement", "Dismiss" }
+            if dismissible {
+                form { method: "post", action: DISMISS_PATH,
+                    input { r#type: "hidden", name: "id", value: "{a.id}" }
+                    button { class: "link-button", r#type: "submit",
+                        "aria-label": "Dismiss this announcement", "Dismiss" }
+                }
             }
         }
     }
@@ -384,6 +390,27 @@ fn comments_toggle(chrome: &Chrome, a: &Announcement) -> Element {
     }
 }
 
+fn sticky_label(sticky: bool) -> &'static str {
+    if sticky { "Sticky" } else { "No" }
+}
+
+/// A button that makes an announcement sticky or not.
+fn sticky_toggle(chrome: &Chrome, a: &Announcement) -> Element {
+    let (value, label) = if a.sticky {
+        ("off", "Unstick")
+    } else {
+        ("on", "Make sticky")
+    };
+    rsx! {
+        form { method: "post", action: "{admin_announcement_url(a.id)}/sticky",
+            {csrf(chrome)}
+            input { r#type: "hidden", name: "sticky", value: "{value}" }
+            button { class: "link-button", r#type: "submit",
+                "aria-label": "{label}: “{a.title}”", "{label}" }
+        }
+    }
+}
+
 pub fn admin_announcements_page(chrome: &Chrome, view: AdminAnnouncementsView) -> String {
     let chrome_for_body = chrome.clone();
     render("Announcements", chrome, move || {
@@ -393,7 +420,7 @@ pub fn admin_announcements_page(chrome: &Chrome, view: AdminAnnouncementsView) -
             h1 { "Server settings" }
             {tabs(c, Tab::Announcements)}
             p { class: "lede",
-                "The newest announcement's title shows as a banner at the top of the board, and every announcement is listed under Announcements. Readers see them as from “the administrators”; the admin log records who posted each."
+                "The newest announcement's title shows as a banner at the top of the board, which readers can dismiss. Sticky announcements each keep a banner of their own above it, which readers can't dismiss. Every announcement is listed under Announcements. Readers see them as from “the administrators”; the admin log records who posted each."
             }
             {error_notice(v.error.as_ref())}
             form { class: "form-card", method: "post", action: "/admin/settings/announcements",
@@ -405,7 +432,16 @@ pub fn admin_announcements_page(chrome: &Chrome, view: AdminAnnouncementsView) -
                         input { r#type: "checkbox", name: "comments", value: "on", checked: v.comments_open }
                         span {
                             "Allow comments"
-                            span { class: "hint", "Comments aren't available yet; this decides whether they'll be open when they are. You can change it later." }
+                            span { class: "hint", "Signed-in writers can comment on it. You can change this later." }
+                        }
+                    }
+                }
+                div { class: "field",
+                    label { class: "inline-check",
+                        input { r#type: "checkbox", name: "sticky", value: "on", checked: v.sticky }
+                        span {
+                            "Sticky"
+                            span { class: "hint", "Its banner stays at the top of the board, and readers can't dismiss it, until you unstick it." }
                         }
                     }
                 }
@@ -444,13 +480,14 @@ pub fn admin_announcements_page(chrome: &Chrome, view: AdminAnnouncementsView) -
                 div { class: "table-scroll",
                     table { class: "log",
                         thead {
-                            tr { th { "Title" } th { "Posted" } th { "Comments" } th { span { class: "visually-hidden", "Actions" } } }
+                            tr { th { "Title" } th { "Posted" } th { "Banner" } th { "Comments" } th { span { class: "visually-hidden", "Actions" } } }
                         }
                         tbody {
                             for a in v.announcements.iter() {
                                 tr { key: "{a.id}",
                                     td { a { href: "{announcement_url(a.id)}", "{a.title}" } }
                                     td { "{short_date(a.created_at)}" }
+                                    td { "{sticky_label(a.sticky)} " {sticky_toggle(c, a)} }
                                     td { "{comments_label(a.comments_open)} " {comments_toggle(c, a)} }
                                     td { a { href: "{admin_announcement_url(a.id)}",
                                         "aria-label": "Edit “{a.title}”", "Edit" } }
@@ -485,6 +522,17 @@ pub fn admin_announcement_page(chrome: &Chrome, view: AdminAnnouncementView) -> 
                 div { class: "actions",
                     button { class: "btn", r#type: "submit", "Save changes" }
                     a { href: "/admin/settings/announcements", "Cancel" }
+                }
+            }
+            section { class: "form-card",
+                h2 { class: "form-title", "Banner" }
+                p {
+                    if a.sticky {
+                        "Sticky: its banner stays at the top of the board. "
+                    } else {
+                        "Not sticky: readers can dismiss its banner. "
+                    }
+                    {sticky_toggle(c, a)}
                 }
             }
             section { class: "form-card",

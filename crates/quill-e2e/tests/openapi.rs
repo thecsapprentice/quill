@@ -290,6 +290,7 @@ async fn story(server: &TestServer) {
             title: "News".into(),
             body: "Read *this*.".into(),
             comments_open: true,
+            sticky: false,
         })
         .await
         .unwrap();

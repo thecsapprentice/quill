@@ -22,6 +22,10 @@ pub struct Announcement {
     pub body_html: String,
     /// Whether writers may comment on it.
     pub comments_open: bool,
+    /// Sticky announcements each keep a banner at the top of the board that
+    /// readers can't dismiss.
+    #[serde(default)]
+    pub sticky: bool,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     /// Later than `created_at` once it has been edited.
@@ -47,6 +51,9 @@ pub struct CreateAnnouncement {
     /// Whether writers may comment. Defaults to true.
     #[serde(default = "yes")]
     pub comments_open: bool,
+    /// Keep its banner at the top of the board. Defaults to false.
+    #[serde(default)]
+    pub sticky: bool,
 }
 
 fn yes() -> bool {
@@ -64,6 +71,8 @@ pub struct UpdateAnnouncement {
     pub body: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comments_open: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sticky: Option<bool>,
 }
 
 /// `GET /announcements` query.
@@ -79,6 +88,9 @@ pub struct AnnouncementQuery {
     pub cursor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    /// Only sticky announcements (`true`), or only the others (`false`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sticky: Option<bool>,
 }
 
 /// One page of announcements, newest first.

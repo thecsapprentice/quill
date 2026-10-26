@@ -51,6 +51,7 @@ async fn announce(admin: &Client, title: &str) -> Announcement {
             title: title.into(),
             body: "News.".into(),
             comments_open: true,
+            sticky: false,
         })
         .await
         .unwrap()

@@ -128,6 +128,7 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `body_md`       | `public`   | Its Markdown text.                                                     |
 | `body_html`     | `public`   | The same, rendered and sanitized.                                      |
 | `comments_open` | `settings` | Whether writers may comment on it.                                     |
+| `sticky`        | `public`   | Whether its banner stays at the top of the board, not dismissible.     |
 | `created_by`    | `metadata` | The administrator who posted it; readers see "the administrators".    |
 | `created_at`    | `public`   | When it was posted.                                                    |
 | `updated_at`    | `public`   | When it last changed.                                                  |

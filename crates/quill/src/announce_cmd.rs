@@ -70,6 +70,16 @@ pub enum AnnounceCommand {
         /// Don't allow comments on it.
         #[arg(long)]
         no_comments: bool,
+        /// Keep its banner at the top of the board, not dismissible.
+        #[arg(long)]
+        sticky: bool,
+    },
+    /// Make an announcement sticky or not.
+    Sticky {
+        id: Uuid,
+        /// on or off.
+        #[arg(value_parser = clap::builder::BoolishValueParser::new())]
+        sticky: bool,
     },
     /// Change an announcement's title or text.
     Edit {
@@ -99,10 +109,11 @@ pub enum AnnounceCommand {
 
 fn print_announcement(a: &Announcement, full: bool) {
     println!(
-        "{}  {}  {}{}",
+        "{}  {}  {}{}{}",
         a.id,
         a.created_at.date(),
         a.title,
+        if a.sticky { "  (sticky)" } else { "" },
         if a.comments_open {
             ""
         } else {
@@ -123,7 +134,11 @@ pub async fn announcements(ctx: &Ctx, cmd: AnnouncementsCommand) -> Result<()> {
     match cmd {
         AnnouncementsCommand::List { cursor, limit } => {
             let page = client
-                .announcements(&AnnouncementQuery { cursor, limit })
+                .announcements(&AnnouncementQuery {
+                    cursor,
+                    limit,
+                    sticky: None,
+                })
                 .await?;
             ctx.print(&page, |p| {
                 if p.items.is_empty() {
@@ -219,6 +234,7 @@ pub async fn announce(ctx: &Ctx, cmd: AnnounceCommand) -> Result<()> {
             title,
             body,
             no_comments,
+            sticky,
         } => {
             let Some(text) = body.read()? else {
                 bail!("give the text with --body or --body-file");
@@ -228,7 +244,20 @@ pub async fn announce(ctx: &Ctx, cmd: AnnounceCommand) -> Result<()> {
                     title,
                     body: text,
                     comments_open: !no_comments,
+                    sticky,
                 })
+                .await?;
+            ctx.print(&a, |a| print_announcement(a, false))
+        }
+        AnnounceCommand::Sticky { id, sticky } => {
+            let a = client
+                .admin_update_announcement(
+                    id,
+                    &UpdateAnnouncement {
+                        sticky: Some(sticky),
+                        ..UpdateAnnouncement::default()
+                    },
+                )
                 .await?;
             ctx.print(&a, |a| print_announcement(a, false))
         }
@@ -243,7 +272,7 @@ pub async fn announce(ctx: &Ctx, cmd: AnnounceCommand) -> Result<()> {
                     &UpdateAnnouncement {
                         title,
                         body: text,
-                        comments_open: None,
+                        ..UpdateAnnouncement::default()
                     },
                 )
                 .await?;

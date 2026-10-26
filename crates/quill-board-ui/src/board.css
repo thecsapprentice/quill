@@ -202,6 +202,15 @@ h1 {
   margin: 0 0 1.5rem;
 }
 
+/* Sticky banners stack above the newest one, closer together. */
+.announcement-banner + .announcement-banner {
+  margin-top: -1rem;
+}
+
+.announcement-banner.sticky {
+  border-left-color: var(--act);
+}
+
 .announcement-banner a {
   font-weight: 600;
   min-width: 0;

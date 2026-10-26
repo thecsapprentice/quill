@@ -31,6 +31,7 @@ fn create(title: &str) -> CreateAnnouncement {
         title: title.into(),
         body: "Read *this*.".into(),
         comments_open: true,
+        sticky: false,
     }
 }
 
@@ -95,6 +96,7 @@ async fn only_administrators_post_and_everyone_reads() {
         .announcements(&AnnouncementQuery {
             cursor: None,
             limit: Some(1),
+            sticky: None,
         })
         .await
         .unwrap();
@@ -104,6 +106,7 @@ async fn only_administrators_post_and_everyone_reads() {
         .announcements(&AnnouncementQuery {
             cursor: page.next_cursor,
             limit: Some(1),
+            sticky: None,
         })
         .await
         .unwrap();
@@ -156,6 +159,7 @@ async fn edits_comment_switches_and_deletes_are_logged() {
                 title: Some("Welcome, writers".into()),
                 body: Some("New text.".into()),
                 comments_open: None,
+                sticky: None,
             },
         )
         .await
@@ -186,6 +190,7 @@ async fn edits_comment_switches_and_deletes_are_logged() {
                 title: Some("Welcome, writers".into()),
                 body: None,
                 comments_open: Some(false),
+                sticky: None,
             },
         )
         .await
@@ -516,4 +521,149 @@ async fn administrators_manage_announcements_on_the_board() {
         )
         .await;
     assert_eq!(forged.status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn sticky_banners_build_up_and_cannot_be_dismissed() {
+    let server = server!();
+    let admin = server.admin_account("boss").await.unwrap();
+    let sticky = |title: &str| CreateAnnouncement {
+        sticky: true,
+        ..create(title)
+    };
+    let rules = admin
+        .admin_post_announcement(&sticky("Rules updated"))
+        .await
+        .unwrap();
+    assert!(rules.sticky);
+    let downtime = admin
+        .admin_post_announcement(&sticky("Downtime Friday"))
+        .await
+        .unwrap();
+    let welcome = admin
+        .admin_post_announcement(&create("Welcome"))
+        .await
+        .unwrap();
+    assert!(!welcome.sticky);
+
+    // Clients can ask for the sticky ones alone.
+    let anonymous = server.client();
+    let only = anonymous
+        .announcements(&AnnouncementQuery {
+            sticky: Some(true),
+            ..AnnouncementQuery::default()
+        })
+        .await
+        .unwrap();
+    let ids: Vec<_> = only.items.iter().map(|a| a.id).collect();
+    assert_eq!(ids, vec![downtime.id, rules.id]);
+
+    // Every sticky one gets a banner, newest first, above the newest other
+    // one, which is the only one with a Dismiss button.
+    let mut reader = Browser::new(&server);
+    let board = reader.get("/").await;
+    assert_eq!(board.body.matches("announcement-banner sticky").count(), 2);
+    let at = |text: &str| board.body.find(text).unwrap();
+    assert!(at("Downtime Friday") < at("Rules updated"));
+    assert!(at("Rules updated") < at("Welcome"));
+    assert_eq!(board.body.matches("/announcements/dismiss").count(), 1);
+
+    // Dismissing leaves the sticky ones; another sticky one joins them.
+    let id = welcome.id.to_string();
+    reader.post("/announcements/dismiss", &[("id", &id)]).await;
+    let board = reader.get("/").await;
+    assert!(!board.body.contains("Welcome"));
+    assert_eq!(board.body.matches("announcement-banner sticky").count(), 2);
+    assert!(!board.body.contains("/announcements/dismiss"));
+    admin
+        .admin_post_announcement(&sticky("New tags"))
+        .await
+        .unwrap();
+    let board = reader.get("/").await;
+    assert_eq!(board.body.matches("announcement-banner sticky").count(), 3);
+
+    // Unstuck, an older announcement doesn't come back as the dismissible
+    // banner: the reader already dismissed a newer one.
+    admin
+        .admin_update_announcement(
+            rules.id,
+            &UpdateAnnouncement {
+                sticky: Some(false),
+                ..UpdateAnnouncement::default()
+            },
+        )
+        .await
+        .unwrap();
+    let board = reader.get("/").await;
+    assert!(!board.body.contains("Rules updated"));
+    assert_eq!(board.body.matches("announcement-banner sticky").count(), 2);
+
+    // A deleted sticky announcement's banner goes too.
+    admin.admin_delete_announcement(downtime.id).await.unwrap();
+    let board = reader.get("/").await;
+    assert!(!board.body.contains("Downtime Friday"));
+    assert_eq!(board.body.matches("announcement-banner sticky").count(), 1);
+
+    let log = log_tail(&admin, 2).await;
+    assert_eq!(
+        log[0],
+        (
+            AdminAction::SetAnnouncementSticky,
+            "Rules updated".into(),
+            Some("sticky: yes → no".into())
+        )
+    );
+    assert_eq!(log[1].0, AdminAction::DeleteAnnouncement);
+}
+
+#[tokio::test]
+async fn administrators_make_announcements_sticky_on_the_board() {
+    let server = server!();
+    server.admin_account("boss").await.unwrap();
+    let mut b = Browser::new(&server);
+    b.sign_in("boss").await;
+    let tab = b.get("/admin/settings/announcements").await;
+    let csrf = tab.csrf();
+    let posted = b
+        .post(
+            "/admin/settings/announcements",
+            &[
+                ("csrf", &csrf),
+                ("title", "Pinned news"),
+                ("body", "Read me"),
+                ("sticky", "on"),
+            ],
+        )
+        .await;
+    assert_eq!(posted.status, StatusCode::SEE_OTHER);
+    let board = b.get("/").await;
+    assert!(board.body.contains("announcement-banner sticky"));
+    assert!(!board.body.contains("/announcements/dismiss"));
+
+    let tab = b.get("/admin/settings/announcements").await;
+    assert!(tab.body.contains("Unstick"));
+    let path = {
+        let marker = r#"action="/admin/settings/announcements/"#;
+        let start = tab.body.find(marker).unwrap() + r#"action=""#.len();
+        let end = tab.body[start..].find('"').unwrap();
+        tab.body[start..start + end].to_owned()
+    };
+    let path = path
+        .trim_end_matches("/comments")
+        .trim_end_matches("/sticky")
+        .to_owned();
+    let unstuck = b
+        .post(
+            &format!("{path}/sticky"),
+            &[("csrf", &csrf), ("sticky", "off")],
+        )
+        .await;
+    assert_eq!(
+        unstuck.location(),
+        "/admin/settings/announcements?notice=announcement-sticky"
+    );
+    let board = b.get("/").await;
+    assert!(!board.body.contains("announcement-banner sticky"));
+    // Now it's the newest ordinary one: dismissible.
+    assert!(board.body.contains("/announcements/dismiss"));
 }

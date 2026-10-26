@@ -177,6 +177,7 @@ string_enum! {
         EditAnnouncement => "edit_announcement",
         DeleteAnnouncement => "delete_announcement",
         SetAnnouncementComments => "set_announcement_comments",
+        SetAnnouncementSticky => "set_announcement_sticky",
         DeleteComment => "delete_comment",
     }
 }

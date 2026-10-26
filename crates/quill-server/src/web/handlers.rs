@@ -137,10 +137,11 @@ pub async fn board(
         Err(ApiError::BadRequest(m)) => (Vec::new(), None, Some(m)),
         Err(e) => return error_page(&c, e),
     };
-    let announcement = match super::announcements::banner(&state, &headers).await {
-        Ok(a) => a,
-        Err(e) => return error_page(&c, e),
-    };
+    let (sticky_announcements, announcement) =
+        match super::announcements::banners(&state, &headers).await {
+            Ok(b) => b,
+            Err(e) => return error_page(&c, e),
+        };
     let view = BoardView {
         filters,
         prompts: items,
@@ -151,6 +152,7 @@ pub async fn board(
         namespaces: prompts::namespaces(&state).await.unwrap_or_default(),
         tag_options: tag_options(&state).await,
         error,
+        sticky_announcements,
         announcement,
     };
     html(StatusCode::OK, quill_board_ui::board_page(&c, view))

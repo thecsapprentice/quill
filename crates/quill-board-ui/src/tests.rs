@@ -65,6 +65,7 @@ fn board(prompts: Vec<Prompt>, filters: BoardFilters) -> BoardView {
         namespaces: Vec::new(),
         tag_options: Vec::new(),
         error: None,
+        sticky_announcements: Vec::new(),
         announcement: None,
     }
 }
@@ -749,6 +750,7 @@ fn announcement(title: &str, edited: bool) -> quill_proto::announcements::Announ
         body: "Maintenance *tonight*".into(),
         body_html: "<p>Maintenance <em>tonight</em></p>".into(),
         comments_open: true,
+        sticky: false,
         created_at: datetime!(2026-10-22 12:00 UTC),
         updated_at: if edited {
             datetime!(2026-10-24 09:00 UTC)
@@ -828,6 +830,7 @@ fn admin_announcement_pages_render() {
             title: "Draft <title>".into(),
             body: "Draft body".into(),
             comments_open: false,
+            sticky: true,
             error: Some("title is required".into()),
             comment_visibility: quill_proto::announcements::CommentVisibility::SignedIn,
         },
@@ -1039,4 +1042,66 @@ fn comment_reports_and_notices_render() {
     assert!(html.contains("removed your comment on “Welcome” (Spam)."));
     assert!(html.contains(r#"href="/announcements/00000000-0000-0000-0000-000000000007""#));
     assert!(html.contains("(written as @ink_fox)"));
+}
+
+#[test]
+fn sticky_banners_stack_and_cannot_be_dismissed() {
+    let mut first = announcement("Rules updated", false);
+    first.id = Uuid::from_u128(1);
+    first.sticky = true;
+    let mut second = announcement("Downtime Friday", false);
+    second.id = Uuid::from_u128(2);
+    second.sticky = true;
+    let mut view = board(Vec::new(), BoardFilters::default());
+    view.sticky_announcements = vec![second, first];
+    view.announcement = Some(announcement("Welcome", false));
+    let html = board_page(&chrome(false, false), view);
+
+    assert_eq!(html.matches("announcement-banner sticky").count(), 2);
+    // Newest sticky first, then the dismissible one; only it has the button.
+    let downtime = html.find("Downtime Friday").unwrap();
+    let rules = html.find("Rules updated").unwrap();
+    let welcome = html.find("Welcome").unwrap();
+    assert!(downtime < rules && rules < welcome);
+    assert_eq!(
+        html.matches(r#"action="/announcements/dismiss""#).count(),
+        1
+    );
+    assert!(html.contains(r#"name="id" value="00000000-0000-0000-0000-000000000007""#));
+}
+
+#[test]
+fn admins_make_announcements_sticky() {
+    let c = chrome(true, true);
+    let mut sticky = announcement("Rules updated", false);
+    sticky.sticky = true;
+    let html = admin_announcements_page(
+        &c,
+        AdminAnnouncementsView {
+            announcements: vec![sticky.clone(), announcement("Welcome", false)],
+            next_cursor: None,
+            title: String::new(),
+            body: String::new(),
+            comments_open: true,
+            sticky: false,
+            error: None,
+            comment_visibility: quill_proto::announcements::CommentVisibility::Public,
+        },
+    );
+    assert!(html.contains(r#"name="sticky" value="on""#));
+    assert!(html.contains("Unstick"));
+    assert!(html.contains("Make sticky"));
+    assert!(!html.contains("Comments aren't available yet"));
+
+    let html = admin_announcement_page(
+        &c,
+        AdminAnnouncementView {
+            title: sticky.title.clone(),
+            body: sticky.body.clone(),
+            announcement: sticky,
+            error: None,
+        },
+    );
+    assert!(html.contains("Sticky: its banner stays at the top of the board."));
+    assert!(html.contains(r#"/sticky""#));
 }

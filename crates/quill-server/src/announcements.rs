@@ -41,36 +41,38 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(api_update, api_delete))
 }
 
-type Row = (
-    Uuid,
-    String,
-    String,
-    String,
-    bool,
-    OffsetDateTime,
-    OffsetDateTime,
-);
+#[derive(sqlx::FromRow)]
+struct Row {
+    id: Uuid,
+    title: String,
+    body_md: String,
+    body_html: String,
+    comments_open: bool,
+    sticky: bool,
+    created_at: OffsetDateTime,
+    updated_at: OffsetDateTime,
+}
 
-const SELECT: &str = "SELECT id, title, body_md, body_html, comments_open, created_at, updated_at \
-     FROM announcements";
+const SELECT: &str = "SELECT id, title, body_md, body_html, comments_open, sticky, created_at, \
+     updated_at FROM announcements";
 
-fn to_announcement(
-    (id, title, body, body_html, comments_open, created_at, updated_at): Row,
-) -> Announcement {
+fn to_announcement(r: Row) -> Announcement {
     Announcement {
-        id,
-        title,
-        body,
-        body_html,
-        comments_open,
-        created_at,
-        updated_at,
+        id: r.id,
+        title: r.title,
+        body: r.body_md,
+        body_html: r.body_html,
+        comments_open: r.comments_open,
+        sticky: r.sticky,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
     }
 }
 
 // ---- Reading ---------------------------------------------------------------
 
-/// Announcements newest first, a page at a time.
+/// Announcements newest first, a page at a time, optionally only the
+/// sticky ones or only the others.
 pub async fn list(state: &AppState, q: &AnnouncementQuery) -> Result<AnnouncementPage, ApiError> {
     let limit = q.limit.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE);
     let cursor = q.cursor.as_deref().map(decode_cursor).transpose()?;
@@ -78,18 +80,20 @@ pub async fn list(state: &AppState, q: &AnnouncementQuery) -> Result<Announcemen
     let mut rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "{SELECT} WHERE deleted_at IS NULL
            AND ($1::timestamptz IS NULL OR (created_at, id) < ($1, $2))
+           AND ($4::boolean IS NULL OR sticky = $4)
          ORDER BY created_at DESC, id DESC LIMIT $3"
     )))
     .bind(at)
     .bind(id)
     .bind(i64::from(limit) + 1)
+    .bind(q.sticky)
     .fetch_all(&state.pool)
     .await?;
     // One extra row says whether there's another page.
     let more = rows.len() > limit as usize;
     rows.truncate(limit as usize);
     let next_cursor = if more {
-        rows.last().map(|r| encode_cursor(r.5, r.0))
+        rows.last().map(|r| encode_cursor(r.created_at, r.id))
     } else {
         None
     };
@@ -99,17 +103,30 @@ pub async fn list(state: &AppState, q: &AnnouncementQuery) -> Result<Announcemen
     })
 }
 
-/// The newest announcement, for the board's banner.
-pub async fn latest(state: &AppState) -> Result<Option<Announcement>, ApiError> {
-    let page = list(
+/// What the board's banners show: every sticky announcement (newest first,
+/// up to a page), and the newest of the others.
+pub async fn banners(
+    state: &AppState,
+) -> Result<(Vec<Announcement>, Option<Announcement>), ApiError> {
+    let sticky = list(
         state,
         &AnnouncementQuery {
-            cursor: None,
-            limit: Some(1),
+            limit: Some(MAX_PAGE_SIZE),
+            sticky: Some(true),
+            ..AnnouncementQuery::default()
         },
     )
     .await?;
-    Ok(page.items.into_iter().next())
+    let newest = list(
+        state,
+        &AnnouncementQuery {
+            limit: Some(1),
+            sticky: Some(false),
+            ..AnnouncementQuery::default()
+        },
+    )
+    .await?;
+    Ok((sticky.items, newest.items.into_iter().next()))
 }
 
 pub async fn get(state: &AppState, id: Uuid) -> Result<Announcement, ApiError> {
@@ -129,6 +146,10 @@ fn comments_label(open: bool) -> &'static str {
     if open { "open" } else { "closed" }
 }
 
+fn sticky_label(sticky: bool) -> &'static str {
+    if sticky { "yes" } else { "no" }
+}
+
 /// Posts an announcement as the server; the log names `admin`.
 pub async fn post(
     state: &AppState,
@@ -140,34 +161,46 @@ pub async fn post(
     let id = Uuid::now_v7();
     let mut tx = state.pool.begin().await?;
     sqlx::query(
-        "INSERT INTO announcements (id, title, body_md, body_html, comments_open, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO announcements
+             (id, title, body_md, body_html, comments_open, sticky, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(id)
     .bind(&title)
     .bind(&text)
     .bind(markdown::render(&text))
     .bind(body.comments_open)
+    .bind(body.sticky)
     .bind(admin)
     .execute(&mut *tx)
     .await?;
-    let detail = (!body.comments_open).then_some("comments closed");
+    let notes: Vec<&str> = [
+        body.sticky.then_some("sticky"),
+        (!body.comments_open).then_some("comments closed"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let detail = (!notes.is_empty()).then(|| notes.join(", "));
     log_action(
         &mut tx,
         admin,
         AdminAction::PostAnnouncement,
         &title,
-        detail,
+        detail.as_deref(),
     )
     .await?;
     tx.commit().await?;
     get(state, id).await
 }
 
-/// Locks a live announcement for a change: its title, text and comments.
-async fn lock(conn: &mut PgConnection, id: Uuid) -> Result<(String, String, bool), ApiError> {
-    let row: Option<(String, String, bool)> = sqlx::query_as(
-        "SELECT title, body_md, comments_open FROM announcements
+/// What a change may alter: title, text, comments open, sticky.
+type Locked = (String, String, bool, bool);
+
+/// Locks a live announcement for a change.
+async fn lock(conn: &mut PgConnection, id: Uuid) -> Result<Locked, ApiError> {
+    let row: Option<Locked> = sqlx::query_as(
+        "SELECT title, body_md, comments_open, sticky FROM announcements
          WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
     )
     .bind(id)
@@ -176,8 +209,9 @@ async fn lock(conn: &mut PgConnection, id: Uuid) -> Result<(String, String, bool
     row.ok_or(ApiError::NotFound)
 }
 
-/// Edits an announcement's title or text, and opens or closes its
-/// comments. Each kind of change is logged on its own; no change, no entry.
+/// Edits an announcement's title or text, opens or closes its comments,
+/// and makes it sticky or not. Each kind of change is logged on its own;
+/// no change, no entry.
 pub async fn update(
     state: &AppState,
     admin: Uuid,
@@ -195,7 +229,7 @@ pub async fn update(
         .map(validate::announcement_body)
         .transpose()?;
     let mut tx = state.pool.begin().await?;
-    let (old_title, old_text, old_open) = lock(&mut tx, id).await?;
+    let (old_title, old_text, old_open, old_sticky) = lock(&mut tx, id).await?;
     let new_title = title.unwrap_or_else(|| old_title.clone());
     let new_text = text.unwrap_or_else(|| old_text.clone());
     let renamed = new_title != old_title;
@@ -245,6 +279,26 @@ pub async fn update(
         )
         .await?;
     }
+    if let Some(sticky) = body.sticky.filter(|s| *s != old_sticky) {
+        sqlx::query("UPDATE announcements SET sticky = $2 WHERE id = $1")
+            .bind(id)
+            .bind(sticky)
+            .execute(&mut *tx)
+            .await?;
+        let detail = format!(
+            "sticky: {} → {}",
+            sticky_label(old_sticky),
+            sticky_label(sticky)
+        );
+        log_action(
+            &mut tx,
+            admin,
+            AdminAction::SetAnnouncementSticky,
+            &new_title,
+            Some(&detail),
+        )
+        .await?;
+    }
     tx.commit().await?;
     get(state, id).await
 }
@@ -252,7 +306,7 @@ pub async fn update(
 /// Deletes an announcement: it shows nowhere from now on.
 pub async fn delete(state: &AppState, admin: Uuid, id: Uuid) -> Result<(), ApiError> {
     let mut tx = state.pool.begin().await?;
-    let (title, _, _) = lock(&mut tx, id).await?;
+    let (title, ..) = lock(&mut tx, id).await?;
     sqlx::query("UPDATE announcements SET deleted_at = now() WHERE id = $1")
         .bind(id)
         .execute(&mut *tx)
@@ -274,7 +328,7 @@ pub async fn delete(state: &AppState, admin: Uuid, id: Uuid) -> Result<(), ApiEr
 #[utoipa::path(
     get, path = "/announcements", tag = "announcements", security(()),
     summary = "The administrators' announcements, newest first",
-    description = "Pages by `cursor`, which the previous page returns.",
+    description = "Pages by `cursor`, which the previous page returns. `sticky=true` gives the sticky ones, whose banners clients show at the top of the board without a way to dismiss them.",
     params(AnnouncementQuery),
     responses((status = 200, body = AnnouncementPage)),
 )]

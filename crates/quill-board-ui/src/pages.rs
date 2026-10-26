@@ -47,8 +47,11 @@ pub fn board_page(chrome: &Chrome, view: BoardView) -> String {
         let f = &v.filters;
         let open = f.is_active() || v.error.is_some();
         rsx! {
+            for a in v.sticky_announcements.iter() {
+                {crate::announcements::banner(a, false)}
+            }
             if let Some(a) = &v.announcement {
-                {crate::announcements::banner(a)}
+                {crate::announcements::banner(a, true)}
             }
             h1 { "Prompts" }
             p { class: "lede",
@@ -739,6 +742,7 @@ fn action_label(action: AdminAction) -> &'static str {
         AdminAction::EditAnnouncement => "Announcement edited",
         AdminAction::DeleteAnnouncement => "Announcement deleted",
         AdminAction::SetAnnouncementComments => "Announcement comments changed",
+        AdminAction::SetAnnouncementSticky => "Announcement made sticky or not",
         AdminAction::DeleteComment => "Comment removed",
     }
 }
