@@ -800,10 +800,16 @@ fn announcement_pages_render() {
     assert!(empty.contains("No announcements yet."));
 
     // Readers see when it was edited; only administrators get an Edit link.
-    let reader = announcement_page(&chrome(true, false), announcement("Welcome", true));
+    let reader = announcement_page(
+        &chrome(true, false),
+        announcement_view(announcement("Welcome", true)),
+    );
     assert!(reader.contains("Edited Oct 24, 2026"));
     assert!(!reader.contains("/admin/settings/announcements/"));
-    let admin = announcement_page(&chrome(true, true), announcement("Welcome", true));
+    let admin = announcement_page(
+        &chrome(true, true),
+        announcement_view(announcement("Welcome", true)),
+    );
     assert!(
         admin.contains(
             r#"href="/admin/settings/announcements/00000000-0000-0000-0000-000000000007""#
@@ -848,4 +854,170 @@ fn admin_announcement_pages_render() {
     assert!(html.contains(
         r#"action="/admin/settings/announcements/00000000-0000-0000-0000-000000000007/delete""#
     ));
+}
+
+fn announcement_view(announcement: quill_proto::announcements::Announcement) -> AnnouncementView {
+    AnnouncementView {
+        announcement,
+        comments: Vec::new(),
+        more_comments: None,
+        personas: Vec::new(),
+        draft: String::new(),
+        persona: None,
+        error: None,
+    }
+}
+
+fn persona(id: u128, handle: &str) -> Persona {
+    Persona {
+        id: Uuid::from_u128(id),
+        actor_uri: format!("https://alpha.test/users/{handle}"),
+        handle: handle.into(),
+        display_name: None,
+        summary: None,
+        created_at: datetime!(2026-10-22 12:00 UTC),
+    }
+}
+
+fn comment(
+    id: u128,
+    author: u128,
+    handle: &str,
+    removed: bool,
+) -> quill_proto::announcements::Comment {
+    quill_proto::announcements::Comment {
+        id: Uuid::from_u128(id),
+        announcement: Uuid::from_u128(7),
+        author: PromptAuthor {
+            id: Uuid::from_u128(author),
+            handle: handle.into(),
+            display_name: None,
+        },
+        body: "Thanks <b>all</b>".into(),
+        body_html: "<p>Thanks &lt;b&gt;all&lt;/b&gt;</p>".into(),
+        removed,
+        created_at: datetime!(2026-10-23 08:00 UTC),
+    }
+}
+
+#[test]
+fn comments_render_under_an_announcement() {
+    let mut view = announcement_view(announcement("Welcome", false));
+    view.comments = vec![
+        comment(100, 1, "ink_fox", false),
+        comment(101, 2, "sea_wolf", true),
+    ];
+    view.more_comments = Some("/announcements/x?after=c".into());
+
+    // Anonymous readers see comments and can report them, but not post.
+    let html = announcement_page(&chrome(false, false), view.clone());
+    assert!(html.contains(r#"id="c-00000000-0000-0000-0000-000000000064""#));
+    assert!(html.contains("@ink_fox"));
+    assert!(html.contains("<p>Thanks &lt;b&gt;all&lt;/b&gt;</p>"));
+    assert!(html.contains(r#"href="/comments/00000000-0000-0000-0000-000000000064/report""#));
+    assert!(html.contains("to comment."));
+    assert!(html.contains("More comments"));
+    assert!(!html.contains("Post comment"));
+
+    // A writer gets the form, and a Delete button on their own comment
+    // instead of Report. Their removed comment is marked.
+    view.personas = vec![persona(2, "sea_wolf")];
+    view.draft = "Kept <draft>".into();
+    view.error = Some("body is required".into());
+    let html = announcement_page(&chrome(true, false), view.clone());
+    assert!(html.contains("Post comment"));
+    assert!(html.contains("Kept &#60;draft&#62;"));
+    assert!(html.contains("body is required"));
+    assert!(html.contains(r#"action="/comments/00000000-0000-0000-0000-000000000065/delete""#));
+    assert!(!html.contains(r#"href="/comments/00000000-0000-0000-0000-000000000065/report""#));
+    assert!(html.contains("Removed by a server administrator"));
+    assert!(!html.contains("/admin/comments/"));
+
+    // Administrators can remove a comment that isn't removed yet.
+    let html = announcement_page(&chrome(true, true), view.clone());
+    assert!(
+        html.contains(r#"action="/admin/comments/00000000-0000-0000-0000-000000000064/remove""#)
+    );
+    assert!(
+        !html.contains(r#"action="/admin/comments/00000000-0000-0000-0000-000000000065/remove""#)
+    );
+
+    // Closed: the comments stay, the form goes.
+    view.announcement.comments_open = false;
+    let html = announcement_page(&chrome(true, false), view);
+    assert!(html.contains("Comments are closed."));
+    assert!(html.contains("@ink_fox"));
+    assert!(!html.contains("Post comment"));
+}
+
+#[test]
+fn comment_reports_and_notices_render() {
+    let html = comment_report_page(
+        &chrome(false, false),
+        CommentReportView {
+            comment: comment(100, 1, "ink_fox", false),
+            reason: Some(ReportReason::Spam),
+            details: String::new(),
+            error: None,
+        },
+    );
+    assert!(html.contains(r#"action="/comments/00000000-0000-0000-0000-000000000064/report""#));
+    assert!(html.contains("Report a comment"));
+    assert_eq!(
+        html.matches(r#"name="reason""#).count(),
+        ReportReason::ALL.len()
+    );
+
+    let report = Report {
+        id: Uuid::nil(),
+        kind: ReportKind::Comment,
+        prompt: None,
+        comment: Some(comment(100, 1, "ink_fox", false)),
+        reason: ReportReason::Harassment,
+        details: None,
+        prompt_hash: "00ff".into(),
+        created_at: datetime!(2026-10-22 12:00 UTC),
+        resolved_at: None,
+        resolution: None,
+    };
+    let html = admin_reports_page(
+        &chrome(true, true),
+        AdminReportsView {
+            reports: vec![
+                report.clone(),
+                Report {
+                    comment: None,
+                    ..report
+                },
+            ],
+            all: false,
+        },
+    );
+    assert!(html.contains("Comment by @ink_fox"));
+    assert!(html.contains("Remove comment"));
+    assert!(html.contains("Comment deleted by its author"));
+
+    let html = notices_page(
+        &chrome(true, false),
+        NoticesView {
+            notices: vec![quill_proto::notices::AccountNotice {
+                id: 1,
+                at: datetime!(2026-10-22 12:00 UTC),
+                kind: quill_proto::notices::NoticeKind::CommentRemoved,
+                fields: quill_proto::notices::NoticeFields {
+                    reason: Some(ReportReason::Spam),
+                    announcement: Some(Uuid::from_u128(7)),
+                    announcement_title: Some("Welcome".into()),
+                    handle: Some("ink_fox".into()),
+                    ..Default::default()
+                },
+                prompts: Vec::new(),
+                read: false,
+            }],
+            older: None,
+        },
+    );
+    assert!(html.contains("removed your comment on “Welcome” (Spam)."));
+    assert!(html.contains(r#"href="/announcements/00000000-0000-0000-0000-000000000007""#));
+    assert!(html.contains("(written as @ink_fox)"));
 }

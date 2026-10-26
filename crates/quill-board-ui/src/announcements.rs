@@ -1,10 +1,15 @@
-//! Announcements: the board's banner, the public pages, and the
-//! administrators' tab for posting and editing them.
+//! Announcements: the board's banner, the public pages with their comments,
+//! and the administrators' tab for posting and editing them.
 
 use dioxus::prelude::*;
 use quill_proto::{
-    announcements::Announcement,
-    limits::{ANNOUNCEMENT_BODY_MAX_CHARS, ANNOUNCEMENT_TITLE_MAX_CHARS},
+    announcements::{Announcement, Comment},
+    api::Persona,
+    board::ReportReason,
+    limits::{
+        ANNOUNCEMENT_BODY_MAX_CHARS, ANNOUNCEMENT_TITLE_MAX_CHARS, COMMENT_BODY_MAX_CHARS,
+        REPORT_DETAILS_MAX_CHARS,
+    },
 };
 use uuid::Uuid;
 
@@ -12,7 +17,7 @@ use crate::{
     Chrome,
     admin::{Tab, tabs},
     layout::{csrf, error_notice},
-    render, short_date,
+    reason_label, render, short_date,
 };
 
 /// Where readers dismiss the banner (a form post; no JavaScript).
@@ -35,6 +40,29 @@ pub fn admin_announcement_url(id: Uuid) -> String {
 pub struct AnnouncementsView {
     pub announcements: Vec<Announcement>,
     pub next_cursor: Option<String>,
+}
+
+/// One announcement and a page of its comments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnnouncementView {
+    pub announcement: Announcement,
+    pub comments: Vec<Comment>,
+    /// Link to the next page of comments.
+    pub more_comments: Option<String>,
+    /// The visitor's personas: to comment as, and to know their comments.
+    pub personas: Vec<Persona>,
+    /// The comment form, kept when it's sent back with an error.
+    pub draft: String,
+    pub persona: Option<Uuid>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommentReportView {
+    pub comment: Comment,
+    pub reason: Option<ReportReason>,
+    pub details: String,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,11 +146,13 @@ pub fn announcements_page(chrome: &Chrome, view: AnnouncementsView) -> String {
     })
 }
 
-pub fn announcement_page(chrome: &Chrome, announcement: Announcement) -> String {
-    let title = announcement.title.clone();
+pub fn announcement_page(chrome: &Chrome, view: AnnouncementView) -> String {
+    let title = view.announcement.title.clone();
     let is_admin = chrome.viewer.as_ref().is_some_and(|v| v.is_admin);
+    let chrome_for_body = chrome.clone();
     render(title, chrome, move || {
-        let a = &announcement;
+        let v = &view;
+        let a = &v.announcement;
         rsx! {
             article { class: "card prompt-card",
                 h1 { class: "card-title", "{a.title}" }
@@ -133,6 +163,166 @@ pub fn announcement_page(chrome: &Chrome, announcement: Announcement) -> String 
                 a { href: "/announcements", "All announcements" }
                 if is_admin {
                     a { href: "{admin_announcement_url(a.id)}", "Edit" }
+                }
+            }
+            {comments_section(&chrome_for_body, v)}
+        }
+    })
+}
+
+// ---- Comments ----------------------------------------------------------------
+
+fn author_label(c: &Comment) -> String {
+    c.author.display_name.clone().map_or_else(
+        || format!("@{}", c.author.handle),
+        |name| format!("{name} (@{})", c.author.handle),
+    )
+}
+
+fn comments_section(chrome: &Chrome, v: &AnnouncementView) -> Element {
+    let a = &v.announcement;
+    let viewer = chrome.viewer.as_ref();
+    let is_admin = viewer.is_some_and(|v| v.is_admin);
+    let mine = |c: &Comment| v.personas.iter().any(|p| p.id == c.author.id);
+    rsx! {
+        section { class: "comments", "aria-labelledby": "comments-title",
+            h2 { id: "comments-title", class: "form-title", "Comments" }
+            if v.comments.is_empty() {
+                p { class: "hint", "No comments yet." }
+            }
+            ol { class: "comment-list",
+                for c in v.comments.iter() {
+                    li { key: "{c.id}", id: "c-{c.id}", class: "comment",
+                        p { class: "card-meta",
+                            span { "{author_label(c)}" }
+                            span { "{short_date(c.created_at)}" }
+                            if c.removed {
+                                span { class: "removed", "Removed by a server administrator" }
+                            }
+                        }
+                        div { class: "comment-body", dangerous_inner_html: "{c.body_html}" }
+                        div { class: "comment-actions",
+                            if mine(c) {
+                                details {
+                                    summary { "Delete" }
+                                    form { method: "post", action: "{comment_url(c.id)}/delete",
+                                        {csrf(chrome)}
+                                        label { class: "inline-check",
+                                            input { r#type: "checkbox", name: "confirm", value: "yes", required: true }
+                                            "Delete this comment for good."
+                                        }
+                                        button { class: "btn btn-danger", r#type: "submit", "Delete comment" }
+                                    }
+                                }
+                            } else if !c.removed {
+                                a { href: "{comment_url(c.id)}/report", "Report" }
+                            }
+                            if is_admin && !c.removed {
+                                {remove_form(chrome, c)}
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(more) = &v.more_comments {
+                p { class: "pager", a { class: "btn btn-quiet", href: "{more}", "More comments" } }
+            }
+            if !a.comments_open {
+                p { class: "notice", "Comments are closed." }
+            } else if viewer.is_none() {
+                p { a { href: "/login", "Sign in" } " to comment." }
+            } else if v.personas.is_empty() {
+                p { "Comments are posted under a persona. " a { href: "/personas", "Create one" } " to comment." }
+            } else {
+                {error_notice(v.error.as_ref())}
+                form { class: "form-card", method: "post", action: "{announcement_url(a.id)}/comments",
+                    {csrf(chrome)}
+                    div { class: "field",
+                        label { r#for: "persona", "Comment as" }
+                        select { id: "persona", name: "persona", required: true,
+                            for p in v.personas.iter() {
+                                option { key: "{p.id}", value: "{p.id}", selected: v.persona == Some(p.id),
+                                    "@{p.handle}"
+                                }
+                            }
+                        }
+                    }
+                    div { class: "field",
+                        label { r#for: "comment", "Comment"
+                            span { class: "hint", "Markdown works. Comments can't be edited after posting, only deleted." }
+                        }
+                        textarea { class: "short", id: "comment", name: "body", required: true,
+                            maxlength: "{COMMENT_BODY_MAX_CHARS}", "{v.draft}" }
+                    }
+                    div { class: "actions",
+                        button { class: "btn", r#type: "submit", "Post comment" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// An administrator's direct removal, with the reason the author is told.
+fn remove_form(chrome: &Chrome, c: &Comment) -> Element {
+    rsx! {
+        details {
+            summary { "Remove" }
+            form { method: "post", action: "/admin/comments/{c.id}/remove",
+                {csrf(chrome)}
+                label { r#for: "reason-{c.id}", "Reason" }
+                select { id: "reason-{c.id}", name: "reason", required: true,
+                    for r in ReportReason::ALL.iter() {
+                        option { key: "{r}", value: "{r}", "{reason_label(*r)}" }
+                    }
+                }
+                button { class: "btn btn-danger", r#type: "submit", "Remove comment" }
+            }
+        }
+    }
+}
+
+pub fn comment_report_page(chrome: &Chrome, view: CommentReportView) -> String {
+    let chrome_for_body = chrome.clone();
+    render("Report a comment", chrome, move || {
+        let v = &view;
+        let c = &v.comment;
+        let back = format!("{}#c-{}", announcement_url(c.announcement), c.id);
+        rsx! {
+            h1 { "Report a comment" }
+            p { class: "lede",
+                "Reports go to this server's administrators. The author isn't told who reported their comment."
+            }
+            div { class: "card",
+                p { class: "card-meta",
+                    span { "{author_label(c)}" }
+                    span { "{short_date(c.created_at)}" }
+                }
+                div { class: "comment-body", dangerous_inner_html: "{c.body_html}" }
+            }
+            {error_notice(v.error.as_ref())}
+            form { class: "form-card", method: "post", action: "{comment_url(c.id)}/report",
+                {csrf(&chrome_for_body)}
+                fieldset { class: "choices",
+                    legend { class: "label", "What's wrong with it?" }
+                    for r in ReportReason::ALL.iter() {
+                        label { key: "{r}", class: "inline-check",
+                            input { r#type: "radio", name: "reason", value: "{r}", required: true,
+                                checked: v.reason == Some(*r) }
+                            "{reason_label(*r)}"
+                        }
+                    }
+                }
+                div { class: "field",
+                    label { r#for: "details", "Details"
+                        span { class: "hint", "Optional. Up to {REPORT_DETAILS_MAX_CHARS} characters." }
+                    }
+                    textarea { class: "short", id: "details", name: "details",
+                        maxlength: "{REPORT_DETAILS_MAX_CHARS}", "{v.details}" }
+                }
+                div { class: "actions",
+                    button { class: "btn", r#type: "submit", "Send report" }
+                    a { href: "{back}", "Cancel" }
                 }
             }
         }

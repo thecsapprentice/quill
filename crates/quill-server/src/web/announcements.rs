@@ -7,9 +7,14 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
-use quill_board_ui::{AdminAnnouncementView, AdminAnnouncementsView, AnnouncementsView, Nav};
-use quill_proto::announcements::{
-    Announcement, AnnouncementQuery, CreateAnnouncement, UpdateAnnouncement,
+use quill_board_ui::{
+    AdminAnnouncementView, AdminAnnouncementsView, AnnouncementView, AnnouncementsView, Nav,
+};
+use quill_proto::{
+    announcements::{
+        Announcement, AnnouncementQuery, CommentQuery, CreateAnnouncement, UpdateAnnouncement,
+    },
+    limits::MAX_PAGE_SIZE,
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -107,20 +112,97 @@ pub async fn list(
     }
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct ShowParams {
+    /// Comments after this cursor.
+    after: Option<String>,
+    notice: Option<String>,
+}
+
+/// The comment form's values, kept when it's sent back with an error.
+#[derive(Debug, Default)]
+pub(super) struct Draft {
+    pub persona: Option<Uuid>,
+    pub body: String,
+    pub error: Option<String>,
+}
+
+/// An announcement with a page of its comments and the comment form.
+pub(super) async fn render_announcement(
+    state: &AppState,
+    session: Option<&Session>,
+    id: Uuid,
+    after: Option<&str>,
+    notice: Option<&str>,
+    draft: Draft,
+) -> Response {
+    let c = chrome(state, session, Nav::Announcements, notice);
+    let viewer = session.map(|s| s.account_id);
+    let loaded = async {
+        let announcement = announcements::get(state, id).await?;
+        let query = CommentQuery {
+            cursor: after.map(str::to_owned),
+            limit: Some(MAX_PAGE_SIZE),
+        };
+        let page = crate::comments::list(state, viewer, id, &query).await?;
+        let personas = match viewer {
+            Some(account) => crate::routes::personas(state, account).await?,
+            None => Vec::new(),
+        };
+        Ok::<_, ApiError>((announcement, page, personas))
+    }
+    .await;
+    let (announcement, page, personas) = match loaded {
+        Ok(l) => l,
+        Err(e) => return error_page(&c, e),
+    };
+    let status = if draft.error.is_some() {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::OK
+    };
+    let more_comments = page.next_cursor.map(|cursor| {
+        format!(
+            "{}?after={cursor}#comments-title",
+            quill_board_ui::announcement_url(id)
+        )
+    });
+    html(
+        status,
+        quill_board_ui::announcement_page(
+            &c,
+            AnnouncementView {
+                announcement,
+                comments: page.items,
+                more_comments,
+                personas,
+                draft: draft.body,
+                persona: draft.persona,
+                error: draft.error,
+            },
+        ),
+    )
+}
+
 pub async fn show(
     State(state): State<AppState>,
     MaybeSession(session): MaybeSession,
     Path(id): Path<String>,
-    Query(p): Query<ListParams>,
+    Query(p): Query<ShowParams>,
 ) -> Response {
-    let c = chrome(&state, session.as_ref(), Nav::Announcements, opt(&p.notice));
     let Ok(id) = id.parse::<Uuid>() else {
+        let c = chrome(&state, session.as_ref(), Nav::Announcements, None);
         return error_page(&c, ApiError::NotFound);
     };
-    match announcements::get(&state, id).await {
-        Ok(a) => html(StatusCode::OK, quill_board_ui::announcement_page(&c, a)),
-        Err(e) => error_page(&c, e),
-    }
+    render_announcement(
+        &state,
+        session.as_ref(),
+        id,
+        opt(&p.after),
+        opt(&p.notice),
+        Draft::default(),
+    )
+    .await
 }
 
 // ---- Administration ----------------------------------------------------------

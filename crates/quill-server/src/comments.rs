@@ -33,7 +33,7 @@ use crate::{
     auth::{Admin, Authed, MaybeAuthed},
     error::ApiError,
     markdown, notices,
-    prompts::{decode_cursor, encode_cursor},
+    prompts::{decode_cursor, encode_cursor, viewer_is_admin},
     reports::{self, comment_hash},
     routes::ApiJson,
 };
@@ -98,7 +98,8 @@ pub async fn load(pool: &PgPool, id: Uuid) -> Result<Option<Comment>, ApiError> 
 }
 
 /// The comments on a live announcement, oldest first. Removed comments are
-/// left out, except the viewer's own, marked as removed.
+/// left out, except for their author and administrators, who see them
+/// marked as removed.
 pub async fn list(
     state: &AppState,
     viewer: Option<Uuid>,
@@ -106,12 +107,13 @@ pub async fn list(
     q: &CommentQuery,
 ) -> Result<CommentPage, ApiError> {
     crate::announcements::get(state, announcement).await?;
+    let admin = viewer_is_admin(&state.pool, viewer).await?;
     let limit = q.limit.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE);
     let (at, id) = q.cursor.as_deref().map(decode_cursor).transpose()?.unzip();
     // Safe: built only from compile-time constants; values are bound.
     let mut rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "{SELECT} WHERE c.announcement_id = $1
-           AND (c.removed_at IS NULL OR a.account_id = $2)
+           AND (c.removed_at IS NULL OR a.account_id = $2 OR $6)
            AND ($3::timestamptz IS NULL OR (c.created_at, c.id) > ($3, $4))
          ORDER BY c.created_at, c.id LIMIT $5"
     )))
@@ -120,6 +122,7 @@ pub async fn list(
     .bind(at)
     .bind(id)
     .bind(i64::from(limit) + 1)
+    .bind(admin)
     .fetch_all(&state.pool)
     .await?;
     // One extra row says whether there's another page.
@@ -142,15 +145,17 @@ pub async fn announcement_of(
     viewer: Option<Uuid>,
     id: Uuid,
 ) -> Result<Uuid, ApiError> {
+    let admin = viewer_is_admin(&state.pool, viewer).await?;
     let found: Option<Uuid> = sqlx::query_scalar(
         "SELECT c.announcement_id FROM announcement_comments c
          JOIN actors a ON a.id = c.actor_id
          JOIN announcements an ON an.id = c.announcement_id
          WHERE c.id = $1 AND an.deleted_at IS NULL
-           AND (c.removed_at IS NULL OR a.account_id = $2)",
+           AND (c.removed_at IS NULL OR a.account_id = $2 OR $3)",
     )
     .bind(id)
     .bind(viewer)
+    .bind(admin)
     .fetch_optional(&state.pool)
     .await?;
     found.ok_or(ApiError::NotFound)
@@ -303,7 +308,7 @@ pub(crate) async fn remove_locked(
 #[utoipa::path(
     get, path = "/announcements/{id}/comments", tag = "announcements", security((), ("bearer" = [])),
     summary = "Comments on an announcement, oldest first",
-    description = "Removed comments are left out, except the caller's own, marked as removed. Pages by `cursor`, which the previous page returns.",
+    description = "Removed comments are left out, except for their author and administrators, who see them marked as removed. Pages by `cursor`, which the previous page returns.",
     params(("id" = Uuid, Path, description = "The announcement"), CommentQuery),
     responses((status = 200, body = CommentPage), (status = 404, description = "No such announcement, or deleted")),
 )]

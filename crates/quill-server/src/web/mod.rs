@@ -5,6 +5,7 @@
 //! calls the same service functions as the JSON API.
 
 mod announcements;
+mod comments;
 mod handlers;
 mod picker;
 pub mod session;
@@ -49,6 +50,14 @@ pub fn router() -> Router<AppState> {
         .route("/announcements", get(announcements::list))
         .route(quill_board_ui::DISMISS_PATH, post(announcements::dismiss))
         .route("/announcements/{id}", get(announcements::show))
+        .route("/announcements/{id}/comments", post(comments::post))
+        .route("/comments/{id}", get(comments::goto))
+        .route("/comments/{id}/delete", post(comments::delete))
+        .route(
+            "/comments/{id}/report",
+            get(comments::report_form).post(comments::report_submit),
+        )
+        .route("/admin/comments/{id}/remove", post(comments::admin_remove))
         .route("/new", get(handlers::new_form).post(handlers::new_submit))
         .route("/mine", get(handlers::mine))
         .route(
@@ -345,6 +354,9 @@ fn notice_text(key: &str) -> Option<&'static str> {
         "announcement-saved" => "Changes saved.",
         "announcement-comments" => "Setting saved.",
         "announcement-deleted" => "Announcement deleted.",
+        "comment-posted" => "Comment posted.",
+        "comment-deleted" => "Comment deleted.",
+        "comment-removed" => "Comment removed. Its author has been told why.",
         _ => return None,
     })
 }

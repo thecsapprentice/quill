@@ -3,8 +3,8 @@
 use dioxus::prelude::*;
 use quill_proto::{
     board::{
-        AdminAction, AdminLogEntry, LogActor, Maturity, PromptState, ReportReason, Resolution, Tag,
-        TagNamespace, TagPolicy, TagStatus,
+        AdminAction, AdminLogEntry, LogActor, Maturity, PromptState, ReportKind, ReportReason,
+        Resolution, Tag, TagNamespace, TagPolicy, TagStatus,
     },
     limits::{
         PROMPT_BODY_MAX_CHARS, PROMPT_TITLE_MAX_CHARS, REPORT_DETAILS_MAX_CHARS, USERNAME_MAX_CHARS,
@@ -664,19 +664,27 @@ pub fn admin_reports_page(chrome: &Chrome, view: AdminReportsView) -> String {
             for r in v.reports.iter() {
                 div { key: "{r.id}", class: if r.resolved_at.is_some() { "report resolved" } else { "report" },
                     h2 {
-                        match &r.prompt {
-                            Some(p) => rsx! { a { href: "{prompt_url(p.id)}?show=1", "{p.title}" } },
-                            None => rsx! { "Prompt deleted by its author" },
+                        match (r.kind, &r.prompt, &r.comment) {
+                            (ReportKind::Prompt, Some(p), _) => rsx! { a { href: "{prompt_url(p.id)}?show=1", "{p.title}" } },
+                            (ReportKind::Prompt, None, _) => rsx! { "Prompt deleted by its author" },
+                            (ReportKind::Comment, _, Some(c)) => rsx! {
+                                a { href: "{crate::comment_url(c.id)}", "Comment by @{c.author.handle}" }
+                            },
+                            (ReportKind::Comment, _, None) => rsx! { "Comment deleted by its author" },
                         }
                     }
                     p { class: "card-meta",
                         span { "{reason_label(r.reason)}" }
                         span { "Received {short_date(r.created_at)}" }
-                        match r.resolution {
-                            Some(Resolution::Discard) => rsx! { span { "Discarded" } },
-                            Some(Resolution::Delete) => rsx! { span { class: "removed", "Prompt removed" } },
-                            None => rsx! { span { "Open" } },
+                        match (r.resolution, r.kind) {
+                            (Some(Resolution::Discard), _) => rsx! { span { "Discarded" } },
+                            (Some(Resolution::Delete), ReportKind::Prompt) => rsx! { span { class: "removed", "Prompt removed" } },
+                            (Some(Resolution::Delete), ReportKind::Comment) => rsx! { span { class: "removed", "Comment removed" } },
+                            (None, _) => rsx! { span { "Open" } },
                         }
+                    }
+                    if let Some(c) = &r.comment {
+                        div { class: "comment-body", dangerous_inner_html: "{c.body_html}" }
                     }
                     if let Some(d) = &r.details {
                         blockquote { "{d}" }
@@ -692,6 +700,13 @@ pub fn admin_reports_page(chrome: &Chrome, view: AdminReportsView) -> String {
                                 {csrf(&chrome_for_body)}
                                 input { r#type: "hidden", name: "action", value: "delete" }
                                 button { class: "btn btn-danger", r#type: "submit", "Remove prompt" }
+                            }
+                        }
+                        if r.comment.as_ref().is_some_and(|c| !c.removed) {
+                            form { method: "post", action: "/admin/reports/{r.id}/resolve",
+                                {csrf(&chrome_for_body)}
+                                input { r#type: "hidden", name: "action", value: "delete" }
+                                button { class: "btn btn-danger", r#type: "submit", "Remove comment" }
                             }
                         }
                     }

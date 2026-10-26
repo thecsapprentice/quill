@@ -108,8 +108,8 @@ pub struct Comment {
     pub body: String,
     /// Sanitized HTML rendered by the server from `body`.
     pub body_html: String,
-    /// Set only in its author's view (and administrators' inbox) once an
-    /// administrator removed it.
+    /// Set once an administrator removed it. Only its author and
+    /// administrators see it then.
     #[serde(default)]
     pub removed: bool,
     #[serde(with = "time::serde::rfc3339")]

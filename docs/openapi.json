@@ -2843,7 +2843,7 @@
           "announcements"
         ],
         "summary": "Comments on an announcement, oldest first",
-        "description": "Removed comments are left out, except the caller's own, marked as removed. Pages by `cursor`, which the previous page returns.",
+        "description": "Removed comments are left out, except for their author and administrators, who see them marked as removed. Pages by `cursor`, which the previous page returns.",
         "operationId": "get_announcements_by_id_comments",
         "parameters": [
           {
@@ -8382,7 +8382,7 @@
           },
           "removed": {
             "type": "boolean",
-            "description": "Set only in its author's view (and administrators' inbox) once an\nadministrator removed it."
+            "description": "Set once an administrator removed it. Only its author and\nadministrators see it then."
           }
         }
       },
