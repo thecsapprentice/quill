@@ -1,0 +1,16 @@
+# Extra care for accounts less than three days old. A rule applies only
+# when all of its conditions hold, so each case is its own rule.
+[[rule]]
+name = "New account posting fast"
+account_younger_than_days = 3
+prompts_last_hour_at_least = 3
+then = "reject"
+message = "New accounts can post up to 3 prompts an hour. Please try again a little later."
+
+[[rule]]
+name = "New account copying"
+account_younger_than_days = 3
+similar_on_board_at_least = 0.9
+then = "flag"
+reason = "New account posted a near copy of another prompt"
+category = "spam"
