@@ -9,9 +9,9 @@ use std::{cell::RefCell, sync::Arc};
 use quill_core::store::vault::MemoryVault;
 use quill_e2e::TestServer;
 use quill_gui::{NativeBackend, settings::Paths};
-use quill_ui::backend::{Backend, Keys, Problem, Standing, Step};
+use quill_ui::backend::{Backend, Keys, Problem, Protection, Standing, Step};
 
-type Vault = Option<Arc<dyn quill_core::store::vault::Vault>>;
+type Vault = Option<Arc<MemoryVault>>;
 
 /// A stand-in for the OS keychain, kept across app restarts in a test.
 fn keychain() -> Vault {
@@ -19,12 +19,10 @@ fn keychain() -> Vault {
 }
 
 fn backend(dir: &std::path::Path, vault: &Vault) -> NativeBackend {
-    NativeBackend::new(
-        Paths::in_dir(dir),
-        vault.clone(),
-        tokio::runtime::Handle::current(),
-    )
-    .unwrap()
+    let vault = vault
+        .clone()
+        .map(|v| v as Arc<dyn quill_core::store::vault::Vault>);
+    NativeBackend::new(Paths::in_dir(dir), vault, tokio::runtime::Handle::current()).unwrap()
 }
 
 fn personas(s: &Standing) -> Vec<(String, Keys)> {
@@ -79,9 +77,11 @@ async fn a_new_writer_gets_from_nothing_to_a_ready_persona() {
     app.prepare(fox.id, &|_| {}).await.unwrap();
     assert_eq!(app.upkeep().await.unwrap(), None);
 
-    // A taken handle is refused in words.
-    let taken = app.create_persona("ink_fox", "").await.unwrap_err();
-    assert!(matches!(taken, Problem::Refused(_)), "{taken:?}");
+    // A taken handle is said as such, so the view can suggest others.
+    assert_eq!(
+        app.create_persona("ink_fox", "").await.unwrap_err(),
+        Problem::Taken
+    );
 
     // The app opens the same server again next time, from its settings.
     drop(app);
@@ -183,9 +183,17 @@ async fn servers_are_added_switched_and_removed() {
         Standing::SignedOut
     );
 
+    // A name of the writer's choosing sticks.
+    app.rename_server(second.id, "  The closed one ").unwrap();
+    assert_eq!(app.servers()[1].name, "The closed one");
+    assert!(app.rename_server(second.id, " ").is_err());
+
+    // Removing a server takes its store and its keychain key.
+    let keys_before = vault.as_ref().unwrap().len();
     app.remove_server(second.id).await.unwrap();
     assert_eq!(app.servers().len(), 1);
     assert!(!to.join(format!("{}.quill", second.id)).exists());
+    assert_eq!(vault.as_ref().unwrap().len(), keys_before - 1);
     a.stop().await.unwrap();
     b.stop().await.unwrap();
 }
@@ -215,6 +223,88 @@ async fn without_a_keychain_the_store_takes_a_passphrase() {
     assert!(matches!(wrong, Problem::Refused(_)), "{wrong:?}");
     let standing = again.unlock("a long store passphrase").await.unwrap();
     assert!(personas(&standing).is_empty());
+    assert_eq!(again.protection(), Some(Protection::Passphrase));
+    // With no keychain, a passphrase is the only choice.
+    assert_eq!(
+        again.set_protection(None).await.unwrap_err(),
+        Problem::NeedsPassphrase
+    );
+    assert!(again.set_protection(Some("short")).await.is_err());
+    again
+        .set_protection(Some("another long passphrase"))
+        .await
+        .unwrap();
+    drop(again);
+    let third = backend(dir.path(), &None);
+    third.open_server(added.id).await.unwrap();
+    assert!(third.unlock("a long store passphrase").await.is_err());
+    third.unlock("another long passphrase").await.unwrap();
+    server.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_store_moves_between_the_keychain_and_a_passphrase() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let vault = keychain();
+    let app = backend(dir.path(), &vault);
+    let added = app.add_server(&server.url(), None).await.unwrap();
+    app.register("ink", PASSWORD).await.unwrap();
+    assert_eq!(app.protection(), Some(Protection::Keychain));
+
+    app.set_protection(Some("a long store passphrase"))
+        .await
+        .unwrap();
+    assert_eq!(app.protection(), Some(Protection::Passphrase));
+    assert!(vault.as_ref().unwrap().is_empty(), "the old key is removed");
+    drop(app);
+
+    let again = backend(dir.path(), &vault);
+    assert_eq!(again.open_server(added.id).await.unwrap(), Standing::Locked);
+    again.unlock("a long store passphrase").await.unwrap();
+    again.set_protection(None).await.unwrap();
+    assert_eq!(again.protection(), Some(Protection::Keychain));
+    drop(again);
+    let third = backend(dir.path(), &vault);
+    assert!(matches!(
+        third.open_server(added.id).await.unwrap(),
+        Standing::SignedIn { .. }
+    ));
+    server.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_live_notice_wakes_the_app() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let app = backend(dir.path(), &keychain());
+    app.add_server(&server.url(), None).await.unwrap();
+    app.register("ink", PASSWORD).await.unwrap();
+    let fox = app.create_persona("ink_fox", "").await.unwrap();
+    app.prepare(fox.id, &|_| {}).await.unwrap();
+
+    // Another login claiming @ink_fox's KeyPackages runs its pool low,
+    // which the server tells this login about.
+    let other = server.account("quill").await.unwrap();
+    let waiting = app.next_notice();
+    let claim = async {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        for _ in 0..11 {
+            other.claim_key_packages("ink_fox").await.unwrap();
+        }
+    };
+    let (woke, ()) = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        tokio::join!(waiting, claim)
+    })
+    .await
+    .expect("a notice arrives");
+    woke.unwrap();
+    // Upkeep then tops the pool back up.
+    assert_eq!(app.upkeep().await.unwrap(), None);
     server.stop().await.unwrap();
 }
 

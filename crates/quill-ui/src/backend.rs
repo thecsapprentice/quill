@@ -11,6 +11,9 @@ pub use quill_proto::api::Persona;
 use quill_proto::board::Maturity;
 use uuid::Uuid;
 
+/// The shortest store passphrase, as in the CLI.
+pub const PASSPHRASE_MIN_CHARS: usize = 12;
+
 /// A backend call in flight. Not `Send`: the web client's futures aren't.
 pub type Call<'a, T> = Pin<Box<dyn Future<Output = Result<T, Problem>> + 'a>>;
 
@@ -27,6 +30,9 @@ pub enum Problem {
     /// must choose a passphrase (adding a server) or type it (opening one).
     #[error("This computer has no keychain for Quill's key; use a passphrase.")]
     NeedsPassphrase,
+    /// The name asked for (a login or a handle) isn't available.
+    #[error("That name isn't available.")]
+    Taken,
     /// The server refused, with its reason (already in plain words).
     #[error("{0}")]
     Refused(String),
@@ -141,6 +147,15 @@ pub enum Theme {
     Dark,
 }
 
+/// How the open server's store is locked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Protection {
+    /// By a key in the OS keychain: nothing to type.
+    Keychain,
+    /// By a passphrase typed when the app opens it.
+    Passphrase,
+}
+
 /// Board settings kept on the server for the login.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoardSettings {
@@ -177,8 +192,20 @@ pub trait Backend {
     fn open_server(&self, id: Uuid) -> Call<'_, Standing>;
     /// Unlocks the open server's store with its passphrase.
     fn unlock<'a>(&'a self, passphrase: &'a str) -> Call<'a, Standing>;
-    /// Forgets a server and deletes its store.
+    /// Forgets a server and deletes its store (and its keychain key).
     fn remove_server(&self, id: Uuid) -> Call<'_, ()>;
+    /// Gives a server a name of the writer's choosing.
+    fn rename_server(&self, id: Uuid, name: &str) -> Result<(), Problem>;
+
+    // ---- The open server's store -------------------------------------------------------
+
+    /// Whether this computer has a keychain to keep stores' keys in.
+    fn keychain_available(&self) -> bool;
+    /// How the open server's store is locked, once open.
+    fn protection(&self) -> Option<Protection>;
+    /// Locks the open server's store with `passphrase`, or with the
+    /// keychain when `None`.
+    fn set_protection<'a>(&'a self, passphrase: Option<&'a str>) -> Call<'a, ()>;
 
     // ---- The open server's login -----------------------------------------------------
 
@@ -207,6 +234,9 @@ pub trait Backend {
     /// Background upkeep for the open server. Returns something to tell the
     /// writer, if anything needs them.
     fn upkeep(&self) -> Call<'_, Option<String>>;
+    /// Waits for the server's next live notice for the login (a request,
+    /// a session message, a device change). Upkeep runs after each.
+    fn next_notice(&self) -> Call<'_, ()>;
     fn board_settings(&self) -> Call<'_, BoardSettings>;
     fn set_board_settings(&self, settings: BoardSettings) -> Call<'_, BoardSettings>;
     fn app_settings(&self) -> AppSettings;

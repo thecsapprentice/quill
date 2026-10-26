@@ -81,6 +81,19 @@ fn keychain_store_needs_its_key() {
         Store::open(&path, Unlock::Passphrase("anything")),
         Err(StoreError::WrongUnlock(KeySource::Keychain))
     ));
+
+    // Destroying it takes its key out of the keychain too, but not while
+    // it's open.
+    let open = Store::open(&path, Unlock::Keychain(&vault)).unwrap();
+    assert!(matches!(
+        Store::destroy(&path, Some(&vault)),
+        Err(StoreError::InUse)
+    ));
+    drop(open);
+    Store::destroy(&path, Some(&vault)).unwrap();
+    assert!(!path.exists());
+    assert!(vault.is_empty());
+    Store::destroy(&path, Some(&vault)).unwrap();
 }
 
 #[test]

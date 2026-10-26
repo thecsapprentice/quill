@@ -17,8 +17,8 @@ use quill_proto::{
     board::UpdateAccountSettings,
 };
 use quill_ui::backend::{
-    AppSettings, Backend, BoardSettings, Call, Details, Keys, PersonaState, Problem, ServerEntry,
-    ServerInfo, Standing, Step, Theme,
+    AppSettings, Backend, BoardSettings, Call, Details, Keys, PASSPHRASE_MIN_CHARS, PersonaState,
+    Problem, Protection, ServerEntry, ServerInfo, Standing, Step, Theme,
 };
 use tokio::runtime::Handle;
 use uuid::Uuid;
@@ -77,6 +77,7 @@ fn problem(server: &str, e: CoreError) -> Problem {
         }
         CoreError::NotLoggedIn => Problem::SignedOut,
         CoreError::Api(p) if p.status == 401 => Problem::SignedOut,
+        CoreError::Api(p) if p.status == 409 => Problem::Taken,
         CoreError::Api(p) if (400..500).contains(&p.status) => {
             Problem::Refused(p.detail.clone().unwrap_or_else(|| p.title.clone()))
         }
@@ -102,6 +103,21 @@ fn normalize(address: &str) -> Result<String, Problem> {
     let url =
         quill_core::client::check_server_url(&with_scheme).map_err(|e| problem(trimmed, e))?;
     Ok(url.as_str().trim_end_matches('/').to_owned())
+}
+
+/// Checks a new store passphrase against the CLI's rule.
+fn check_passphrase(p: &str) -> Result<(), Problem> {
+    if p.chars().count() < PASSPHRASE_MIN_CHARS {
+        return Err(Problem::Refused(format!(
+            "Use at least {PASSPHRASE_MIN_CHARS} characters."
+        )));
+    }
+    Ok(())
+}
+
+/// A store still in use somewhere (a call in flight) can't be changed.
+fn busy() -> Problem {
+    Problem::Refused("Quill is still using this server's store. Try again in a moment.".into())
 }
 
 fn entry(s: &Server) -> ServerEntry {
@@ -346,6 +362,9 @@ impl Backend for NativeBackend {
                     info.domain
                 )));
             }
+            if let Some(p) = passphrase {
+                check_passphrase(p)?;
+            }
             let id = Uuid::new_v4();
             let path = self.store_path(id);
             let store = create_store(&path, self.vault.as_deref(), passphrase)?;
@@ -420,10 +439,18 @@ impl Backend for NativeBackend {
             if lock(&self.open).as_ref().is_some_and(|o| o.id == id) {
                 *lock(&self.open) = None;
             }
-            let path = self.store_path(id);
-            if path.exists() {
-                std::fs::remove_file(&path).map_err(failed)?;
+            if lock(&self.locked).as_ref().is_some_and(|l| l.id == id) {
+                *lock(&self.locked) = None;
             }
+            let path = self.store_path(id);
+            let vault = self.vault.clone();
+            self.run(async move {
+                Store::destroy(&path, vault.as_deref()).map_err(|e| match e {
+                    StoreError::InUse => busy(),
+                    e => failed(e),
+                })
+            })
+            .await?;
             {
                 let mut s = lock(&self.settings);
                 s.servers.retain(|s| s.id != id);
@@ -432,6 +459,94 @@ impl Backend for NativeBackend {
                 }
             }
             self.save_settings()
+        })
+    }
+
+    fn rename_server(&self, id: Uuid, name: &str) -> Result<(), Problem> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 60 {
+            return Err(Problem::Refused("Use 1 to 60 characters.".into()));
+        }
+        lock(&self.settings)
+            .server_mut(id)
+            .ok_or_else(|| failed("unknown server"))?
+            .name = name.to_owned();
+        if let Some(open) = lock(&self.open).as_mut().filter(|o| o.id == id) {
+            open.name = name.to_owned();
+        }
+        self.save_settings()
+    }
+
+    fn keychain_available(&self) -> bool {
+        self.vault.is_some()
+    }
+
+    fn protection(&self) -> Option<Protection> {
+        let open = lock(&self.open).clone()?;
+        match open.store.status().ok()?.key_source? {
+            KeySource::Keychain => Some(Protection::Keychain),
+            KeySource::Passphrase => Some(Protection::Passphrase),
+        }
+    }
+
+    fn set_protection<'a>(&'a self, passphrase: Option<&'a str>) -> Call<'a, ()> {
+        Box::pin(async move {
+            if let Some(p) = passphrase {
+                check_passphrase(p)?;
+            } else if self.vault.is_none() {
+                return Err(Problem::NeedsPassphrase);
+            }
+            // Changing the key needs the only handle on the store.
+            let open = lock(&self.open)
+                .take()
+                .ok_or_else(|| failed("no server is open"))?;
+            let Open {
+                id,
+                name,
+                store,
+                client,
+            } = open;
+            let store = match Arc::try_unwrap(store) {
+                Ok(s) => s,
+                Err(store) => {
+                    *lock(&self.open) = Some(Open {
+                        id,
+                        name,
+                        store,
+                        client,
+                    });
+                    return Err(busy());
+                }
+            };
+            let vault = self.vault.clone();
+            let passphrase = passphrase.map(str::to_owned);
+            // The task always hands the store back, changed or not.
+            let (store, result) = self
+                .run(async move {
+                    let mut store = store;
+                    let old = match store.status().map(|s| s.key_source) {
+                        Ok(Some(KeySource::Keychain)) => vault.as_deref(),
+                        _ => None,
+                    };
+                    let setup = match (&passphrase, vault.as_deref()) {
+                        (Some(p), _) => KeySetup::Passphrase {
+                            passphrase: p,
+                            kdf: KdfParams::DEFAULT,
+                        },
+                        (None, Some(v)) => KeySetup::Keychain(v),
+                        (None, None) => return Ok((store, Err(Problem::NeedsPassphrase))),
+                    };
+                    let result = store.change_key(setup, old).map_err(failed);
+                    Ok((store, result))
+                })
+                .await?;
+            *lock(&self.open) = Some(Open {
+                id,
+                name,
+                store: Arc::new(store),
+                client,
+            });
+            result
         })
     }
 
@@ -650,6 +765,22 @@ impl Backend for NativeBackend {
                 log.drain(..excess);
             }
             report.map(|_| tell)
+        })
+    }
+
+    fn next_notice(&self) -> Call<'_, ()> {
+        Box::pin(async move {
+            let open = self.opened()?;
+            self.run(async move {
+                let p = |e| problem(&open.name, e);
+                let mut stream = open.client.events().await.map_err(p)?;
+                match stream.next().await.map_err(p)? {
+                    Some(_) => Ok(()),
+                    // The server closed the stream: wait before reopening.
+                    None => Err(Problem::Unreachable(open.name.clone())),
+                }
+            })
+            .await
         })
     }
 
