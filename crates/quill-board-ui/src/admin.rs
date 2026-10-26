@@ -1,4 +1,5 @@
-//! Server settings pages, for administrators: tag types, tags, handles and sessions.
+//! Server settings pages, for administrators: tag types, tags, handles and
+//! sessions. The announcements tab is in `announcements`.
 
 use dioxus::prelude::*;
 use quill_proto::{
@@ -17,15 +18,16 @@ use crate::{
 const ALIAS_OPTIONS: &str = "alias-options";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Tab {
+pub(crate) enum Tab {
     TagTypes,
     Tags,
     Requests,
     Handles,
     Sessions,
+    Announcements,
 }
 
-fn tabs(chrome: &Chrome, current: Tab) -> Element {
+pub(crate) fn tabs(chrome: &Chrome, current: Tab) -> Element {
     let mark = |tab: Tab| (tab == current).then_some("page");
     let pending = chrome.viewer.as_ref().map_or(0, |v| v.pending_tags);
     rsx! {
@@ -41,6 +43,7 @@ fn tabs(chrome: &Chrome, current: Tab) -> Element {
             }
             a { href: "/admin/settings/handles", "aria-current": mark(Tab::Handles), "Handles" }
             a { href: "/admin/settings/sessions", "aria-current": mark(Tab::Sessions), "Sessions" }
+            a { href: "/admin/settings/announcements", "aria-current": mark(Tab::Announcements), "Announcements" }
         }
     }
 }

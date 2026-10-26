@@ -8,7 +8,7 @@ use axum::{
     Form,
     body::Bytes,
     extract::{Path, Query, State},
-    http::{StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
 use quill_board_ui::{
@@ -110,6 +110,7 @@ pub struct BoardParams {
 pub async fn board(
     State(state): State<AppState>,
     MaybeSession(session): MaybeSession,
+    headers: HeaderMap,
     Query(p): Query<BoardParams>,
 ) -> Response {
     let c = chrome(&state, session.as_ref(), Nav::Board, opt(&p.notice));
@@ -136,6 +137,10 @@ pub async fn board(
         Err(ApiError::BadRequest(m)) => (Vec::new(), None, Some(m)),
         Err(e) => return error_page(&c, e),
     };
+    let announcement = match super::announcements::banner(&state, &headers).await {
+        Ok(a) => a,
+        Err(e) => return error_page(&c, e),
+    };
     let view = BoardView {
         filters,
         prompts: items,
@@ -146,6 +151,7 @@ pub async fn board(
         namespaces: prompts::namespaces(&state).await.unwrap_or_default(),
         tag_options: tag_options(&state).await,
         error,
+        announcement,
     };
     html(StatusCode::OK, quill_board_ui::board_page(&c, view))
 }

@@ -65,6 +65,7 @@ fn board(prompts: Vec<Prompt>, filters: BoardFilters) -> BoardView {
         namespaces: Vec::new(),
         tag_options: Vec::new(),
         error: None,
+        announcement: None,
     }
 }
 
@@ -735,4 +736,112 @@ fn notices_page_explains_actions() {
     assert_eq!(html.matches(">New<").count(), 1);
     // The header counts unread notices.
     assert!(html.contains(r#"title="Unread notices">2</span>"#));
+}
+
+fn announcement(title: &str, edited: bool) -> quill_proto::announcements::Announcement {
+    quill_proto::announcements::Announcement {
+        id: Uuid::from_u128(7),
+        title: title.into(),
+        body: "Maintenance *tonight*".into(),
+        body_html: "<p>Maintenance <em>tonight</em></p>".into(),
+        comments_open: true,
+        created_at: datetime!(2026-10-22 12:00 UTC),
+        updated_at: if edited {
+            datetime!(2026-10-24 09:00 UTC)
+        } else {
+            datetime!(2026-10-22 12:00 UTC)
+        },
+    }
+}
+
+#[test]
+fn the_board_shows_the_newest_announcement_as_a_banner() {
+    let mut view = board(Vec::new(), BoardFilters::default());
+    let html = board_page(&chrome(false, false), view.clone());
+    assert!(!html.contains("announcement-banner"));
+    // Everyone gets the nav link, signed in or not.
+    assert!(html.contains(r#"href="/announcements""#));
+
+    view.announcement = Some(announcement("Downtime <Friday>", false));
+    let html = board_page(&chrome(false, false), view);
+    assert!(html.contains("announcement-banner"));
+    assert!(html.contains("Downtime &#60;Friday&#62;"));
+    assert!(html.contains(r#"href="/announcements/00000000-0000-0000-0000-000000000007""#));
+    // Dismissing is a plain form: no account, no JavaScript.
+    assert!(html.contains(r#"action="/announcements/dismiss""#));
+    assert!(html.contains(r#"name="id" value="00000000-0000-0000-0000-000000000007""#));
+}
+
+#[test]
+fn announcement_pages_render() {
+    let html = announcements_page(
+        &chrome(false, false),
+        AnnouncementsView {
+            announcements: vec![announcement("Welcome", false)],
+            next_cursor: Some("next".into()),
+        },
+    );
+    assert!(html.contains("From the administrators"));
+    assert!(html.contains("<p>Maintenance <em>tonight</em></p>"));
+    assert!(html.contains(r#"href="/announcements?cursor=next""#));
+    assert!(!html.contains("Edited"));
+
+    let empty = announcements_page(
+        &chrome(false, false),
+        AnnouncementsView {
+            announcements: Vec::new(),
+            next_cursor: None,
+        },
+    );
+    assert!(empty.contains("No announcements yet."));
+
+    // Readers see when it was edited; only administrators get an Edit link.
+    let reader = announcement_page(&chrome(true, false), announcement("Welcome", true));
+    assert!(reader.contains("Edited Oct 24, 2026"));
+    assert!(!reader.contains("/admin/settings/announcements/"));
+    let admin = announcement_page(&chrome(true, true), announcement("Welcome", true));
+    assert!(
+        admin.contains(
+            r#"href="/admin/settings/announcements/00000000-0000-0000-0000-000000000007""#
+        )
+    );
+}
+
+#[test]
+fn admin_announcement_pages_render() {
+    let c = chrome(true, true);
+    let html = admin_announcements_page(
+        &c,
+        AdminAnnouncementsView {
+            announcements: vec![announcement("Welcome", false)],
+            next_cursor: None,
+            title: "Draft <title>".into(),
+            body: "Draft body".into(),
+            comments_open: false,
+            error: Some("title is required".into()),
+        },
+    );
+    assert!(html.contains(r#"aria-current="page">Announcements"#));
+    assert!(html.contains("title is required"));
+    assert!(html.contains(r#"value="Draft &#60;title&#62;""#));
+    assert!(html.contains(r#"name="csrf" value="csrf-token-123""#));
+    // Comments are open, so the button closes them.
+    assert!(html.contains(r#"name="comments" value="off""#));
+    assert!(html.contains("Close comments"));
+
+    let mut closed = announcement("Welcome", false);
+    closed.comments_open = false;
+    let html = admin_announcement_page(
+        &c,
+        AdminAnnouncementView {
+            title: closed.title.clone(),
+            body: closed.body.clone(),
+            announcement: closed,
+            error: None,
+        },
+    );
+    assert!(html.contains("Open comments"));
+    assert!(html.contains(
+        r#"action="/admin/settings/announcements/00000000-0000-0000-0000-000000000007/delete""#
+    ));
 }

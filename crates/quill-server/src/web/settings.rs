@@ -33,7 +33,10 @@ use crate::{
 /// The signed-in administrator, or the response to send instead.
 // The error is an early-return response; boxing it would gain nothing.
 #[allow(clippy::result_large_err)]
-fn require_admin(state: &AppState, session: Option<Session>) -> Result<Session, Response> {
+pub(super) fn require_admin(
+    state: &AppState,
+    session: Option<Session>,
+) -> Result<Session, Response> {
     match session {
         None => Err(redirect("/login")),
         Some(s) if !s.is_admin => Err(not_admin(state, &s)),

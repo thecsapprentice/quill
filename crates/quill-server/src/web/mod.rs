@@ -4,6 +4,7 @@
 //! is served, so the board works in Tor Browser's safest mode. Every page
 //! calls the same service functions as the JSON API.
 
+mod announcements;
 mod handlers;
 mod picker;
 pub mod session;
@@ -45,6 +46,9 @@ pub fn router() -> Router<AppState> {
             "/p/{id}/report",
             get(handlers::report_form).post(handlers::report_submit),
         )
+        .route("/announcements", get(announcements::list))
+        .route(quill_board_ui::DISMISS_PATH, post(announcements::dismiss))
+        .route("/announcements/{id}", get(announcements::show))
         .route("/new", get(handlers::new_form).post(handlers::new_submit))
         .route("/mine", get(handlers::mine))
         .route(
@@ -84,6 +88,22 @@ pub fn router() -> Router<AppState> {
         .route(
             "/admin/settings/attachments",
             post(settings::attachments_save),
+        )
+        .route(
+            "/admin/settings/announcements",
+            get(announcements::admin_list).post(announcements::admin_post),
+        )
+        .route(
+            "/admin/settings/announcements/{id}",
+            get(announcements::admin_edit_form).post(announcements::admin_edit),
+        )
+        .route(
+            "/admin/settings/announcements/{id}/comments",
+            post(announcements::admin_comments),
+        )
+        .route(
+            "/admin/settings/announcements/{id}/delete",
+            post(announcements::admin_delete),
         )
         .route("/admin/settings/tag-requests", get(settings::tag_requests))
         .route(
@@ -321,6 +341,10 @@ fn notice_text(key: &str) -> Option<&'static str> {
         "tag-color" => "Colour saved.",
         "handles-reserved" => "Handles reserved.",
         "handle-removed" => "Handle no longer reserved.",
+        "announcement-posted" => "Announcement posted.",
+        "announcement-saved" => "Changes saved.",
+        "announcement-comments" => "Setting saved.",
+        "announcement-deleted" => "Announcement deleted.",
         _ => return None,
     })
 }

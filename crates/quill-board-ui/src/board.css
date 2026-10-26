@@ -188,6 +188,38 @@ h1 {
   border-left-color: var(--danger);
 }
 
+/* The newest announcement, one line above the board. */
+.announcement-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.6rem 0.9rem;
+  margin: 0 0 1.5rem;
+}
+
+.announcement-banner a {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.banner-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.announcement-banner form {
+  margin-left: auto;
+}
+
 .warning {
   background: var(--warn);
   border: 1px solid var(--warn-line);

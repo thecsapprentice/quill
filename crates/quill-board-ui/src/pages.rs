@@ -47,6 +47,9 @@ pub fn board_page(chrome: &Chrome, view: BoardView) -> String {
         let f = &v.filters;
         let open = f.is_active() || v.error.is_some();
         rsx! {
+            if let Some(a) = &v.announcement {
+                {crate::announcements::banner(a)}
+            }
             h1 { "Prompts" }
             p { class: "lede",
                 "Writing prompts posted on this server, newest first. Showing prompts rated "

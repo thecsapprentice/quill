@@ -10,6 +10,7 @@
 //! prompt's `body_html`, which the server has already sanitized.
 
 mod admin;
+mod announcements;
 pub mod chips;
 mod layout;
 mod notices;
@@ -29,6 +30,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 pub use admin::*;
+pub use announcements::*;
 pub use notices::notices_page;
 pub use pages::*;
 
@@ -43,6 +45,7 @@ pub const CSRF_FIELD: &str = "csrf";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Nav {
     Board,
+    Announcements,
     Post,
     Mine,
     Personas,
@@ -149,6 +152,8 @@ pub struct BoardView {
     /// Suggestions for the tag fields.
     pub tag_options: Vec<Tag>,
     pub error: Option<String>,
+    /// The newest announcement, unless the visitor dismissed it.
+    pub announcement: Option<quill_proto::announcements::Announcement>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

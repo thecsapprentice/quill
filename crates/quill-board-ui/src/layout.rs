@@ -32,6 +32,7 @@ pub(crate) fn header(chrome: &Chrome) -> Element {
                 }
                 nav { class: "site-nav", "aria-label": "Main",
                     {nav_link(chrome, Nav::Board, "/", "Board")}
+                    {nav_link(chrome, Nav::Announcements, "/announcements", "Announcements")}
                     if let Some(viewer) = &chrome.viewer {
                         {nav_link(chrome, Nav::Post, "/new", "Post a prompt")}
                         {nav_link(chrome, Nav::Mine, "/mine", "My prompts")}
