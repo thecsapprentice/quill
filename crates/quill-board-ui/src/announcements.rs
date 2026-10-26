@@ -1,10 +1,15 @@
-//! Announcements: the board's banner, the public pages, and the
-//! administrators' tab for posting and editing them.
+//! Announcements: the board's banner, the public pages with their comments,
+//! and the administrators' tab for posting and editing them.
 
 use dioxus::prelude::*;
 use quill_proto::{
-    announcements::Announcement,
-    limits::{ANNOUNCEMENT_BODY_MAX_CHARS, ANNOUNCEMENT_TITLE_MAX_CHARS},
+    announcements::{Announcement, Comment, CommentVisibility},
+    api::Persona,
+    board::ReportReason,
+    limits::{
+        ANNOUNCEMENT_BODY_MAX_CHARS, ANNOUNCEMENT_TITLE_MAX_CHARS, COMMENT_BODY_MAX_CHARS,
+        REPORT_DETAILS_MAX_CHARS,
+    },
 };
 use uuid::Uuid;
 
@@ -12,7 +17,7 @@ use crate::{
     Chrome,
     admin::{Tab, tabs},
     layout::{csrf, error_notice},
-    render, short_date,
+    reason_label, render, short_date,
 };
 
 /// Where readers dismiss the banner (a form post; no JavaScript).
@@ -20,6 +25,11 @@ pub const DISMISS_PATH: &str = "/announcements/dismiss";
 
 pub fn announcement_url(id: Uuid) -> String {
     format!("/announcements/{id}")
+}
+
+/// A comment's own address, which leads to it under its announcement.
+pub fn comment_url(id: Uuid) -> String {
+    format!("/comments/{id}")
 }
 
 pub fn admin_announcement_url(id: Uuid) -> String {
@@ -32,6 +42,35 @@ pub struct AnnouncementsView {
     pub next_cursor: Option<String>,
 }
 
+/// One announcement and a page of its comments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnnouncementView {
+    pub announcement: Announcement,
+    pub comments: Vec<Comment>,
+    /// Link to the next page of comments.
+    pub more_comments: Option<String>,
+    /// The visitor's personas: to comment as, and to know their comments.
+    pub personas: Vec<Persona>,
+    /// The comment form, kept when it's sent back with an error. `speak_as`
+    /// is a persona id or one of the `SPEAK_AS_*` values.
+    pub draft: String,
+    pub speak_as: Option<String>,
+    /// The visitor's staff name, if they're an administrator with one.
+    pub staff_name: Option<String>,
+    pub error: Option<String>,
+    /// The server shows comments to signed-in writers only, and the
+    /// visitor isn't signed in: `comments` is empty.
+    pub comments_hidden: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommentReportView {
+    pub comment: Comment,
+    pub reason: Option<ReportReason>,
+    pub details: String,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminAnnouncementsView {
     pub announcements: Vec<Announcement>,
@@ -40,7 +79,10 @@ pub struct AdminAnnouncementsView {
     pub title: String,
     pub body: String,
     pub comments_open: bool,
+    pub sticky: bool,
     pub error: Option<String>,
+    /// The server-wide setting: who can read comments.
+    pub comment_visibility: CommentVisibility,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,17 +94,22 @@ pub struct AdminAnnouncementView {
     pub error: Option<String>,
 }
 
-/// The one-line banner at the top of the board: the newest title, a link
-/// to it, and a button that hides it until there's a newer one.
-pub(crate) fn banner(a: &Announcement) -> Element {
+/// A one-line banner at the top of the board: the title and a link to it.
+/// The newest announcement's banner has a button that hides it until
+/// there's a newer one; sticky announcements' banners don't.
+pub(crate) fn banner(a: &Announcement, dismissible: bool) -> Element {
     rsx! {
-        aside { class: "announcement-banner", "aria-label": "Announcement",
+        aside {
+            class: if dismissible { "announcement-banner" } else { "announcement-banner sticky" },
+            "aria-label": "Announcement",
             span { class: "banner-label", "Announcement" }
             a { href: "{announcement_url(a.id)}", "{a.title}" }
-            form { method: "post", action: DISMISS_PATH,
-                input { r#type: "hidden", name: "id", value: "{a.id}" }
-                button { class: "link-button", r#type: "submit",
-                    "aria-label": "Dismiss this announcement", "Dismiss" }
+            if dismissible {
+                form { method: "post", action: DISMISS_PATH,
+                    input { r#type: "hidden", name: "id", value: "{a.id}" }
+                    button { class: "link-button", r#type: "submit",
+                        "aria-label": "Dismiss this announcement", "Dismiss" }
+                }
             }
         }
     }
@@ -75,6 +122,12 @@ fn meta(a: &Announcement) -> Element {
             span { "{short_date(a.created_at)}" }
             if a.edited() {
                 span { "Edited {short_date(a.updated_at)}" }
+            }
+            if a.sticky {
+                span { class: "flag flag-sticky", "Sticky" }
+            }
+            if !a.comments_open {
+                span { class: "flag", "Comments closed" }
             }
         }
     }
@@ -113,11 +166,13 @@ pub fn announcements_page(chrome: &Chrome, view: AnnouncementsView) -> String {
     })
 }
 
-pub fn announcement_page(chrome: &Chrome, announcement: Announcement) -> String {
-    let title = announcement.title.clone();
+pub fn announcement_page(chrome: &Chrome, view: AnnouncementView) -> String {
+    let title = view.announcement.title.clone();
     let is_admin = chrome.viewer.as_ref().is_some_and(|v| v.is_admin);
+    let chrome_for_body = chrome.clone();
     render(title, chrome, move || {
-        let a = &announcement;
+        let v = &view;
+        let a = &v.announcement;
         rsx! {
             article { class: "card prompt-card",
                 h1 { class: "card-title", "{a.title}" }
@@ -128,6 +183,226 @@ pub fn announcement_page(chrome: &Chrome, announcement: Announcement) -> String 
                 a { href: "/announcements", "All announcements" }
                 if is_admin {
                     a { href: "{admin_announcement_url(a.id)}", "Edit" }
+                }
+            }
+            {comments_section(&chrome_for_body, v)}
+        }
+    })
+}
+
+// ---- Comments ----------------------------------------------------------------
+
+/// The form value for speaking as the administrators, and as one's staff
+/// name. Personas are chosen by id.
+pub const SPEAK_AS_ADMINISTRATORS: &str = "administrators";
+pub const SPEAK_AS_STAFF: &str = "staff";
+
+fn author_label(c: &Comment) -> String {
+    match &c.author {
+        Some(a) => a.display_name.clone().map_or_else(
+            || format!("@{}", a.handle),
+            |name| format!("{name} (@{})", a.handle),
+        ),
+        None => c.speaker(),
+    }
+}
+
+/// Who wrote a comment: a staff comment's name is marked as the
+/// administrators', in red.
+fn speaker(c: &Comment) -> Element {
+    if c.from_staff() {
+        rsx! {
+            span { class: "staff-name", "{author_label(c)}" }
+            span { class: "flag flag-admin", title: "Written by this server's administrators", "Admin" }
+        }
+    } else {
+        rsx! { span { "{author_label(c)}" } }
+    }
+}
+
+fn comments_section(chrome: &Chrome, v: &AnnouncementView) -> Element {
+    let a = &v.announcement;
+    let viewer = chrome.viewer.as_ref();
+    let is_admin = viewer.is_some_and(|v| v.is_admin);
+    // Any administrator may delete a staff comment: the voice is shared.
+    let mine = |c: &Comment| {
+        (is_admin && c.from_staff())
+            || c.author
+                .as_ref()
+                .is_some_and(|au| v.personas.iter().any(|p| p.id == au.id))
+    };
+    let selected = |value: &str| v.speak_as.as_deref() == Some(value);
+    let can_post = !v.personas.is_empty() || is_admin;
+    if v.comments_hidden {
+        return rsx! {
+            section { class: "comments", "aria-labelledby": "comments-title",
+                h2 { id: "comments-title", class: "form-title", "Comments" }
+                p {
+                    "On this server, comments are for signed-in writers. "
+                    a { href: "/login", "Sign in" }
+                    " to read them."
+                }
+            }
+        };
+    }
+    rsx! {
+        section { class: "comments", "aria-labelledby": "comments-title",
+            h2 { id: "comments-title", class: "form-title", "Comments" }
+            if v.comments.is_empty() {
+                p { class: "hint", "No comments yet." }
+            }
+            ol { class: "comment-list",
+                for c in v.comments.iter() {
+                    li { key: "{c.id}", id: "c-{c.id}",
+                        class: if c.from_staff() { "comment staff" } else { "comment" },
+                        p { class: "card-meta",
+                            {speaker(c)}
+                            span { "{short_date(c.created_at)}" }
+                            if c.removed {
+                                span { class: "removed", "Removed by a server administrator" }
+                            }
+                        }
+                        div { class: "comment-body", dangerous_inner_html: "{c.body_html}" }
+                        div { class: "comment-actions",
+                            if mine(c) {
+                                details {
+                                    summary { "Delete" }
+                                    form { method: "post", action: "{comment_url(c.id)}/delete",
+                                        {csrf(chrome)}
+                                        label { class: "inline-check",
+                                            input { r#type: "checkbox", name: "confirm", value: "yes", required: true }
+                                            "Delete this comment for good."
+                                        }
+                                        button { class: "btn btn-danger", r#type: "submit", "Delete comment" }
+                                    }
+                                }
+                            } else if !c.removed && !c.from_staff() {
+                                a { href: "{comment_url(c.id)}/report", "Report" }
+                            }
+                            if is_admin && !c.removed && !c.from_staff() {
+                                {remove_form(chrome, c)}
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(more) = &v.more_comments {
+                p { class: "pager", a { class: "btn btn-quiet", href: "{more}", "More comments" } }
+            }
+            if !a.comments_open {
+                p { class: "notice", "Comments are closed." }
+            } else if viewer.is_none() {
+                p { a { href: "/login", "Sign in" } " to comment." }
+            } else if !can_post {
+                p { "Comments are posted under a persona. " a { href: "/personas", "Create one" } " to comment." }
+            } else {
+                {error_notice(v.error.as_ref())}
+                form { class: "form-card", method: "post", action: "{announcement_url(a.id)}/comments",
+                    {csrf(chrome)}
+                    div { class: "field",
+                        label { r#for: "as", "Comment as"
+                            if is_admin && v.staff_name.is_none() {
+                                span { class: "hint",
+                                    "To comment under your own name as staff, "
+                                    a { href: "/settings", "set a staff name" }
+                                    "."
+                                }
+                            }
+                        }
+                        select { id: "as", name: "as", required: true,
+                            for p in v.personas.iter() {
+                                option { key: "{p.id}", value: "{p.id}", selected: selected(&p.id.to_string()),
+                                    "@{p.handle}"
+                                }
+                            }
+                            if is_admin {
+                                option { value: SPEAK_AS_ADMINISTRATORS, selected: selected(SPEAK_AS_ADMINISTRATORS),
+                                    "Administrators (shown as staff)"
+                                }
+                                if let Some(name) = &v.staff_name {
+                                    option { value: SPEAK_AS_STAFF, selected: selected(SPEAK_AS_STAFF),
+                                        "{name} (your staff name, shown as staff)"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "field",
+                        label { r#for: "comment", "Comment"
+                            span { class: "hint", "Markdown works. Comments can't be edited after posting, only deleted." }
+                        }
+                        textarea { class: "short", id: "comment", name: "body", required: true,
+                            maxlength: "{COMMENT_BODY_MAX_CHARS}", "{v.draft}" }
+                    }
+                    div { class: "actions",
+                        button { class: "btn", r#type: "submit", "Post comment" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// An administrator's direct removal, with the reason the author is told.
+fn remove_form(chrome: &Chrome, c: &Comment) -> Element {
+    rsx! {
+        details {
+            summary { "Remove" }
+            form { method: "post", action: "/admin/comments/{c.id}/remove",
+                {csrf(chrome)}
+                label { r#for: "reason-{c.id}", "Reason" }
+                select { id: "reason-{c.id}", name: "reason", required: true,
+                    for r in ReportReason::ALL.iter() {
+                        option { key: "{r}", value: "{r}", "{reason_label(*r)}" }
+                    }
+                }
+                button { class: "btn btn-danger", r#type: "submit", "Remove comment" }
+            }
+        }
+    }
+}
+
+pub fn comment_report_page(chrome: &Chrome, view: CommentReportView) -> String {
+    let chrome_for_body = chrome.clone();
+    render("Report a comment", chrome, move || {
+        let v = &view;
+        let c = &v.comment;
+        let back = format!("{}#c-{}", announcement_url(c.announcement), c.id);
+        rsx! {
+            h1 { "Report a comment" }
+            p { class: "lede",
+                "Reports go to this server's administrators. The author isn't told who reported their comment."
+            }
+            div { class: "card",
+                p { class: "card-meta",
+                    span { "{author_label(c)}" }
+                    span { "{short_date(c.created_at)}" }
+                }
+                div { class: "comment-body", dangerous_inner_html: "{c.body_html}" }
+            }
+            {error_notice(v.error.as_ref())}
+            form { class: "form-card", method: "post", action: "{comment_url(c.id)}/report",
+                {csrf(&chrome_for_body)}
+                fieldset { class: "choices",
+                    legend { class: "label", "What's wrong with it?" }
+                    for r in ReportReason::ALL.iter() {
+                        label { key: "{r}", class: "inline-check",
+                            input { r#type: "radio", name: "reason", value: "{r}", required: true,
+                                checked: v.reason == Some(*r) }
+                            "{reason_label(*r)}"
+                        }
+                    }
+                }
+                div { class: "field",
+                    label { r#for: "details", "Details"
+                        span { class: "hint", "Optional. Up to {REPORT_DETAILS_MAX_CHARS} characters." }
+                    }
+                    textarea { class: "short", id: "details", name: "details",
+                        maxlength: "{REPORT_DETAILS_MAX_CHARS}", "{v.details}" }
+                }
+                div { class: "actions",
+                    button { class: "btn", r#type: "submit", "Send report" }
+                    a { href: "{back}", "Cancel" }
                 }
             }
         }
@@ -156,7 +431,7 @@ fn title_and_body(title: &str, body: &str) -> Element {
 }
 
 /// A button that opens or closes an announcement's comments.
-fn comments_toggle(chrome: &Chrome, a: &Announcement) -> Element {
+fn comments_toggle(chrome: &Chrome, a: &Announcement, from_edit: bool) -> Element {
     let (value, label) = if a.comments_open {
         ("off", "Close comments")
     } else {
@@ -166,8 +441,35 @@ fn comments_toggle(chrome: &Chrome, a: &Announcement) -> Element {
         form { method: "post", action: "{admin_announcement_url(a.id)}/comments",
             {csrf(chrome)}
             input { r#type: "hidden", name: "comments", value: "{value}" }
+            if from_edit {
+                input { r#type: "hidden", name: "back", value: "edit" }
+            }
             button { class: "link-button", r#type: "submit",
                 "aria-label": "{label} on “{a.title}”", "{label}" }
+        }
+    }
+}
+
+fn sticky_label(sticky: bool) -> &'static str {
+    if sticky { "Sticky" } else { "No" }
+}
+
+/// A button that makes an announcement sticky or not.
+fn sticky_toggle(chrome: &Chrome, a: &Announcement, from_edit: bool) -> Element {
+    let (value, label) = if a.sticky {
+        ("off", "Unstick")
+    } else {
+        ("on", "Make sticky")
+    };
+    rsx! {
+        form { method: "post", action: "{admin_announcement_url(a.id)}/sticky",
+            {csrf(chrome)}
+            input { r#type: "hidden", name: "sticky", value: "{value}" }
+            if from_edit {
+                input { r#type: "hidden", name: "back", value: "edit" }
+            }
+            button { class: "link-button", r#type: "submit",
+                "aria-label": "{label}: “{a.title}”", "{label}" }
         }
     }
 }
@@ -181,7 +483,7 @@ pub fn admin_announcements_page(chrome: &Chrome, view: AdminAnnouncementsView) -
             h1 { "Server settings" }
             {tabs(c, Tab::Announcements)}
             p { class: "lede",
-                "The newest announcement's title shows as a banner at the top of the board, and every announcement is listed under Announcements. Readers see them as from “the administrators”; the admin log records who posted each."
+                "The newest announcement's title shows as a banner at the top of the board, which readers can dismiss. Sticky announcements each keep a banner of their own above it, which readers can't dismiss. Every announcement is listed under Announcements. Readers see them as from “the administrators”; the admin log records who posted each."
             }
             {error_notice(v.error.as_ref())}
             form { class: "form-card", method: "post", action: "/admin/settings/announcements",
@@ -193,12 +495,46 @@ pub fn admin_announcements_page(chrome: &Chrome, view: AdminAnnouncementsView) -
                         input { r#type: "checkbox", name: "comments", value: "on", checked: v.comments_open }
                         span {
                             "Allow comments"
-                            span { class: "hint", "Comments aren't available yet; this decides whether they'll be open when they are. You can change it later." }
+                            span { class: "hint", "Signed-in writers can comment on it. You can change this later." }
+                        }
+                    }
+                }
+                div { class: "field",
+                    label { class: "inline-check",
+                        input { r#type: "checkbox", name: "sticky", value: "on", checked: v.sticky }
+                        span {
+                            "Sticky"
+                            span { class: "hint", "Its banner stays at the top of the board, and readers can't dismiss it, until you unstick it." }
                         }
                     }
                 }
                 div { class: "actions",
                     button { class: "btn", r#type: "submit", "Post announcement" }
+                }
+            }
+            form { class: "form-card", method: "post", action: "/admin/settings/comment-visibility",
+                {csrf(c)}
+                fieldset { class: "choices",
+                    legend { class: "form-title", "Who can read comments" }
+                    label { class: "inline-check",
+                        input { r#type: "radio", name: "visibility", value: "public",
+                            checked: v.comment_visibility == CommentVisibility::Public }
+                        span {
+                            "Everyone"
+                            span { class: "hint", "Anyone can read comments, signed in or not. Only signed-in writers can post them." }
+                        }
+                    }
+                    label { class: "inline-check",
+                        input { r#type: "radio", name: "visibility", value: "signed-in",
+                            checked: v.comment_visibility == CommentVisibility::SignedIn }
+                        span {
+                            "Signed-in writers only"
+                            span { class: "hint", "Visitors who aren't signed in see the announcements, but not their comments. Applies to every announcement." }
+                        }
+                    }
+                }
+                div { class: "actions",
+                    button { class: "btn", r#type: "submit", "Save" }
                 }
             }
             if v.announcements.is_empty() {
@@ -207,14 +543,15 @@ pub fn admin_announcements_page(chrome: &Chrome, view: AdminAnnouncementsView) -
                 div { class: "table-scroll",
                     table { class: "log",
                         thead {
-                            tr { th { "Title" } th { "Posted" } th { "Comments" } th { span { class: "visually-hidden", "Actions" } } }
+                            tr { th { "Title" } th { "Posted" } th { "Banner" } th { "Comments" } th { span { class: "visually-hidden", "Actions" } } }
                         }
                         tbody {
                             for a in v.announcements.iter() {
                                 tr { key: "{a.id}",
                                     td { a { href: "{announcement_url(a.id)}", "{a.title}" } }
                                     td { "{short_date(a.created_at)}" }
-                                    td { "{comments_label(a.comments_open)} " {comments_toggle(c, a)} }
+                                    td { "{sticky_label(a.sticky)} " {sticky_toggle(c, a, false)} }
+                                    td { "{comments_label(a.comments_open)} " {comments_toggle(c, a, false)} }
                                     td { a { href: "{admin_announcement_url(a.id)}",
                                         "aria-label": "Edit “{a.title}”", "Edit" } }
                                 }
@@ -247,12 +584,24 @@ pub fn admin_announcement_page(chrome: &Chrome, view: AdminAnnouncementView) -> 
                 {title_and_body(&v.title, &v.body)}
                 div { class: "actions",
                     button { class: "btn", r#type: "submit", "Save changes" }
-                    a { href: "/admin/settings/announcements", "Cancel" }
+                    a { href: "{announcement_url(a.id)}", "View announcement" }
+                    a { href: "/admin/settings/announcements", "Back to announcements" }
+                }
+            }
+            section { class: "form-card",
+                h2 { class: "form-title", "Banner" }
+                p {
+                    if a.sticky {
+                        "Sticky: its banner stays at the top of the board. "
+                    } else {
+                        "Not sticky: readers can dismiss its banner. "
+                    }
+                    {sticky_toggle(c, a, true)}
                 }
             }
             section { class: "form-card",
                 h2 { class: "form-title", "Comments" }
-                p { "{comments_label(a.comments_open)}. " {comments_toggle(c, a)} }
+                p { "{comments_label(a.comments_open)}. " {comments_toggle(c, a, true)} }
             }
             details {
                 summary { "Delete this announcement" }

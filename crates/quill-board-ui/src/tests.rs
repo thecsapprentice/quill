@@ -3,7 +3,7 @@ use quill_proto::{
     board::{
         AccountSettings, AdminAction, AdminLogDetail, AdminLogEntry, AdminLogPrompt,
         AdminLogTarget, AdminTag, LogActor, Maturity, Prompt, PromptAuthor, PromptState, Report,
-        ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy, TagStatus,
+        ReportKind, ReportReason, Tag, TagNamespace, TagOrigin, TagPolicy, TagStatus,
     },
 };
 use time::macros::datetime;
@@ -65,6 +65,7 @@ fn board(prompts: Vec<Prompt>, filters: BoardFilters) -> BoardView {
         namespaces: Vec::new(),
         tag_options: Vec::new(),
         error: None,
+        sticky_announcements: Vec::new(),
         announcement: None,
     }
 }
@@ -312,17 +313,26 @@ fn other_pages_render() {
                 maturity_max: Maturity::Mature,
                 is_admin: true,
                 unread_notices: 0,
+                staff_name: None,
             },
+            staff_name: "Nat <admin>".into(),
+            error: Some("a staff name must be".into()),
         },
     );
     assert!(settings.contains(r#"<option value="mature" selected"#));
+    // Administrators get the staff name field, kept on error.
+    assert!(settings.contains(r#"name="staff_name""#));
+    assert!(settings.contains("Nat &#60;admin&#62;"));
+    assert!(settings.contains("a staff name must be"));
 
     let admin = admin_reports_page(
         &c,
         AdminReportsView {
             reports: vec![Report {
                 id: Uuid::nil(),
+                kind: ReportKind::Prompt,
                 prompt: Some(prompt("Spam", Maturity::General)),
+                comment: None,
                 reason: ReportReason::Spam,
                 details: Some("<b>bad</b>".into()),
                 prompt_hash: "ab".repeat(32),
@@ -480,6 +490,7 @@ fn admin_log_shows_tag_and_report_entries() {
         action,
         report_id: None,
         prompt_id: subject.is_none().then(Uuid::nil),
+        comment_id: None,
         prompt_hash: subject.is_none().then(|| "00ff00ff00ff00ff".into()),
         reason: subject.is_none().then_some(ReportReason::Spam),
         subject: subject.map(str::to_owned),
@@ -547,6 +558,7 @@ fn admin_log_entry_lists_accounts_and_their_prompts() {
         action: AdminAction::DeleteTag,
         report_id: None,
         prompt_id: None,
+        comment_id: None,
         prompt_hash: None,
         reason: None,
         subject: Some("genre:horror".into()),
@@ -745,6 +757,7 @@ fn announcement(title: &str, edited: bool) -> quill_proto::announcements::Announ
         body: "Maintenance *tonight*".into(),
         body_html: "<p>Maintenance <em>tonight</em></p>".into(),
         comments_open: true,
+        sticky: false,
         created_at: datetime!(2026-10-22 12:00 UTC),
         updated_at: if edited {
             datetime!(2026-10-24 09:00 UTC)
@@ -796,10 +809,16 @@ fn announcement_pages_render() {
     assert!(empty.contains("No announcements yet."));
 
     // Readers see when it was edited; only administrators get an Edit link.
-    let reader = announcement_page(&chrome(true, false), announcement("Welcome", true));
+    let reader = announcement_page(
+        &chrome(true, false),
+        announcement_view(announcement("Welcome", true)),
+    );
     assert!(reader.contains("Edited Oct 24, 2026"));
     assert!(!reader.contains("/admin/settings/announcements/"));
-    let admin = announcement_page(&chrome(true, true), announcement("Welcome", true));
+    let admin = announcement_page(
+        &chrome(true, true),
+        announcement_view(announcement("Welcome", true)),
+    );
     assert!(
         admin.contains(
             r#"href="/admin/settings/announcements/00000000-0000-0000-0000-000000000007""#
@@ -818,10 +837,16 @@ fn admin_announcement_pages_render() {
             title: "Draft <title>".into(),
             body: "Draft body".into(),
             comments_open: false,
+            sticky: true,
             error: Some("title is required".into()),
+            comment_visibility: quill_proto::announcements::CommentVisibility::SignedIn,
         },
     );
     assert!(html.contains(r#"aria-current="page">Announcements"#));
+    // The visibility setting shows its current value.
+    assert!(html.contains(r#"action="/admin/settings/comment-visibility""#));
+    assert!(html.contains(r#"value="signed-in" checked"#));
+    assert!(!html.contains(r#"value="public" checked"#));
     assert!(html.contains("title is required"));
     assert!(html.contains(r#"value="Draft &#60;title&#62;""#));
     assert!(html.contains(r#"name="csrf" value="csrf-token-123""#));
@@ -844,4 +869,352 @@ fn admin_announcement_pages_render() {
     assert!(html.contains(
         r#"action="/admin/settings/announcements/00000000-0000-0000-0000-000000000007/delete""#
     ));
+}
+
+fn announcement_view(announcement: quill_proto::announcements::Announcement) -> AnnouncementView {
+    AnnouncementView {
+        announcement,
+        comments: Vec::new(),
+        more_comments: None,
+        personas: Vec::new(),
+        draft: String::new(),
+        speak_as: None,
+        staff_name: None,
+        error: None,
+        comments_hidden: false,
+    }
+}
+
+#[test]
+fn hidden_comments_ask_the_visitor_to_sign_in() {
+    let mut view = announcement_view(announcement("Welcome", false));
+    view.comments_hidden = true;
+    let html = announcement_page(&chrome(false, false), view);
+    assert!(html.contains("comments are for signed-in writers"));
+    assert!(html.contains(r#"href="/login""#));
+    assert!(!html.contains("No comments yet."));
+    assert!(!html.contains("to comment."));
+    // The announcement itself still shows.
+    assert!(html.contains("<p>Maintenance <em>tonight</em></p>"));
+}
+
+fn persona(id: u128, handle: &str) -> Persona {
+    Persona {
+        id: Uuid::from_u128(id),
+        actor_uri: format!("https://alpha.test/users/{handle}"),
+        handle: handle.into(),
+        display_name: None,
+        summary: None,
+        created_at: datetime!(2026-10-22 12:00 UTC),
+    }
+}
+
+fn comment(
+    id: u128,
+    author: u128,
+    handle: &str,
+    removed: bool,
+) -> quill_proto::announcements::Comment {
+    quill_proto::announcements::Comment {
+        id: Uuid::from_u128(id),
+        announcement: Uuid::from_u128(7),
+        voice: quill_proto::announcements::CommentVoice::Persona,
+        author: Some(PromptAuthor {
+            id: Uuid::from_u128(author),
+            handle: handle.into(),
+            display_name: None,
+        }),
+        staff_name: None,
+        body: "Thanks <b>all</b>".into(),
+        body_html: "<p>Thanks &lt;b&gt;all&lt;/b&gt;</p>".into(),
+        removed,
+        created_at: datetime!(2026-10-23 08:00 UTC),
+    }
+}
+
+#[test]
+fn comments_render_under_an_announcement() {
+    let mut view = announcement_view(announcement("Welcome", false));
+    view.comments = vec![
+        comment(100, 1, "ink_fox", false),
+        comment(101, 2, "sea_wolf", true),
+    ];
+    view.more_comments = Some("/announcements/x?after=c".into());
+
+    // Anonymous readers see comments and can report them, but not post.
+    let html = announcement_page(&chrome(false, false), view.clone());
+    assert!(html.contains(r#"id="c-00000000-0000-0000-0000-000000000064""#));
+    assert!(html.contains("@ink_fox"));
+    assert!(html.contains("<p>Thanks &lt;b&gt;all&lt;/b&gt;</p>"));
+    assert!(html.contains(r#"href="/comments/00000000-0000-0000-0000-000000000064/report""#));
+    assert!(html.contains("to comment."));
+    assert!(html.contains("More comments"));
+    assert!(!html.contains("Post comment"));
+
+    // A writer gets the form, and a Delete button on their own comment
+    // instead of Report. Their removed comment is marked.
+    view.personas = vec![persona(2, "sea_wolf")];
+    view.draft = "Kept <draft>".into();
+    view.error = Some("body is required".into());
+    let html = announcement_page(&chrome(true, false), view.clone());
+    assert!(html.contains("Post comment"));
+    assert!(html.contains("Kept &#60;draft&#62;"));
+    assert!(html.contains("body is required"));
+    assert!(html.contains(r#"action="/comments/00000000-0000-0000-0000-000000000065/delete""#));
+    assert!(!html.contains(r#"href="/comments/00000000-0000-0000-0000-000000000065/report""#));
+    assert!(html.contains("Removed by a server administrator"));
+    assert!(!html.contains("/admin/comments/"));
+
+    // Administrators can remove a comment that isn't removed yet.
+    let html = announcement_page(&chrome(true, true), view.clone());
+    assert!(
+        html.contains(r#"action="/admin/comments/00000000-0000-0000-0000-000000000064/remove""#)
+    );
+    assert!(
+        !html.contains(r#"action="/admin/comments/00000000-0000-0000-0000-000000000065/remove""#)
+    );
+
+    // Closed: the comments stay, the form goes.
+    view.announcement.comments_open = false;
+    let html = announcement_page(&chrome(true, false), view);
+    assert!(html.contains("Comments are closed."));
+    assert!(html.contains("@ink_fox"));
+    assert!(!html.contains("Post comment"));
+}
+
+#[test]
+fn comment_reports_and_notices_render() {
+    let html = comment_report_page(
+        &chrome(false, false),
+        CommentReportView {
+            comment: comment(100, 1, "ink_fox", false),
+            reason: Some(ReportReason::Spam),
+            details: String::new(),
+            error: None,
+        },
+    );
+    assert!(html.contains(r#"action="/comments/00000000-0000-0000-0000-000000000064/report""#));
+    assert!(html.contains("Report a comment"));
+    assert_eq!(
+        html.matches(r#"name="reason""#).count(),
+        ReportReason::ALL.len()
+    );
+
+    let report = Report {
+        id: Uuid::nil(),
+        kind: ReportKind::Comment,
+        prompt: None,
+        comment: Some(comment(100, 1, "ink_fox", false)),
+        reason: ReportReason::Harassment,
+        details: None,
+        prompt_hash: "00ff".into(),
+        created_at: datetime!(2026-10-22 12:00 UTC),
+        resolved_at: None,
+        resolution: None,
+    };
+    let html = admin_reports_page(
+        &chrome(true, true),
+        AdminReportsView {
+            reports: vec![
+                report.clone(),
+                Report {
+                    comment: None,
+                    ..report
+                },
+            ],
+            all: false,
+        },
+    );
+    assert!(html.contains("Comment by @ink_fox"));
+    assert!(html.contains("Remove comment"));
+    assert!(html.contains("Comment deleted by its author"));
+
+    let html = notices_page(
+        &chrome(true, false),
+        NoticesView {
+            notices: vec![quill_proto::notices::AccountNotice {
+                id: 1,
+                at: datetime!(2026-10-22 12:00 UTC),
+                kind: quill_proto::notices::NoticeKind::CommentRemoved,
+                fields: quill_proto::notices::NoticeFields {
+                    reason: Some(ReportReason::Spam),
+                    announcement: Some(Uuid::from_u128(7)),
+                    announcement_title: Some("Welcome".into()),
+                    handle: Some("ink_fox".into()),
+                    ..Default::default()
+                },
+                prompts: Vec::new(),
+                read: false,
+            }],
+            older: None,
+        },
+    );
+    assert!(html.contains("removed your comment on “Welcome” (Spam)."));
+    assert!(html.contains(r#"href="/announcements/00000000-0000-0000-0000-000000000007""#));
+    assert!(html.contains("(written as @ink_fox)"));
+}
+
+#[test]
+fn sticky_banners_stack_and_cannot_be_dismissed() {
+    let mut first = announcement("Rules updated", false);
+    first.id = Uuid::from_u128(1);
+    first.sticky = true;
+    let mut second = announcement("Downtime Friday", false);
+    second.id = Uuid::from_u128(2);
+    second.sticky = true;
+    let mut view = board(Vec::new(), BoardFilters::default());
+    view.sticky_announcements = vec![second, first];
+    view.announcement = Some(announcement("Welcome", false));
+    let html = board_page(&chrome(false, false), view);
+
+    assert_eq!(html.matches("announcement-banner sticky").count(), 2);
+    // Newest sticky first, then the dismissible one; only it has the button.
+    let downtime = html.find("Downtime Friday").unwrap();
+    let rules = html.find("Rules updated").unwrap();
+    let welcome = html.find("Welcome").unwrap();
+    assert!(downtime < rules && rules < welcome);
+    assert_eq!(
+        html.matches(r#"action="/announcements/dismiss""#).count(),
+        1
+    );
+    assert!(html.contains(r#"name="id" value="00000000-0000-0000-0000-000000000007""#));
+}
+
+#[test]
+fn admins_make_announcements_sticky() {
+    let c = chrome(true, true);
+    let mut sticky = announcement("Rules updated", false);
+    sticky.sticky = true;
+    let html = admin_announcements_page(
+        &c,
+        AdminAnnouncementsView {
+            announcements: vec![sticky.clone(), announcement("Welcome", false)],
+            next_cursor: None,
+            title: String::new(),
+            body: String::new(),
+            comments_open: true,
+            sticky: false,
+            error: None,
+            comment_visibility: quill_proto::announcements::CommentVisibility::Public,
+        },
+    );
+    assert!(html.contains(r#"name="sticky" value="on""#));
+    assert!(html.contains("Unstick"));
+    assert!(html.contains("Make sticky"));
+    assert!(!html.contains("Comments aren't available yet"));
+
+    let html = admin_announcement_page(
+        &c,
+        AdminAnnouncementView {
+            title: sticky.title.clone(),
+            body: sticky.body.clone(),
+            announcement: sticky,
+            error: None,
+        },
+    );
+    assert!(html.contains("Sticky: its banner stays at the top of the board."));
+    assert!(html.contains(r#"/sticky""#));
+}
+
+#[test]
+fn listings_tag_sticky_and_closed_announcements() {
+    let mut a = announcement("Rules updated", false);
+    a.sticky = true;
+    a.comments_open = false;
+    let html = announcements_page(
+        &chrome(false, false),
+        AnnouncementsView {
+            announcements: vec![a.clone(), announcement("Welcome", false)],
+            next_cursor: None,
+        },
+    );
+    assert_eq!(
+        html.matches(r#"class="flag flag-sticky">Sticky<"#).count(),
+        1
+    );
+    assert_eq!(html.matches(r#"class="flag">Comments closed<"#).count(), 1);
+    let page = announcement_page(&chrome(false, false), announcement_view(a.clone()));
+    assert!(page.contains(r#"class="flag flag-sticky">Sticky<"#));
+
+    // Forms on an announcement's edit page lead back to it; the same
+    // buttons in the Announcements tab's table don't.
+    let c = chrome(true, true);
+    let edit = admin_announcement_page(
+        &c,
+        AdminAnnouncementView {
+            title: a.title.clone(),
+            body: a.body.clone(),
+            announcement: a.clone(),
+            error: None,
+        },
+    );
+    assert_eq!(edit.matches(r#"name="back" value="edit""#).count(), 2);
+    assert!(edit.contains("View announcement"));
+    let list = admin_announcements_page(
+        &c,
+        AdminAnnouncementsView {
+            announcements: vec![a],
+            next_cursor: None,
+            title: String::new(),
+            body: String::new(),
+            comments_open: true,
+            sticky: false,
+            error: None,
+            comment_visibility: quill_proto::announcements::CommentVisibility::Public,
+        },
+    );
+    assert!(!list.contains(r#"name="back""#));
+}
+
+fn staff_comment(id: u128, staff_name: Option<&str>) -> quill_proto::announcements::Comment {
+    use quill_proto::announcements::CommentVoice;
+    quill_proto::announcements::Comment {
+        voice: if staff_name.is_some() {
+            CommentVoice::Staff
+        } else {
+            CommentVoice::Administrators
+        },
+        author: None,
+        staff_name: staff_name.map(str::to_owned),
+        ..comment(id, 0, "unused", false)
+    }
+}
+
+#[test]
+fn staff_comments_are_marked_and_only_admins_speak_as_staff() {
+    let mut view = announcement_view(announcement("Welcome", false));
+    view.comments = vec![
+        staff_comment(200, None),
+        staff_comment(201, Some("Nathan")),
+        comment(202, 1, "ink_fox", false),
+    ];
+
+    // Readers see both staff voices marked in red, with no Report link.
+    let html = announcement_page(&chrome(true, false), view.clone());
+    assert_eq!(html.matches(r#"class="comment staff""#).count(), 2);
+    assert!(html.contains(r#"<span class="staff-name">Administrators</span>"#));
+    assert!(html.contains(r#"<span class="staff-name">Nathan</span>"#));
+    assert_eq!(html.matches(r#"class="flag flag-admin""#).count(), 2);
+    assert!(!html.contains("/comments/00000000-0000-0000-0000-0000000000c8/report"));
+    assert!(html.contains("/comments/00000000-0000-0000-0000-0000000000ca/report"));
+    // A writer with no personas can't post, and isn't offered staff voices.
+    assert!(!html.contains(r#"value="administrators""#));
+    assert!(html.contains("Create one"));
+
+    // An administrator without a staff name gets the shared voice and a
+    // pointer to Settings; with one, their name too. They can delete staff
+    // comments but not remove or report them.
+    let html = announcement_page(&chrome(true, true), view.clone());
+    assert!(html.contains(r#"value="administrators""#));
+    assert!(!html.contains(r#"value="staff""#));
+    assert!(html.contains("set a staff name"));
+    assert!(html.contains("/comments/00000000-0000-0000-0000-0000000000c8/delete"));
+    assert!(!html.contains("/admin/comments/00000000-0000-0000-0000-0000000000c8/remove"));
+    assert!(html.contains("/admin/comments/00000000-0000-0000-0000-0000000000ca/remove"));
+    view.staff_name = Some("Nathan".into());
+    view.speak_as = Some(SPEAK_AS_STAFF.into());
+    let html = announcement_page(&chrome(true, true), view);
+    assert!(html.contains(r#"value="staff" selected"#));
+    assert!(html.contains("Nathan (your staff name, shown as staff)"));
+    assert!(!html.contains("set a staff name"));
 }

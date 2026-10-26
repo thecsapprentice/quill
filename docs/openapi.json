@@ -108,6 +108,26 @@
               }
             }
           },
+          "403": {
+            "description": "A staff name, from a login that isn't an administrator",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another administrator uses that staff name",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "413": {
             "description": "The body is over the instance's size limit.",
             "content": {
@@ -806,6 +826,118 @@
           },
           "404": {
             "description": "No such announcement, or deleted",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/comments/{id}/remove": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Remove a comment without a report",
+        "description": "Its author still sees it, marked as removed, and is told the reason's category.",
+        "operationId": "post_admin_comments_by_id_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The comment",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveComment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such comment",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already removed",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2600,7 +2732,7 @@
           "announcements"
         ],
         "summary": "The administrators' announcements, newest first",
-        "description": "Pages by `cursor`, which the previous page returns.",
+        "description": "Pages by `cursor`, which the previous page returns. `sticky=true` gives the sticky ones, whose banners clients show at the top of the board without a way to dismiss them.",
         "operationId": "get_announcements",
         "parameters": [
           {
@@ -2619,6 +2751,15 @@
               "type": "integer",
               "format": "int32",
               "minimum": 0
+            }
+          },
+          {
+            "name": "sticky",
+            "in": "query",
+            "description": "Only sticky announcements (`true`), or only the others (`false`).",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -2722,6 +2863,221 @@
         },
         "security": [
           {}
+        ]
+      }
+    },
+    "/announcements/{id}/comments": {
+      "get": {
+        "tags": [
+          "announcements"
+        ],
+        "summary": "Comments on an announcement, oldest first",
+        "description": "Removed comments are left out, except for their author and administrators, who see them marked as removed. Pages by `cursor`, which the previous page returns.",
+        "operationId": "get_announcements_by_id_comments",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The announcement",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "This server shows comments to signed-in writers only (`commentVisibility` in `GET /instance`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such announcement, or deleted",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "announcements"
+        ],
+        "summary": "Comment on an announcement as one of the login's personas",
+        "description": "At most 30 comments per login an hour. Comments can't be edited. Administrators may speak as `administrators`, or as `staff` under the staff name in their account settings; the board marks both as the administrators'.",
+        "operationId": "post_announcements_by_id_comments",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The announcement",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateComment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Comments are closed on this announcement, or a staff voice from a login that isn't an administrator",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such announcement, or deleted",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many comments",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
         ]
       }
     },
@@ -3492,6 +3848,180 @@
           }
         },
         "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/comments/{id}": {
+      "delete": {
+        "tags": [
+          "announcements"
+        ],
+        "summary": "Delete one of the login's comments",
+        "operationId": "delete_comments_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The comment",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not one of the login's comments",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/comments/{id}/report": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Report a comment to the administrators",
+        "description": "Signing in is optional, unless the server shows comments to signed-in writers only. The author never learns who reported, and reports (of prompts and comments together) are rate-limited per reporter.",
+        "operationId": "post_comments_by_id_report",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The comment",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportComment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Received"
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "This server shows comments to signed-in writers only",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such comment",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many reports",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
           {
             "bearer": []
           }
@@ -7278,6 +7808,13 @@
           "maturityMax": {
             "$ref": "#/components/schemas/Maturity"
           },
+          "staffName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An administrator's name for commenting as staff, if set. Public on\ntheir staff comments; the login name never is."
+          },
           "unreadNotices": {
             "type": "integer",
             "format": "int64",
@@ -7460,7 +7997,9 @@
           "post_announcement",
           "edit_announcement",
           "delete_announcement",
-          "set_announcement_comments"
+          "set_announcement_comments",
+          "set_announcement_sticky",
+          "delete_comment"
         ]
       },
       "AdminLogDetail": {
@@ -7526,6 +8065,14 @@
             "type": "string",
             "format": "date-time"
           },
+          "commentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The comment an entry concerns, if any."
+          },
           "detail": {
             "type": [
               "string",
@@ -7542,7 +8089,7 @@
               "string",
               "null"
             ],
-            "description": "Hex SHA-256 of the prompt as reported (report entries only)."
+            "description": "Hex SHA-256 of the prompt or comment as reported (report entries\nand removals only)."
           },
           "promptId": {
             "type": [
@@ -7713,6 +8260,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "sticky": {
+            "type": "boolean",
+            "description": "Sticky announcements each keep a banner at the top of the board that\nreaders can't dismiss."
+          },
           "title": {
             "type": "string"
           },
@@ -7833,6 +8384,102 @@
           }
         }
       },
+      "Comment": {
+        "type": "object",
+        "description": "A writer's comment on an announcement: flat, under the announcement,\noldest first.",
+        "required": [
+          "id",
+          "announcement",
+          "body",
+          "bodyHtml",
+          "createdAt"
+        ],
+        "properties": {
+          "announcement": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The announcement it's on."
+          },
+          "author": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PromptAuthor",
+                "description": "The persona that wrote it (`persona` voice only)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "body": {
+            "type": "string",
+            "description": "Markdown source."
+          },
+          "bodyHtml": {
+            "type": "string",
+            "description": "Sanitized HTML rendered by the server from `body`."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "description": "Set once an administrator removed it. Only its author and\nadministrators see it then."
+          },
+          "staffName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The staff name it was posted under (`staff` voice only)."
+          },
+          "voice": {
+            "$ref": "#/components/schemas/CommentVoice",
+            "description": "Who it speaks as."
+          }
+        }
+      },
+      "CommentPage": {
+        "type": "object",
+        "description": "One page of comments, oldest first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Comment"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CommentVisibility": {
+        "type": "string",
+        "enum": [
+          "public",
+          "signed-in"
+        ]
+      },
+      "CommentVoice": {
+        "type": "string",
+        "enum": [
+          "persona",
+          "administrators",
+          "staff"
+        ]
+      },
       "CommitBackup": {
         "type": "object",
         "description": "`POST /backup/{generation}/commit`: the new backup is complete.",
@@ -7863,8 +8510,37 @@
             "type": "boolean",
             "description": "Whether writers may comment. Defaults to true."
           },
+          "sticky": {
+            "type": "boolean",
+            "description": "Keep its banner at the top of the board. Defaults to false."
+          },
           "title": {
             "type": "string"
+          }
+        }
+      },
+      "CreateComment": {
+        "type": "object",
+        "description": "`POST /announcements/{id}/comments`. Comments can't be edited, so a\nreported comment stays as it was reported; the author can delete it.",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Markdown."
+          },
+          "persona": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Persona (owned by the caller) to write as; `persona` voice only."
+          },
+          "voice": {
+            "$ref": "#/components/schemas/CommentVoice",
+            "description": "Who to speak as. `administrators` and `staff` are for administrators\nonly; `staff` needs a staff name set in the account settings."
           }
         }
       },
@@ -8332,6 +9008,10 @@
             "type": "boolean",
             "description": "Whether sessions here take attachments: the administrators' choice."
           },
+          "commentVisibility": {
+            "$ref": "#/components/schemas/CommentVisibility",
+            "description": "Who can read comments on announcements, so a client knows to ask a\nvisitor to sign in first."
+          },
           "defaultMaturityMax": {
             "$ref": "#/components/schemas/Maturity",
             "description": "Maturity cap for anonymous visitors and new accounts."
@@ -8616,12 +9296,32 @@
         "type": "object",
         "description": "Kind-specific details. Absent fields don't apply to the kind.",
         "properties": {
+          "announcement": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "For a removed comment: the announcement it was on, its title at the\ntime, and the persona that wrote it. Not the comment's text."
+          },
+          "announcementTitle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "from": {
             "type": [
               "string",
               "null"
             ],
             "description": "For a rename: the old and new display names."
+          },
+          "handle": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "into": {
             "type": [
@@ -8634,7 +9334,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/ReportReason",
-                "description": "For a removal after a report: the report's category. Never who\nreported it."
+                "description": "For a removal: the reason's category. Never who reported it."
               },
               {
                 "type": "null"
@@ -8673,7 +9373,8 @@
           "tag_hidden",
           "tag_shown",
           "tag_renamed",
-          "tag_approved"
+          "tag_approved",
+          "comment_removed"
         ]
       },
       "NoticePrompt": {
@@ -9058,6 +9759,18 @@
           }
         }
       },
+      "RemoveComment": {
+        "type": "object",
+        "description": "`POST /admin/comments/{id}/remove`: an administrator removes a comment\nwithout a report. The author is told the reason's category.",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/ReportReason"
+          }
+        }
+      },
       "Report": {
         "type": "object",
         "description": "A Review Message in the administrators' inbox.",
@@ -9068,6 +9781,17 @@
           "createdAt"
         ],
         "properties": {
+          "comment": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Comment",
+                "description": "The reported comment; `None` once its author deleted it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -9082,6 +9806,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "kind": {
+            "$ref": "#/components/schemas/ReportKind",
+            "description": "Whether `prompt` or `comment` was reported."
+          },
           "prompt": {
             "oneOf": [
               {
@@ -9095,7 +9823,7 @@
           },
           "promptHash": {
             "type": "string",
-            "description": "Hex SHA-256 of the prompt as it was when reported."
+            "description": "Hex SHA-256 of the prompt or comment as it was when reported."
           },
           "reason": {
             "$ref": "#/components/schemas/ReportReason"
@@ -9118,6 +9846,31 @@
             "format": "date-time"
           }
         }
+      },
+      "ReportComment": {
+        "type": "object",
+        "description": "`POST /comments/{id}/report`. Anyone may report, signed in or not.",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "$ref": "#/components/schemas/ReportReason"
+          }
+        }
+      },
+      "ReportKind": {
+        "type": "string",
+        "enum": [
+          "prompt",
+          "comment"
+        ]
       },
       "ReportReason": {
         "type": "string",
@@ -9385,6 +10138,10 @@
           "attachments": {
             "type": "boolean",
             "description": "Whether sessions on this server take attachments (2i)."
+          },
+          "commentVisibility": {
+            "$ref": "#/components/schemas/CommentVisibility",
+            "description": "Who can read comments on announcements."
           },
           "newTags": {
             "$ref": "#/components/schemas/TagPolicy",
@@ -9756,6 +10513,13 @@
                 "type": "null"
               }
             ]
+          },
+          "staffName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Administrators only. An empty string clears it."
           }
         }
       },
@@ -9770,6 +10534,12 @@
             ]
           },
           "commentsOpen": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "sticky": {
             "type": [
               "boolean",
               "null"
@@ -9895,6 +10665,16 @@
             "type": [
               "boolean",
               "null"
+            ]
+          },
+          "commentVisibility": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CommentVisibility"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "newTags": {

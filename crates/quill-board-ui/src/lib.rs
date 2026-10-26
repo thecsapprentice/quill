@@ -152,7 +152,9 @@ pub struct BoardView {
     /// Suggestions for the tag fields.
     pub tag_options: Vec<Tag>,
     pub error: Option<String>,
-    /// The newest announcement, unless the visitor dismissed it.
+    /// Sticky announcements, newest first: a banner each, not dismissible.
+    pub sticky_announcements: Vec<quill_proto::announcements::Announcement>,
+    /// The newest other announcement, unless the visitor dismissed it.
     pub announcement: Option<quill_proto::announcements::Announcement>,
 }
 
@@ -242,6 +244,9 @@ pub struct PersonasView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsView {
     pub settings: AccountSettings,
+    /// The staff name field (administrators only), kept on error.
+    pub staff_name: String,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

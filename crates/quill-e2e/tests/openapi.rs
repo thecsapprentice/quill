@@ -14,7 +14,10 @@ use quill_core::{
 };
 use quill_e2e::{Exchange, TEST_PASSWORD, TestServer};
 use quill_proto::{
-    announcements::{AnnouncementQuery, CreateAnnouncement, UpdateAnnouncement},
+    announcements::{
+        AnnouncementQuery, CommentQuery, CreateAnnouncement, CreateComment, RemoveComment,
+        ReportComment, UpdateAnnouncement,
+    },
     api::{CreatePersona, Credentials, Persona, UpdatePersona},
     board::{
         AdminLogTargetQuery, AdminTagQuery, CreateNamespace, CreatePrompt, CreateReport, CreateTag,
@@ -99,6 +102,7 @@ async fn story(server: &TestServer) {
     alice_c
         .update_account(&UpdateAccountSettings {
             maturity_max: Some(Maturity::General),
+            staff_name: None,
         })
         .await
         .unwrap();
@@ -287,6 +291,7 @@ async fn story(server: &TestServer) {
             title: "News".into(),
             body: "Read *this*.".into(),
             comments_open: true,
+            sticky: false,
         })
         .await
         .unwrap();
@@ -304,6 +309,47 @@ async fn story(server: &TestServer) {
         .await
         .unwrap();
     anon.announcement(news.id).await.unwrap();
+    admin
+        .admin_update_announcement(
+            news.id,
+            &UpdateAnnouncement {
+                comments_open: Some(true),
+                ..UpdateAnnouncement::default()
+            },
+        )
+        .await
+        .unwrap();
+    let said = alice_c
+        .post_comment(news.id, &CreateComment::as_persona(fox.id, "Thanks".into()))
+        .await
+        .unwrap();
+    let kept = alice_c
+        .post_comment(news.id, &CreateComment::as_persona(fox.id, "More".into()))
+        .await
+        .unwrap();
+    anon.comments(news.id, &CommentQuery::default())
+        .await
+        .unwrap();
+    anon.report_comment(
+        said.id,
+        &ReportComment {
+            reason: ReportReason::Spam,
+            details: None,
+        },
+    )
+    .await
+    .unwrap();
+    admin.admin_reports(false).await.unwrap();
+    admin
+        .admin_remove_comment(
+            said.id,
+            &RemoveComment {
+                reason: ReportReason::Spam,
+            },
+        )
+        .await
+        .unwrap();
+    alice_c.delete_comment(kept.id).await.unwrap();
     admin.admin_delete_announcement(news.id).await.unwrap();
     anon.announcement(news.id).await.unwrap_err();
     alice_c.notices(None).await.unwrap();

@@ -1,10 +1,10 @@
-//! The account's notices page: administrators' actions against its prompts
-//! and tags, in plain words.
+//! The account's notices page: administrators' actions against its prompts,
+//! tags and comments, in plain words.
 
 use dioxus::prelude::*;
 use quill_proto::notices::{AccountNotice, NoticeKind};
 
-use crate::{Chrome, NoticesView, prompt_url, reason_label, render, short_date};
+use crate::{Chrome, NoticesView, announcement_url, prompt_url, reason_label, render, short_date};
 
 /// "genre: Horror", from the stored key and name.
 fn tag_label(n: &AccountNotice) -> String {
@@ -63,6 +63,18 @@ fn sentence(n: &AccountNotice) -> (String, &'static str) {
             format!("Your new tag {tag} was approved."),
             "Everyone can see it now on these prompts:",
         ),
+        NoticeKind::CommentRemoved => {
+            let reason = n.fields.reason.map_or("a report", reason_label);
+            let on = n
+                .fields
+                .announcement_title
+                .as_deref()
+                .map_or_else(|| "an announcement".to_owned(), |t| format!("“{t}”"));
+            (
+                format!("An administrator removed your comment on {on} ({reason})."),
+                "",
+            )
+        }
     }
 }
 
@@ -72,7 +84,7 @@ pub fn notices_page(chrome: &Chrome, view: NoticesView) -> String {
         rsx! {
             h1 { "Notices" }
             p { class: "lede",
-                "What this server's administrators have done to your prompts and tags. Only you can see these. They never say who reported a prompt or which administrator acted."
+                "What this server's administrators have done to your prompts, tags and comments. Only you can see these. They never say who reported a prompt or which administrator acted."
             }
             if v.notices.is_empty() {
                 div { class: "empty", "Nothing yet." }
@@ -96,6 +108,15 @@ fn notice(n: &AccountNotice) -> Element {
                 if !n.read { span { class: "new-notice", "New" } }
             }
             p { "{what}" }
+            if let Some(id) = n.fields.announcement {
+                p { class: "hint",
+                    "Only you can still see it there, marked as removed. "
+                    a { href: "{announcement_url(id)}", "Go to the announcement" }
+                    if let Some(handle) = &n.fields.handle {
+                        " (written as @{handle})"
+                    }
+                }
+            }
             if !n.prompts.is_empty() {
                 p { class: "hint", "{list_intro}" }
                 ul { class: "notice-prompts",

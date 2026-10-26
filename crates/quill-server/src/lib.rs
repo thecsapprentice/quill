@@ -5,6 +5,7 @@ pub mod announcements;
 pub mod auth;
 pub mod backups;
 pub mod blobs;
+pub mod comments;
 pub mod config;
 pub mod error;
 pub mod events;

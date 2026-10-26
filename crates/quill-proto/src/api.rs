@@ -23,6 +23,10 @@ pub struct InstanceInfo {
     /// Whether sessions here take attachments: the administrators' choice.
     #[serde(default = "default_attachments")]
     pub attachments: bool,
+    /// Who can read comments on announcements, so a client knows to ask a
+    /// visitor to sign in first.
+    #[serde(default)]
+    pub comment_visibility: crate::announcements::CommentVisibility,
 }
 
 fn default_attachments() -> bool {
@@ -208,9 +212,19 @@ mod tests {
             default_maturity_max: crate::board::Maturity::Teen,
             limits: Limits::default(),
             attachments: true,
+            comment_visibility: crate::announcements::CommentVisibility::SignedIn,
         };
         let json = serde_json::to_value(&info).unwrap();
         assert_eq!(json["limits"]["maxMessageBytes"], 65536);
         assert_eq!(json["protocolVersions"][0], "0.1");
+        assert_eq!(json["commentVisibility"], "signed-in");
+        // Older servers don't send it: comments are public there.
+        let mut old = json;
+        old.as_object_mut().unwrap().remove("commentVisibility");
+        let read: InstanceInfo = serde_json::from_value(old).unwrap();
+        assert_eq!(
+            read.comment_visibility,
+            crate::announcements::CommentVisibility::Public
+        );
     }
 }

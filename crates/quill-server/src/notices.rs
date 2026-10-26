@@ -82,6 +82,27 @@ pub(crate) async fn affected_by_prompt(
     Ok(group(rows))
 }
 
+/// The account behind one comment. Notices about comments list no prompts.
+pub(crate) async fn affected_by_comment(
+    conn: &mut PgConnection,
+    comment: Uuid,
+) -> Result<Vec<Affected>, ApiError> {
+    let account: Option<Uuid> = sqlx::query_scalar(
+        "SELECT a.account_id FROM announcement_comments c
+         JOIN actors a ON a.id = c.actor_id WHERE c.id = $1",
+    )
+    .bind(comment)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(account
+        .map(|account| Affected {
+            account,
+            prompts: Vec::new(),
+        })
+        .into_iter()
+        .collect())
+}
+
 /// Records one notice per affected account for admin-log entry `log_id`.
 /// Inserted in batches, since one action can reach thousands of accounts.
 pub(crate) async fn record(

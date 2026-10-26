@@ -88,6 +88,7 @@ async fn instance_and_account_defaults() {
     let raised = client
         .update_account(&UpdateAccountSettings {
             maturity_max: Some(Maturity::Explicit),
+            staff_name: None,
         })
         .await
         .unwrap();
@@ -441,6 +442,7 @@ async fn search_filters_and_maturity() {
     // Raising the account cap reveals more; the query can only lower it.
     bob.update_account(&UpdateAccountSettings {
         maturity_max: Some(Maturity::Explicit),
+        staff_name: None,
     })
     .await
     .unwrap();

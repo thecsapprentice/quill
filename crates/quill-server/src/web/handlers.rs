@@ -137,10 +137,11 @@ pub async fn board(
         Err(ApiError::BadRequest(m)) => (Vec::new(), None, Some(m)),
         Err(e) => return error_page(&c, e),
     };
-    let announcement = match super::announcements::banner(&state, &headers).await {
-        Ok(a) => a,
-        Err(e) => return error_page(&c, e),
-    };
+    let (sticky_announcements, announcement) =
+        match super::announcements::banners(&state, &headers).await {
+            Ok(b) => b,
+            Err(e) => return error_page(&c, e),
+        };
     let view = BoardView {
         filters,
         prompts: items,
@@ -151,6 +152,7 @@ pub async fn board(
         namespaces: prompts::namespaces(&state).await.unwrap_or_default(),
         tag_options: tag_options(&state).await,
         error,
+        sticky_announcements,
         announcement,
     };
     html(StatusCode::OK, quill_board_ui::board_page(&c, view))
@@ -757,12 +759,41 @@ pub async fn settings(
     let Some(s) = session else {
         return redirect("/login");
     };
-    let c = chrome(&state, Some(&s), Nav::Settings, opt(&q.notice));
-    match prompts::account_settings(&state, s.account_id).await {
-        Ok(settings) => html(
-            StatusCode::OK,
-            quill_board_ui::settings_page(&c, SettingsView { settings }),
-        ),
+    render_settings(&state, &s, opt(&q.notice), None, None).await
+}
+
+/// The settings page; `staff_name` and `error` refill it after a refusal.
+async fn render_settings(
+    state: &AppState,
+    s: &Session,
+    notice: Option<&str>,
+    staff_name: Option<&str>,
+    error: Option<String>,
+) -> Response {
+    let c = chrome(state, Some(s), Nav::Settings, notice);
+    match prompts::account_settings(state, s.account_id).await {
+        Ok(settings) => {
+            let staff_name = staff_name
+                .map(str::to_owned)
+                .or_else(|| settings.staff_name.clone())
+                .unwrap_or_default();
+            let status = if error.is_some() {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::OK
+            };
+            html(
+                status,
+                quill_board_ui::settings_page(
+                    &c,
+                    SettingsView {
+                        settings,
+                        staff_name,
+                        error,
+                    },
+                ),
+            )
+        }
         Err(e) => error_page(&c, e),
     }
 }
@@ -771,6 +802,8 @@ pub async fn settings(
 pub struct SettingsForm {
     csrf: Option<String>,
     maturity_max: Option<String>,
+    /// Sent only by administrators' forms.
+    staff_name: Option<String>,
 }
 
 pub async fn settings_save(
@@ -787,10 +820,14 @@ pub async fn settings_save(
     }
     let update = UpdateAccountSettings {
         maturity_max: parse_opt(&form.maturity_max),
+        staff_name: form.staff_name.clone().filter(|_| s.is_admin),
     };
     match prompts::update_account_settings(&state, s.account_id, &update).await {
         Ok(_) => redirect("/settings?notice=settings"),
-        Err(e) => error_page(&c, e),
+        Err(e) => match form_error(&e) {
+            Some(m) => render_settings(&state, &s, None, form.staff_name.as_deref(), Some(m)).await,
+            None => error_page(&c, e),
+        },
     }
 }
 

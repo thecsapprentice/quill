@@ -8,7 +8,7 @@ use clap::{Args, Subcommand};
 use quill_core::Client;
 use quill_proto::board::{
     AdminTagQuery, CreateNamespace, CreatePrompt, CreateReport, CreateTag, Maturity, Prompt,
-    PromptQuery, PromptState, ReportReason, Resolution, TagPolicy, TagQuery, TagStatus,
+    PromptQuery, PromptState, ReportKind, ReportReason, Resolution, TagPolicy, TagQuery, TagStatus,
     UpdateAccountSettings, UpdateNamespace, UpdatePrompt, UpdateServerSettings, UpdateTag,
 };
 use uuid::Uuid;
@@ -24,6 +24,10 @@ pub enum AccountCommand {
         /// Highest maturity rating to show on the board.
         #[arg(long)]
         maturity: Option<Maturity>,
+        /// Administrators only: the public name to comment under as staff.
+        /// An empty string clears it.
+        #[arg(long)]
+        staff_name: Option<String>,
     },
     /// Show what administrators have done to your prompts and tags, and mark
     /// it read.
@@ -231,6 +235,10 @@ pub enum AdminCommand {
         /// Whether sessions take attachments: on or off.
         #[arg(long, value_parser = clap::builder::BoolishValueParser::new())]
         attachments: Option<bool>,
+        /// Who can read comments on announcements: public, or signed-in
+        /// (signed-in writers only).
+        #[arg(long)]
+        comments: Option<quill_proto::announcements::CommentVisibility>,
     },
     /// List tags with how many prompts use them, aliases included.
     Tags {
@@ -309,7 +317,7 @@ fn print_prompt(p: &Prompt, full: bool) {
     }
 }
 
-async fn persona_id(client: &Client, persona: &str) -> Result<Uuid> {
+pub(crate) async fn persona_id(client: &Client, persona: &str) -> Result<Uuid> {
     if let Ok(id) = persona.parse() {
         return Ok(id);
     }
@@ -360,10 +368,14 @@ pub async fn account(ctx: &Ctx, cmd: AccountCommand) -> Result<()> {
     let settings = match cmd {
         AccountCommand::Notices { .. } => unreachable!("handled above"),
         AccountCommand::Show => client.account().await?,
-        AccountCommand::Set { maturity } => {
+        AccountCommand::Set {
+            maturity,
+            staff_name,
+        } => {
             client
                 .update_account(&UpdateAccountSettings {
                     maturity_max: maturity,
+                    staff_name,
                 })
                 .await?
         }
@@ -371,6 +383,9 @@ pub async fn account(ctx: &Ctx, cmd: AccountCommand) -> Result<()> {
     ctx.print(&settings, |s| {
         println!("maturity cap: {}", s.maturity_max);
         println!("administrator: {}", s.is_admin);
+        if let Some(name) = &s.staff_name {
+            println!("staff name: {name}");
+        }
         println!("unread notices: {}", s.unread_notices);
     })
 }
@@ -561,10 +576,14 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     println!("no reports");
                 }
                 for r in list {
-                    let title = r
-                        .prompt
-                        .as_ref()
-                        .map_or("(prompt deleted by its author)", |p| p.title.as_str());
+                    let title = match (r.kind, &r.prompt, &r.comment) {
+                        (ReportKind::Prompt, Some(p), _) => p.title.clone(),
+                        (ReportKind::Prompt, None, _) => "(prompt deleted by its author)".into(),
+                        (ReportKind::Comment, _, Some(c)) => {
+                            format!("comment {} by {}", c.id, c.speaker())
+                        }
+                        (ReportKind::Comment, _, None) => "(comment deleted by its author)".into(),
+                    };
                     let status = match (r.resolution, r.resolved_at) {
                         (Some(res), _) => format!("resolved: {res}"),
                         _ => "open".to_owned(),
@@ -773,12 +792,14 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
         AdminCommand::Settings {
             new_tags,
             attachments,
+            comments,
         } => {
-            let settings = if new_tags.is_some() || attachments.is_some() {
+            let settings = if new_tags.is_some() || attachments.is_some() || comments.is_some() {
                 client
                     .admin_update_settings(&UpdateServerSettings {
                         new_tags,
                         attachments,
+                        comment_visibility: comments,
                     })
                     .await?
             } else {
@@ -794,6 +815,7 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                         "not allowed"
                     }
                 );
+                println!("who can read comments: {}", s.comment_visibility);
             })
         }
         AdminCommand::Reserved { search } => {

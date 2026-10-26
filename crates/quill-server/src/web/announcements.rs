@@ -7,9 +7,16 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
-use quill_board_ui::{AdminAnnouncementView, AdminAnnouncementsView, AnnouncementsView, Nav};
-use quill_proto::announcements::{
-    Announcement, AnnouncementQuery, CreateAnnouncement, UpdateAnnouncement,
+use quill_board_ui::{
+    AdminAnnouncementView, AdminAnnouncementsView, AnnouncementView, AnnouncementsView, Nav,
+};
+use quill_proto::{
+    announcements::{
+        Announcement, AnnouncementQuery, CommentPage, CommentQuery, CommentVisibility,
+        CreateAnnouncement, UpdateAnnouncement,
+    },
+    board::UpdateServerSettings,
+    limits::MAX_PAGE_SIZE,
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -41,16 +48,17 @@ fn dismissed(headers: &HeaderMap) -> Option<Uuid> {
         .and_then(|(_, value)| value.parse().ok())
 }
 
-/// The newest announcement for the board's banner, unless this reader
-/// dismissed it or a newer one. Ids are UUIDv7, so they order by posting
-/// time: deleting the newest doesn't bring back one already dismissed.
-pub(super) async fn banner(
+/// The board's banners: every sticky announcement, which can't be
+/// dismissed, and the newest other one, unless this reader dismissed it or
+/// a newer one. Ids are UUIDv7, so they order by posting time: deleting the
+/// newest doesn't bring back one already dismissed.
+pub(super) async fn banners(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<Option<Announcement>, ApiError> {
-    let latest = announcements::latest(state).await?;
+) -> Result<(Vec<Announcement>, Option<Announcement>), ApiError> {
+    let (sticky, newest) = announcements::banners(state).await?;
     let seen = dismissed(headers);
-    Ok(latest.filter(|a| seen.is_none_or(|s| a.id > s)))
+    Ok((sticky, newest.filter(|a| seen.is_none_or(|s| a.id > s))))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -91,6 +99,7 @@ pub async fn list(
     let query = AnnouncementQuery {
         cursor: opt(&p.cursor).map(str::to_owned),
         limit: None,
+        sticky: None,
     };
     match announcements::list(&state, &query).await {
         Ok(page) => html(
@@ -107,20 +116,114 @@ pub async fn list(
     }
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct ShowParams {
+    /// Comments after this cursor.
+    after: Option<String>,
+    notice: Option<String>,
+}
+
+/// The comment form's values, kept when it's sent back with an error.
+#[derive(Debug, Default)]
+pub(super) struct Draft {
+    /// A persona id, or one of the board's `SPEAK_AS_*` values.
+    pub speak_as: Option<String>,
+    pub body: String,
+    pub error: Option<String>,
+}
+
+/// An announcement with a page of its comments and the comment form.
+pub(super) async fn render_announcement(
+    state: &AppState,
+    session: Option<&Session>,
+    id: Uuid,
+    after: Option<&str>,
+    notice: Option<&str>,
+    draft: Draft,
+) -> Response {
+    let c = chrome(state, session, Nav::Announcements, notice);
+    let viewer = session.map(|s| s.account_id);
+    let loaded = async {
+        let announcement = announcements::get(state, id).await?;
+        let query = CommentQuery {
+            cursor: after.map(str::to_owned),
+            limit: Some(MAX_PAGE_SIZE),
+        };
+        // Hidden comments aren't an error here: the page says to sign in.
+        let readable = crate::comments::readable_by(state, viewer).await?;
+        let page = if readable {
+            crate::comments::list(state, viewer, id, &query).await?
+        } else {
+            CommentPage {
+                items: Vec::new(),
+                next_cursor: None,
+            }
+        };
+        let (personas, staff_name) = match viewer {
+            Some(account) => (
+                crate::routes::personas(state, account).await?,
+                crate::prompts::account_settings(state, account)
+                    .await?
+                    .staff_name,
+            ),
+            None => (Vec::new(), None),
+        };
+        Ok::<_, ApiError>((announcement, page, personas, staff_name, !readable))
+    }
+    .await;
+    let (announcement, page, personas, staff_name, comments_hidden) = match loaded {
+        Ok(l) => l,
+        Err(e) => return error_page(&c, e),
+    };
+    let status = if draft.error.is_some() {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::OK
+    };
+    let more_comments = page.next_cursor.map(|cursor| {
+        format!(
+            "{}?after={cursor}#comments-title",
+            quill_board_ui::announcement_url(id)
+        )
+    });
+    html(
+        status,
+        quill_board_ui::announcement_page(
+            &c,
+            AnnouncementView {
+                announcement,
+                comments: page.items,
+                more_comments,
+                personas,
+                draft: draft.body,
+                speak_as: draft.speak_as,
+                staff_name,
+                error: draft.error,
+                comments_hidden,
+            },
+        ),
+    )
+}
+
 pub async fn show(
     State(state): State<AppState>,
     MaybeSession(session): MaybeSession,
     Path(id): Path<String>,
-    Query(p): Query<ListParams>,
+    Query(p): Query<ShowParams>,
 ) -> Response {
-    let c = chrome(&state, session.as_ref(), Nav::Announcements, opt(&p.notice));
     let Ok(id) = id.parse::<Uuid>() else {
+        let c = chrome(&state, session.as_ref(), Nav::Announcements, None);
         return error_page(&c, ApiError::NotFound);
     };
-    match announcements::get(&state, id).await {
-        Ok(a) => html(StatusCode::OK, quill_board_ui::announcement_page(&c, a)),
-        Err(e) => error_page(&c, e),
-    }
+    render_announcement(
+        &state,
+        session.as_ref(),
+        id,
+        opt(&p.after),
+        opt(&p.notice),
+        Draft::default(),
+    )
+    .await
 }
 
 // ---- Administration ----------------------------------------------------------
@@ -132,6 +235,8 @@ pub struct AnnouncementForm {
     body: Option<String>,
     /// The "Allow comments" box: present only when ticked.
     comments: Option<String>,
+    /// The "Sticky" box: present only when ticked.
+    sticky: Option<String>,
 }
 
 async fn render_admin_list(
@@ -145,9 +250,16 @@ async fn render_admin_list(
     let query = AnnouncementQuery {
         cursor: opt(&params.cursor).map(str::to_owned),
         limit: None,
+        sticky: None,
     };
-    let page = match announcements::list(state, &query).await {
-        Ok(p) => p,
+    let loaded = async {
+        let page = announcements::list(state, &query).await?;
+        let settings = crate::server_settings::settings(state).await?;
+        Ok::<_, ApiError>((page, settings.comment_visibility))
+    }
+    .await;
+    let (page, comment_visibility) = match loaded {
+        Ok(l) => l,
         Err(e) => return error_page(&c, e),
     };
     let status = if error.is_some() {
@@ -166,7 +278,9 @@ async fn render_admin_list(
                 body: form.and_then(|f| f.body.clone()).unwrap_or_default(),
                 // A new form starts with comments allowed.
                 comments_open: form.is_none_or(|f| f.comments.is_some()),
+                sticky: form.is_some_and(|f| f.sticky.is_some()),
                 error,
+                comment_visibility,
             },
         ),
     )
@@ -199,6 +313,7 @@ pub async fn admin_post(
         title: form.title.clone().unwrap_or_default(),
         body: form.body.clone().unwrap_or_default(),
         comments_open: form.comments.is_some(),
+        sticky: form.sticky.is_some(),
     };
     match announcements::post(&state, s.account_id, &body).await {
         Ok(a) => redirect(&format!(
@@ -218,10 +333,11 @@ async fn render_admin_edit(
     state: &AppState,
     s: &Session,
     id: &str,
+    notice: Option<&str>,
     form: Option<&AnnouncementForm>,
     error: Option<String>,
 ) -> Response {
-    let c = chrome(state, Some(s), Nav::ServerSettings, None);
+    let c = chrome(state, Some(s), Nav::ServerSettings, notice);
     let Ok(id) = id.parse::<Uuid>() else {
         return error_page(&c, ApiError::NotFound);
     };
@@ -252,13 +368,19 @@ async fn render_admin_edit(
     )
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct EditParams {
+    notice: Option<String>,
+}
+
 pub async fn admin_edit_form(
     State(state): State<AppState>,
     MaybeSession(session): MaybeSession,
     Path(id): Path<String>,
+    Query(p): Query<EditParams>,
 ) -> Response {
     match require_admin(&state, session) {
-        Ok(s) => render_admin_edit(&state, &s, &id, None, None).await,
+        Ok(s) => render_admin_edit(&state, &s, &id, opt(&p.notice), None, None).await,
         Err(r) => r,
     }
 }
@@ -284,16 +406,60 @@ pub async fn admin_edit(
         title: Some(form.title.clone().unwrap_or_default()),
         body: Some(form.body.clone().unwrap_or_default()),
         comments_open: None,
+        sticky: None,
     };
     match announcements::update(&state, s.account_id, uuid, &body).await {
-        Ok(a) => redirect(&format!(
-            "/announcements/{}?notice=announcement-saved",
-            a.id
-        )),
+        Ok(a) => redirect(&back_to(a.id, Some("edit"), "announcement-saved")),
         Err(e) => match form_error(&e) {
-            Some(m) => render_admin_edit(&state, &s, &id, Some(&form), Some(m)).await,
+            Some(m) => render_admin_edit(&state, &s, &id, None, Some(&form), Some(m)).await,
             None => error_page(&c, e),
         },
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct VisibilityForm {
+    csrf: Option<String>,
+    visibility: Option<String>,
+}
+
+/// The server-wide "who can read comments" setting.
+pub async fn admin_comment_visibility(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Form(form): Form<VisibilityForm>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let c = chrome(&state, Some(&s), Nav::ServerSettings, None);
+    if !s.csrf_matches(form.csrf.as_deref()) {
+        return csrf_failed(&c);
+    }
+    let Some(visibility) = opt(&form.visibility).and_then(|v| v.parse::<CommentVisibility>().ok())
+    else {
+        return error_page(&c, ApiError::BadRequest("Choose a setting.".into()));
+    };
+    let body = UpdateServerSettings {
+        comment_visibility: Some(visibility),
+        ..UpdateServerSettings::default()
+    };
+    match crate::server_settings::update(&state, s.account_id, &body).await {
+        Ok(_) => redirect("/admin/settings/announcements?notice=comment-visibility-saved"),
+        Err(e) => error_page(&c, e),
+    }
+}
+
+/// Where an admin form returns to: the announcement's edit page when it was
+/// sent from there (`back=edit`), else the Announcements tab.
+fn back_to(id: Uuid, back: Option<&str>, notice: &str) -> String {
+    match back {
+        Some("edit") => format!(
+            "{}?notice={notice}",
+            quill_board_ui::admin_announcement_url(id)
+        ),
+        _ => format!("/admin/settings/announcements?notice={notice}"),
     }
 }
 
@@ -301,6 +467,7 @@ pub async fn admin_edit(
 pub struct CommentsForm {
     csrf: Option<String>,
     comments: Option<String>,
+    back: Option<String>,
 }
 
 pub async fn admin_comments(
@@ -330,7 +497,46 @@ pub async fn admin_comments(
         ..UpdateAnnouncement::default()
     };
     match announcements::update(&state, s.account_id, id, &body).await {
-        Ok(_) => redirect("/admin/settings/announcements?notice=announcement-comments"),
+        Ok(_) => redirect(&back_to(id, opt(&form.back), "announcement-comments")),
+        Err(e) => error_page(&c, e),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct StickyForm {
+    csrf: Option<String>,
+    sticky: Option<String>,
+    back: Option<String>,
+}
+
+pub async fn admin_sticky(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Path(id): Path<String>,
+    Form(form): Form<StickyForm>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let c = chrome(&state, Some(&s), Nav::ServerSettings, None);
+    if !s.csrf_matches(form.csrf.as_deref()) {
+        return csrf_failed(&c);
+    }
+    let Ok(id) = id.parse::<Uuid>() else {
+        return error_page(&c, ApiError::NotFound);
+    };
+    let sticky = match opt(&form.sticky) {
+        Some("on") => true,
+        Some("off") => false,
+        _ => return error_page(&c, ApiError::BadRequest("Choose a setting.".into())),
+    };
+    let body = UpdateAnnouncement {
+        sticky: Some(sticky),
+        ..UpdateAnnouncement::default()
+    };
+    match announcements::update(&state, s.account_id, id, &body).await {
+        Ok(_) => redirect(&back_to(id, opt(&form.back), "announcement-sticky")),
         Err(e) => error_page(&c, e),
     }
 }

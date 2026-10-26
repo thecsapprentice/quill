@@ -3,11 +3,12 @@
 use dioxus::prelude::*;
 use quill_proto::{
     board::{
-        AdminAction, AdminLogEntry, LogActor, Maturity, PromptState, ReportReason, Resolution, Tag,
-        TagNamespace, TagPolicy, TagStatus,
+        AdminAction, AdminLogEntry, LogActor, Maturity, PromptState, ReportKind, ReportReason,
+        Resolution, Tag, TagNamespace, TagPolicy, TagStatus,
     },
     limits::{
-        PROMPT_BODY_MAX_CHARS, PROMPT_TITLE_MAX_CHARS, REPORT_DETAILS_MAX_CHARS, USERNAME_MAX_CHARS,
+        PROMPT_BODY_MAX_CHARS, PROMPT_TITLE_MAX_CHARS, REPORT_DETAILS_MAX_CHARS,
+        STAFF_NAME_MAX_CHARS, USERNAME_MAX_CHARS,
     },
 };
 
@@ -47,8 +48,11 @@ pub fn board_page(chrome: &Chrome, view: BoardView) -> String {
         let f = &v.filters;
         let open = f.is_active() || v.error.is_some();
         rsx! {
+            for a in v.sticky_announcements.iter() {
+                {crate::announcements::banner(a, false)}
+            }
             if let Some(a) = &v.announcement {
-                {crate::announcements::banner(a)}
+                {crate::announcements::banner(a, true)}
             }
             h1 { "Prompts" }
             p { class: "lede",
@@ -620,6 +624,7 @@ pub fn settings_page(chrome: &Chrome, view: SettingsView) -> String {
         let s = &view.settings;
         rsx! {
             h1 { "Settings" }
+            {error_notice(view.error.as_ref())}
             form { class: "form-card", method: "post", action: "/settings",
                 {csrf(&chrome_for_body)}
                 div { class: "field",
@@ -627,6 +632,17 @@ pub fn settings_page(chrome: &Chrome, view: SettingsView) -> String {
                         span { class: "hint", "Applies to the board and searches. Your own prompts always show." }
                     }
                     select { id: "maturity_max", name: "maturity_max", {maturity_options(Some(s.maturity_max))} }
+                }
+                if s.is_admin {
+                    div { class: "field",
+                        label { r#for: "staff_name", "Staff name"
+                            span { class: "hint",
+                                "Optional. Comment on announcements under this name, marked as an administrator, so writers know which of you they're talking to. It's public; your login name stays private. Leave it empty to comment only as “Administrators”."
+                            }
+                        }
+                        input { r#type: "text", id: "staff_name", name: "staff_name",
+                            value: "{view.staff_name}", maxlength: "{STAFF_NAME_MAX_CHARS}" }
+                    }
                 }
                 div { class: "actions",
                     button { class: "btn", r#type: "submit", "Save settings" }
@@ -664,19 +680,27 @@ pub fn admin_reports_page(chrome: &Chrome, view: AdminReportsView) -> String {
             for r in v.reports.iter() {
                 div { key: "{r.id}", class: if r.resolved_at.is_some() { "report resolved" } else { "report" },
                     h2 {
-                        match &r.prompt {
-                            Some(p) => rsx! { a { href: "{prompt_url(p.id)}?show=1", "{p.title}" } },
-                            None => rsx! { "Prompt deleted by its author" },
+                        match (r.kind, &r.prompt, &r.comment) {
+                            (ReportKind::Prompt, Some(p), _) => rsx! { a { href: "{prompt_url(p.id)}?show=1", "{p.title}" } },
+                            (ReportKind::Prompt, None, _) => rsx! { "Prompt deleted by its author" },
+                            (ReportKind::Comment, _, Some(c)) => rsx! {
+                                a { href: "{crate::comment_url(c.id)}", "Comment by {c.speaker()}" }
+                            },
+                            (ReportKind::Comment, _, None) => rsx! { "Comment deleted by its author" },
                         }
                     }
                     p { class: "card-meta",
                         span { "{reason_label(r.reason)}" }
                         span { "Received {short_date(r.created_at)}" }
-                        match r.resolution {
-                            Some(Resolution::Discard) => rsx! { span { "Discarded" } },
-                            Some(Resolution::Delete) => rsx! { span { class: "removed", "Prompt removed" } },
-                            None => rsx! { span { "Open" } },
+                        match (r.resolution, r.kind) {
+                            (Some(Resolution::Discard), _) => rsx! { span { "Discarded" } },
+                            (Some(Resolution::Delete), ReportKind::Prompt) => rsx! { span { class: "removed", "Prompt removed" } },
+                            (Some(Resolution::Delete), ReportKind::Comment) => rsx! { span { class: "removed", "Comment removed" } },
+                            (None, _) => rsx! { span { "Open" } },
                         }
+                    }
+                    if let Some(c) = &r.comment {
+                        div { class: "comment-body", dangerous_inner_html: "{c.body_html}" }
                     }
                     if let Some(d) = &r.details {
                         blockquote { "{d}" }
@@ -692,6 +716,13 @@ pub fn admin_reports_page(chrome: &Chrome, view: AdminReportsView) -> String {
                                 {csrf(&chrome_for_body)}
                                 input { r#type: "hidden", name: "action", value: "delete" }
                                 button { class: "btn btn-danger", r#type: "submit", "Remove prompt" }
+                            }
+                        }
+                        if r.comment.as_ref().is_some_and(|c| !c.removed) {
+                            form { method: "post", action: "/admin/reports/{r.id}/resolve",
+                                {csrf(&chrome_for_body)}
+                                input { r#type: "hidden", name: "action", value: "delete" }
+                                button { class: "btn btn-danger", r#type: "submit", "Remove comment" }
                             }
                         }
                     }
@@ -724,12 +755,17 @@ fn action_label(action: AdminAction) -> &'static str {
         AdminAction::EditAnnouncement => "Announcement edited",
         AdminAction::DeleteAnnouncement => "Announcement deleted",
         AdminAction::SetAnnouncementComments => "Announcement comments changed",
+        AdminAction::SetAnnouncementSticky => "Announcement made sticky or not",
+        AdminAction::DeleteComment => "Comment removed",
     }
 }
 
 fn log_subject(e: &AdminLogEntry) -> Element {
     if let Some(subject) = &e.subject {
         return rsx! { code { "{subject}" } };
+    }
+    if let Some(id) = e.comment_id {
+        return rsx! { a { href: "{crate::comment_url(id)}", "View comment" } };
     }
     match e.prompt_id {
         Some(id) => rsx! { a { href: "{prompt_url(id)}?show=1", "View prompt" } },

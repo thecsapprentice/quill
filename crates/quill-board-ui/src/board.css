@@ -19,6 +19,13 @@
   --closed: #6b7480;
   --warn: #fff4d6;
   --warn-line: #d9b45a;
+  /* Sticky announcements: a tint of the action colour. */
+  --sticky: #e3f2ef;
+  --sticky-line: #a9d3cc;
+  /* Administrators speaking as staff: a soft red. */
+  --staff: #b03a32;
+  --staff-bg: #fbeae8;
+  --staff-line: #eab3ad;
   --danger: #a3302b;
   --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino,
     "URW Palladio L", "P052", Georgia, serif;
@@ -45,6 +52,11 @@
     --closed: #8f9aa6;
     --warn: #2c2716;
     --warn-line: #8a7230;
+    --sticky: #182d2b;
+    --sticky-line: #2c534e;
+    --staff: #f2a19a;
+    --staff-bg: #3a2220;
+    --staff-line: #7a3d38;
     --danger: #f08a82;
   }
 }
@@ -202,6 +214,17 @@ h1 {
   margin: 0 0 1.5rem;
 }
 
+/* Sticky banners stack above the newest one, closer together. */
+.announcement-banner + .announcement-banner {
+  margin-top: -1rem;
+}
+
+.announcement-banner.sticky {
+  background: var(--sticky);
+  border-color: var(--sticky-line);
+  border-left-color: var(--act);
+}
+
 .announcement-banner a {
   font-weight: 600;
   min-width: 0;
@@ -218,6 +241,42 @@ h1 {
 
 .announcement-banner form {
   margin-left: auto;
+}
+
+/* Comments under an announcement: flat, oldest first. */
+.comments {
+  margin: 2rem 0 0;
+}
+
+.comment-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.comment {
+  border-top: 1px solid var(--line);
+  padding: 0.75rem 0;
+}
+
+.comment-body p {
+  margin: 0 0 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.comment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+.comment-actions form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0;
 }
 
 .warning {
@@ -560,6 +619,36 @@ input[type="color"] {
   border: 1px solid var(--line);
   border-radius: 2px;
   padding: 0 0.35em;
+}
+
+/* Tags on an announcement: sticky, comments closed. */
+.flag {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 0 0.35em;
+}
+
+/* Comments written as the administrators: their name in a soft red. */
+.staff-name {
+  color: var(--staff);
+  font-weight: 600;
+}
+
+.flag-admin {
+  color: var(--staff);
+  border-color: var(--staff-line);
+  background: var(--staff-bg);
+}
+
+.comment.staff {
+  border-left: 3px solid var(--staff-line);
+  padding-left: 0.75rem;
+}
+
+.flag-sticky {
+  color: var(--act);
+  border-color: var(--act);
+  background: var(--sticky);
 }
 
 .removed {
