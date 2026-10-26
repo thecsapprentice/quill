@@ -1105,3 +1105,53 @@ fn admins_make_announcements_sticky() {
     assert!(html.contains("Sticky: its banner stays at the top of the board."));
     assert!(html.contains(r#"/sticky""#));
 }
+
+#[test]
+fn listings_tag_sticky_and_closed_announcements() {
+    let mut a = announcement("Rules updated", false);
+    a.sticky = true;
+    a.comments_open = false;
+    let html = announcements_page(
+        &chrome(false, false),
+        AnnouncementsView {
+            announcements: vec![a.clone(), announcement("Welcome", false)],
+            next_cursor: None,
+        },
+    );
+    assert_eq!(
+        html.matches(r#"class="flag flag-sticky">Sticky<"#).count(),
+        1
+    );
+    assert_eq!(html.matches(r#"class="flag">Comments closed<"#).count(), 1);
+    let page = announcement_page(&chrome(false, false), announcement_view(a.clone()));
+    assert!(page.contains(r#"class="flag flag-sticky">Sticky<"#));
+
+    // Forms on an announcement's edit page lead back to it; the same
+    // buttons in the Announcements tab's table don't.
+    let c = chrome(true, true);
+    let edit = admin_announcement_page(
+        &c,
+        AdminAnnouncementView {
+            title: a.title.clone(),
+            body: a.body.clone(),
+            announcement: a.clone(),
+            error: None,
+        },
+    );
+    assert_eq!(edit.matches(r#"name="back" value="edit""#).count(), 2);
+    assert!(edit.contains("View announcement"));
+    let list = admin_announcements_page(
+        &c,
+        AdminAnnouncementsView {
+            announcements: vec![a],
+            next_cursor: None,
+            title: String::new(),
+            body: String::new(),
+            comments_open: true,
+            sticky: false,
+            error: None,
+            comment_visibility: quill_proto::announcements::CommentVisibility::Public,
+        },
+    );
+    assert!(!list.contains(r#"name="back""#));
+}

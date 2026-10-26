@@ -19,6 +19,9 @@
   --closed: #6b7480;
   --warn: #fff4d6;
   --warn-line: #d9b45a;
+  /* Sticky announcements: a tint of the action colour. */
+  --sticky: #e3f2ef;
+  --sticky-line: #a9d3cc;
   --danger: #a3302b;
   --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino,
     "URW Palladio L", "P052", Georgia, serif;
@@ -45,6 +48,8 @@
     --closed: #8f9aa6;
     --warn: #2c2716;
     --warn-line: #8a7230;
+    --sticky: #182d2b;
+    --sticky-line: #2c534e;
     --danger: #f08a82;
   }
 }
@@ -208,6 +213,8 @@ h1 {
 }
 
 .announcement-banner.sticky {
+  background: var(--sticky);
+  border-color: var(--sticky-line);
   border-left-color: var(--act);
 }
 
@@ -605,6 +612,19 @@ input[type="color"] {
   border: 1px solid var(--line);
   border-radius: 2px;
   padding: 0 0.35em;
+}
+
+/* Tags on an announcement: sticky, comments closed. */
+.flag {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 0 0.35em;
+}
+
+.flag-sticky {
+  color: var(--act);
+  border-color: var(--act);
+  background: var(--sticky);
 }
 
 .removed {

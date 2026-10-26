@@ -120,6 +120,12 @@ fn meta(a: &Announcement) -> Element {
             if a.edited() {
                 span { "Edited {short_date(a.updated_at)}" }
             }
+            if a.sticky {
+                span { class: "flag flag-sticky", "Sticky" }
+            }
+            if !a.comments_open {
+                span { class: "flag", "Comments closed" }
+            }
         }
     }
 }
@@ -374,7 +380,7 @@ fn title_and_body(title: &str, body: &str) -> Element {
 }
 
 /// A button that opens or closes an announcement's comments.
-fn comments_toggle(chrome: &Chrome, a: &Announcement) -> Element {
+fn comments_toggle(chrome: &Chrome, a: &Announcement, from_edit: bool) -> Element {
     let (value, label) = if a.comments_open {
         ("off", "Close comments")
     } else {
@@ -384,6 +390,9 @@ fn comments_toggle(chrome: &Chrome, a: &Announcement) -> Element {
         form { method: "post", action: "{admin_announcement_url(a.id)}/comments",
             {csrf(chrome)}
             input { r#type: "hidden", name: "comments", value: "{value}" }
+            if from_edit {
+                input { r#type: "hidden", name: "back", value: "edit" }
+            }
             button { class: "link-button", r#type: "submit",
                 "aria-label": "{label} on “{a.title}”", "{label}" }
         }
@@ -395,7 +404,7 @@ fn sticky_label(sticky: bool) -> &'static str {
 }
 
 /// A button that makes an announcement sticky or not.
-fn sticky_toggle(chrome: &Chrome, a: &Announcement) -> Element {
+fn sticky_toggle(chrome: &Chrome, a: &Announcement, from_edit: bool) -> Element {
     let (value, label) = if a.sticky {
         ("off", "Unstick")
     } else {
@@ -405,6 +414,9 @@ fn sticky_toggle(chrome: &Chrome, a: &Announcement) -> Element {
         form { method: "post", action: "{admin_announcement_url(a.id)}/sticky",
             {csrf(chrome)}
             input { r#type: "hidden", name: "sticky", value: "{value}" }
+            if from_edit {
+                input { r#type: "hidden", name: "back", value: "edit" }
+            }
             button { class: "link-button", r#type: "submit",
                 "aria-label": "{label}: “{a.title}”", "{label}" }
         }
@@ -487,8 +499,8 @@ pub fn admin_announcements_page(chrome: &Chrome, view: AdminAnnouncementsView) -
                                 tr { key: "{a.id}",
                                     td { a { href: "{announcement_url(a.id)}", "{a.title}" } }
                                     td { "{short_date(a.created_at)}" }
-                                    td { "{sticky_label(a.sticky)} " {sticky_toggle(c, a)} }
-                                    td { "{comments_label(a.comments_open)} " {comments_toggle(c, a)} }
+                                    td { "{sticky_label(a.sticky)} " {sticky_toggle(c, a, false)} }
+                                    td { "{comments_label(a.comments_open)} " {comments_toggle(c, a, false)} }
                                     td { a { href: "{admin_announcement_url(a.id)}",
                                         "aria-label": "Edit “{a.title}”", "Edit" } }
                                 }
@@ -521,7 +533,8 @@ pub fn admin_announcement_page(chrome: &Chrome, view: AdminAnnouncementView) -> 
                 {title_and_body(&v.title, &v.body)}
                 div { class: "actions",
                     button { class: "btn", r#type: "submit", "Save changes" }
-                    a { href: "/admin/settings/announcements", "Cancel" }
+                    a { href: "{announcement_url(a.id)}", "View announcement" }
+                    a { href: "/admin/settings/announcements", "Back to announcements" }
                 }
             }
             section { class: "form-card",
@@ -532,12 +545,12 @@ pub fn admin_announcement_page(chrome: &Chrome, view: AdminAnnouncementView) -> 
                     } else {
                         "Not sticky: readers can dismiss its banner. "
                     }
-                    {sticky_toggle(c, a)}
+                    {sticky_toggle(c, a, true)}
                 }
             }
             section { class: "form-card",
                 h2 { class: "form-title", "Comments" }
-                p { "{comments_label(a.comments_open)}. " {comments_toggle(c, a)} }
+                p { "{comments_label(a.comments_open)}. " {comments_toggle(c, a, true)} }
             }
             details {
                 summary { "Delete this announcement" }

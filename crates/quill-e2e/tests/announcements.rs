@@ -494,6 +494,40 @@ async fn administrators_manage_announcements_on_the_board() {
         )
         .await;
     assert_eq!(saved.status, StatusCode::SEE_OTHER);
+    // Saving, and the switches on the edit page, lead back to that page.
+    assert_eq!(
+        saved.location(),
+        format!("{edit_path}?notice=announcement-saved")
+    );
+    assert!(
+        b.get(saved.location())
+            .await
+            .body
+            .contains("Changes saved.")
+    );
+    let stuck = b
+        .post(
+            &format!("{edit_path}/sticky"),
+            &[("csrf", &csrf), ("sticky", "on"), ("back", "edit")],
+        )
+        .await;
+    assert_eq!(
+        stuck.location(),
+        format!("{edit_path}?notice=announcement-sticky")
+    );
+    let closed = b
+        .post(
+            &format!("{edit_path}/comments"),
+            &[("csrf", &csrf), ("comments", "off"), ("back", "edit")],
+        )
+        .await;
+    assert_eq!(
+        closed.location(),
+        format!("{edit_path}?notice=announcement-comments")
+    );
+    let listing = b.get("/announcements").await;
+    assert!(listing.body.contains(r#"class="flag flag-sticky">Sticky<"#));
+    assert!(listing.body.contains(r#"class="flag">Comments closed<"#));
     assert!(b.get("/").await.body.contains("Hello again"));
 
     // Deleting needs the box ticked.

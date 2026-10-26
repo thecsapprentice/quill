@@ -326,10 +326,11 @@ async fn render_admin_edit(
     state: &AppState,
     s: &Session,
     id: &str,
+    notice: Option<&str>,
     form: Option<&AnnouncementForm>,
     error: Option<String>,
 ) -> Response {
-    let c = chrome(state, Some(s), Nav::ServerSettings, None);
+    let c = chrome(state, Some(s), Nav::ServerSettings, notice);
     let Ok(id) = id.parse::<Uuid>() else {
         return error_page(&c, ApiError::NotFound);
     };
@@ -360,13 +361,19 @@ async fn render_admin_edit(
     )
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct EditParams {
+    notice: Option<String>,
+}
+
 pub async fn admin_edit_form(
     State(state): State<AppState>,
     MaybeSession(session): MaybeSession,
     Path(id): Path<String>,
+    Query(p): Query<EditParams>,
 ) -> Response {
     match require_admin(&state, session) {
-        Ok(s) => render_admin_edit(&state, &s, &id, None, None).await,
+        Ok(s) => render_admin_edit(&state, &s, &id, opt(&p.notice), None, None).await,
         Err(r) => r,
     }
 }
@@ -395,12 +402,9 @@ pub async fn admin_edit(
         sticky: None,
     };
     match announcements::update(&state, s.account_id, uuid, &body).await {
-        Ok(a) => redirect(&format!(
-            "/announcements/{}?notice=announcement-saved",
-            a.id
-        )),
+        Ok(a) => redirect(&back_to(a.id, Some("edit"), "announcement-saved")),
         Err(e) => match form_error(&e) {
-            Some(m) => render_admin_edit(&state, &s, &id, Some(&form), Some(m)).await,
+            Some(m) => render_admin_edit(&state, &s, &id, None, Some(&form), Some(m)).await,
             None => error_page(&c, e),
         },
     }
@@ -440,10 +444,23 @@ pub async fn admin_comment_visibility(
     }
 }
 
+/// Where an admin form returns to: the announcement's edit page when it was
+/// sent from there (`back=edit`), else the Announcements tab.
+fn back_to(id: Uuid, back: Option<&str>, notice: &str) -> String {
+    match back {
+        Some("edit") => format!(
+            "{}?notice={notice}",
+            quill_board_ui::admin_announcement_url(id)
+        ),
+        _ => format!("/admin/settings/announcements?notice={notice}"),
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct CommentsForm {
     csrf: Option<String>,
     comments: Option<String>,
+    back: Option<String>,
 }
 
 pub async fn admin_comments(
@@ -473,7 +490,7 @@ pub async fn admin_comments(
         ..UpdateAnnouncement::default()
     };
     match announcements::update(&state, s.account_id, id, &body).await {
-        Ok(_) => redirect("/admin/settings/announcements?notice=announcement-comments"),
+        Ok(_) => redirect(&back_to(id, opt(&form.back), "announcement-comments")),
         Err(e) => error_page(&c, e),
     }
 }
@@ -482,6 +499,7 @@ pub async fn admin_comments(
 pub struct StickyForm {
     csrf: Option<String>,
     sticky: Option<String>,
+    back: Option<String>,
 }
 
 pub async fn admin_sticky(
@@ -511,7 +529,7 @@ pub async fn admin_sticky(
         ..UpdateAnnouncement::default()
     };
     match announcements::update(&state, s.account_id, id, &body).await {
-        Ok(_) => redirect("/admin/settings/announcements?notice=announcement-sticky"),
+        Ok(_) => redirect(&back_to(id, opt(&form.back), "announcement-sticky")),
         Err(e) => error_page(&c, e),
     }
 }
