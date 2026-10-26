@@ -760,6 +760,15 @@ impl Backend for NativeBackend {
         })
     }
 
+    fn sleep(&self, ms: u64) -> std::pin::Pin<Box<dyn Future<Output = ()> + '_>> {
+        let timer = self
+            .runtime
+            .spawn(tokio::time::sleep(std::time::Duration::from_millis(ms)));
+        Box::pin(async move {
+            let _ = timer.await;
+        })
+    }
+
     fn details(&self) -> Call<'_, Details> {
         Box::pin(async move {
             let mut rows: Vec<(String, String)> = Vec::new();

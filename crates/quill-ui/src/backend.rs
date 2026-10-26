@@ -214,4 +214,6 @@ pub trait Backend {
     /// Moves the stores to another folder (advanced).
     fn move_stores<'a>(&'a self, folder: &'a str) -> Call<'a, ()>;
     fn details(&self) -> Call<'_, Details>;
+    /// Waits `ms` milliseconds, on whatever timer the platform has.
+    fn sleep(&self, ms: u64) -> Pin<Box<dyn Future<Output = ()> + '_>>;
 }
