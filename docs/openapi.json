@@ -569,6 +569,279 @@
         ]
       }
     },
+    "/admin/announcements": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Post an announcement as the server",
+        "operationId": "post_admin_announcements",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAnnouncement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Announcement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/announcements/{id}": {
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Delete an announcement",
+        "operationId": "delete_admin_announcements_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The announcement",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such announcement, or already deleted",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Edit an announcement, or open or close its comments",
+        "operationId": "patch_admin_announcements_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The announcement",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAnnouncement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Announcement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such announcement, or deleted",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/admin/log": {
       "get": {
         "tags": [
@@ -2318,6 +2591,137 @@
           {
             "bearer": []
           }
+        ]
+      }
+    },
+    "/announcements": {
+      "get": {
+        "tags": [
+          "announcements"
+        ],
+        "summary": "The administrators' announcements, newest first",
+        "description": "Pages by `cursor`, which the previous page returns.",
+        "operationId": "get_announcements",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/announcements/{id}": {
+      "get": {
+        "tags": [
+          "announcements"
+        ],
+        "summary": "One announcement",
+        "operationId": "get_announcements_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The announcement",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Announcement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such announcement, or deleted",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
         ]
       }
     },
@@ -7052,7 +7456,11 @@
           "change_setting",
           "recolor_tag",
           "reserve_handles",
-          "unreserve_handle"
+          "unreserve_handle",
+          "post_announcement",
+          "edit_announcement",
+          "delete_announcement",
+          "set_announcement_comments"
         ]
       },
       "AdminLogDetail": {
@@ -7273,6 +7681,69 @@
         ],
         "description": "A tag as administrators see it: with its usage and alias target."
       },
+      "Announcement": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "body",
+          "bodyHtml",
+          "commentsOpen",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Markdown source."
+          },
+          "bodyHtml": {
+            "type": "string",
+            "description": "Sanitized HTML rendered by the server from `body`."
+          },
+          "commentsOpen": {
+            "type": "boolean",
+            "description": "Whether writers may comment on it."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Later than `created_at` once it has been edited."
+          }
+        }
+      },
+      "AnnouncementPage": {
+        "type": "object",
+        "description": "One page of announcements, newest first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Announcement"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "BackupInfo": {
         "type": "object",
         "description": "The login's committed backup (`GET /backup`, 2j).",
@@ -7373,6 +7844,27 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "CreateAnnouncement": {
+        "type": "object",
+        "description": "`POST /admin/announcements`.",
+        "required": [
+          "title",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Markdown."
+          },
+          "commentsOpen": {
+            "type": "boolean",
+            "description": "Whether writers may comment. Defaults to true."
+          },
+          "title": {
+            "type": "string"
           }
         }
       },
@@ -9267,6 +9759,30 @@
           }
         }
       },
+      "UpdateAnnouncement": {
+        "type": "object",
+        "description": "`PATCH /admin/announcements/{id}`. Absent fields are unchanged.",
+        "properties": {
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commentsOpen": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UpdateNamespace": {
         "type": "object",
         "description": "`PATCH /admin/tag-namespaces/{name}`. Absent fields are unchanged.",
@@ -9495,6 +10011,10 @@
     {
       "name": "reports",
       "description": "Reporting prompts"
+    },
+    {
+      "name": "announcements",
+      "description": "News from the server's administrators"
     },
     {
       "name": "admin",

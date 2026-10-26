@@ -35,6 +35,7 @@ pub fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(list_personas, create_persona))
         .routes(routes!(update_persona, delete_persona))
         .merge(crate::prompts::router())
+        .merge(crate::announcements::router())
         .merge(crate::reports::router())
         .merge(crate::tag_admin::router())
         .merge(crate::server_settings::router())

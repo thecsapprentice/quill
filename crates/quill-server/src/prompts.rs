@@ -431,11 +431,11 @@ async fn create_user_tag_in(
 
 // ---- Listing and search --------------------------------------------------
 
-fn encode_cursor(created_at: OffsetDateTime, id: Uuid) -> String {
+pub(crate) fn encode_cursor(created_at: OffsetDateTime, id: Uuid) -> String {
     URL_SAFE_NO_PAD.encode(format!("{}.{}", created_at.unix_timestamp_nanos(), id))
 }
 
-fn decode_cursor(cursor: &str) -> Result<(OffsetDateTime, Uuid), ApiError> {
+pub(crate) fn decode_cursor(cursor: &str) -> Result<(OffsetDateTime, Uuid), ApiError> {
     let bad = || ApiError::BadRequest("invalid cursor".into());
     let bytes = URL_SAFE_NO_PAD.decode(cursor).map_err(|_| bad())?;
     let text = String::from_utf8(bytes).map_err(|_| bad())?;

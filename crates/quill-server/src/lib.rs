@@ -1,6 +1,7 @@
 //! Quill server library: builds the axum application so the binary and the
 //! end-to-end tests share one code path.
 
+pub mod announcements;
 pub mod auth;
 pub mod backups;
 pub mod blobs;
