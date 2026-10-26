@@ -14,6 +14,7 @@ use quill_core::{
 };
 use quill_e2e::{Exchange, TEST_PASSWORD, TestServer};
 use quill_proto::{
+    announcements::{AnnouncementQuery, CreateAnnouncement, UpdateAnnouncement},
     api::{CreatePersona, Credentials, Persona, UpdatePersona},
     board::{
         AdminLogTargetQuery, AdminTagQuery, CreateNamespace, CreatePrompt, CreateReport, CreateTag,
@@ -281,6 +282,30 @@ async fn story(server: &TestServer) {
         .unwrap();
     admin.admin_check_handle("staff").await.unwrap();
     admin.admin_storage().await.unwrap();
+    let news = admin
+        .admin_post_announcement(&CreateAnnouncement {
+            title: "News".into(),
+            body: "Read *this*.".into(),
+            comments_open: true,
+        })
+        .await
+        .unwrap();
+    admin
+        .admin_update_announcement(
+            news.id,
+            &UpdateAnnouncement {
+                comments_open: Some(false),
+                ..UpdateAnnouncement::default()
+            },
+        )
+        .await
+        .unwrap();
+    anon.announcements(&AnnouncementQuery::default())
+        .await
+        .unwrap();
+    anon.announcement(news.id).await.unwrap();
+    admin.admin_delete_announcement(news.id).await.unwrap();
+    anon.announcement(news.id).await.unwrap_err();
     alice_c.notices(None).await.unwrap();
     alice_c.mark_notices_read().await.unwrap();
 
