@@ -8,7 +8,7 @@ use clap::{Args, Subcommand};
 use quill_core::Client;
 use quill_proto::board::{
     AdminTagQuery, CreateNamespace, CreatePrompt, CreateReport, CreateTag, Maturity, Prompt,
-    PromptQuery, PromptState, ReportReason, Resolution, TagPolicy, TagQuery, TagStatus,
+    PromptQuery, PromptState, ReportKind, ReportReason, Resolution, TagPolicy, TagQuery, TagStatus,
     UpdateAccountSettings, UpdateNamespace, UpdatePrompt, UpdateServerSettings, UpdateTag,
 };
 use uuid::Uuid;
@@ -309,7 +309,7 @@ fn print_prompt(p: &Prompt, full: bool) {
     }
 }
 
-async fn persona_id(client: &Client, persona: &str) -> Result<Uuid> {
+pub(crate) async fn persona_id(client: &Client, persona: &str) -> Result<Uuid> {
     if let Ok(id) = persona.parse() {
         return Ok(id);
     }
@@ -561,10 +561,14 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     println!("no reports");
                 }
                 for r in list {
-                    let title = r
-                        .prompt
-                        .as_ref()
-                        .map_or("(prompt deleted by its author)", |p| p.title.as_str());
+                    let title = match (r.kind, &r.prompt, &r.comment) {
+                        (ReportKind::Prompt, Some(p), _) => p.title.clone(),
+                        (ReportKind::Prompt, None, _) => "(prompt deleted by its author)".into(),
+                        (ReportKind::Comment, _, Some(c)) => {
+                            format!("comment {} by @{}", c.id, c.author.handle)
+                        }
+                        (ReportKind::Comment, _, None) => "(comment deleted by its author)".into(),
+                    };
                     let status = match (r.resolution, r.resolved_at) {
                         (Some(res), _) => format!("resolved: {res}"),
                         _ => "open".to_owned(),

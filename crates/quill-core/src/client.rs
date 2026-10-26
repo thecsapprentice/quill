@@ -2,7 +2,8 @@
 
 use quill_proto::{
     announcements::{
-        Announcement, AnnouncementPage, AnnouncementQuery, CreateAnnouncement, UpdateAnnouncement,
+        Announcement, AnnouncementPage, AnnouncementQuery, Comment, CommentPage, CommentQuery,
+        CreateAnnouncement, CreateComment, RemoveComment, ReportComment, UpdateAnnouncement,
     },
     api::{
         CreatePersona, Credentials, InstanceInfo, PROBLEM_CONTENT_TYPE, Persona, Problem,
@@ -334,6 +335,42 @@ impl Client {
 
     pub async fn admin_delete_announcement(&self, id: Uuid) -> Result<(), CoreError> {
         Self::empty(self.authed(Method::DELETE, &format!("/admin/announcements/{id}"))?).await
+    }
+
+    pub async fn comments(
+        &self,
+        announcement: Uuid,
+        query: &CommentQuery,
+    ) -> Result<CommentPage, CoreError> {
+        let path = format!("/announcements/{announcement}/comments");
+        Self::json(self.maybe_authed(Method::GET, &path)?.query(query)).await
+    }
+
+    pub async fn post_comment(
+        &self,
+        announcement: Uuid,
+        body: &CreateComment,
+    ) -> Result<Comment, CoreError> {
+        let path = format!("/announcements/{announcement}/comments");
+        Self::json(Self::with_json(self.authed(Method::POST, &path)?, body)).await
+    }
+
+    pub async fn delete_comment(&self, id: Uuid) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::DELETE, &format!("/comments/{id}"))?).await
+    }
+
+    pub async fn report_comment(&self, id: Uuid, body: &ReportComment) -> Result<(), CoreError> {
+        let builder = self.maybe_authed(Method::POST, &format!("/comments/{id}/report"))?;
+        Self::empty(Self::with_json(builder, body)).await
+    }
+
+    pub async fn admin_remove_comment(
+        &self,
+        id: Uuid,
+        body: &RemoveComment,
+    ) -> Result<(), CoreError> {
+        let builder = self.authed(Method::POST, &format!("/admin/comments/{id}/remove"))?;
+        Self::empty(Self::with_json(builder, body)).await
     }
 
     // ---- Tags -----------------------------------------------------------

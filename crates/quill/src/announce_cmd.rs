@@ -1,14 +1,22 @@
-//! CLI commands for announcements: reading them (anyone) and posting,
-//! editing and deleting them (administrators, under `quill admin announce`).
+//! CLI commands for announcements: reading and commenting on them (anyone),
+//! and posting, editing, deleting and moderating them (administrators,
+//! under `quill admin announce`).
 
 use anyhow::{Result, bail};
 use clap::Subcommand;
-use quill_proto::announcements::{
-    Announcement, AnnouncementQuery, CreateAnnouncement, UpdateAnnouncement,
+use quill_proto::{
+    announcements::{
+        Announcement, AnnouncementQuery, Comment, CommentQuery, CreateAnnouncement, CreateComment,
+        RemoveComment, ReportComment, UpdateAnnouncement,
+    },
+    board::ReportReason,
 };
 use uuid::Uuid;
 
-use crate::{Ctx, board::BodyArgs};
+use crate::{
+    Ctx,
+    board::{BodyArgs, persona_id},
+};
 
 #[derive(Subcommand)]
 pub enum AnnouncementsCommand {
@@ -22,6 +30,33 @@ pub enum AnnouncementsCommand {
     },
     /// Show one announcement in full.
     Show { id: Uuid },
+    /// List the comments on an announcement, oldest first.
+    Comments {
+        id: Uuid,
+        /// Continue from a previous page.
+        #[arg(long)]
+        cursor: Option<String>,
+    },
+    /// Comment on an announcement. Comments can't be edited afterwards.
+    Comment {
+        id: Uuid,
+        /// Persona to comment as (handle or id).
+        #[arg(long = "as")]
+        persona: String,
+        #[command(flatten)]
+        body: BodyArgs,
+    },
+    /// Delete one of your comments.
+    DeleteComment { comment: Uuid },
+    /// Report a comment to the server's administrators.
+    ReportComment {
+        comment: Uuid,
+        /// illegal, spam, harassment, wrong-maturity or other
+        #[arg(long)]
+        reason: ReportReason,
+        #[arg(long)]
+        details: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -46,6 +81,13 @@ pub enum AnnounceCommand {
     },
     /// Delete an announcement: it shows nowhere from then on.
     Delete { id: Uuid },
+    /// Remove a comment without a report. Its author is told the reason.
+    RemoveComment {
+        comment: Uuid,
+        /// illegal, spam, harassment, wrong-maturity or other
+        #[arg(long)]
+        reason: ReportReason,
+    },
     /// Open or close an announcement's comments.
     Comments {
         id: Uuid,
@@ -99,6 +141,74 @@ pub async fn announcements(ctx: &Ctx, cmd: AnnouncementsCommand) -> Result<()> {
             let a = client.announcement(id).await?;
             ctx.print(&a, |a| print_announcement(a, true))
         }
+        AnnouncementsCommand::Comments { id, cursor } => {
+            let page = client
+                .comments(
+                    id,
+                    &CommentQuery {
+                        cursor,
+                        limit: None,
+                    },
+                )
+                .await?;
+            ctx.print(&page, |p| {
+                if p.items.is_empty() {
+                    println!("no comments");
+                }
+                for c in &p.items {
+                    print_comment(c);
+                }
+                if let Some(next) = &p.next_cursor {
+                    println!("more: --cursor {next}");
+                }
+            })
+        }
+        AnnouncementsCommand::Comment { id, persona, body } => {
+            let Some(text) = body.read()? else {
+                bail!("give the comment with --body or --body-file");
+            };
+            let c = client
+                .post_comment(
+                    id,
+                    &CreateComment {
+                        persona: persona_id(&client, &persona).await?,
+                        body: text,
+                    },
+                )
+                .await?;
+            ctx.print(&c, print_comment)
+        }
+        AnnouncementsCommand::DeleteComment { comment } => {
+            client.delete_comment(comment).await?;
+            ctx.done(&format!("deleted comment {comment}"))
+        }
+        AnnouncementsCommand::ReportComment {
+            comment,
+            reason,
+            details,
+        } => {
+            client
+                .report_comment(comment, &ReportComment { reason, details })
+                .await?;
+            ctx.done("report sent to the server's administrators")
+        }
+    }
+}
+
+fn print_comment(c: &Comment) {
+    println!(
+        "{}  {}  @{}{}",
+        c.id,
+        c.created_at.date(),
+        c.author.handle,
+        if c.removed {
+            "  (removed by a server administrator)"
+        } else {
+            ""
+        }
+    );
+    for line in c.body.lines() {
+        println!("    {line}");
     }
 }
 
@@ -138,6 +248,12 @@ pub async fn announce(ctx: &Ctx, cmd: AnnounceCommand) -> Result<()> {
                 )
                 .await?;
             ctx.print(&a, |a| print_announcement(a, false))
+        }
+        AnnounceCommand::RemoveComment { comment, reason } => {
+            client
+                .admin_remove_comment(comment, &RemoveComment { reason })
+                .await?;
+            ctx.done(&format!("removed comment {comment}"))
         }
         AnnounceCommand::Delete { id } => {
             client.admin_delete_announcement(id).await?;
