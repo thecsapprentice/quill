@@ -15,3 +15,17 @@
   Tick off the issue's checklist items as they land.
 - If work turns up that isn't covered by an issue, open one before or with the
   PR rather than leaving it in a note.
+
+## How to do the work
+
+- **Commit in small pieces.** Complete work as smaller git commits, each one a
+  digestible, reviewable step, rather than one large commit at the end.
+- **Write for maintainability.** Use effective software architecture patterns,
+  avoid anti-patterns, and add code comments.
+- **Keep code comments short: at most 3-4 sentences at a time.** Longer
+  explanations belong in the system architecture document(s) checked into the
+  repo. Those documents record the design of the software architecture and the
+  longer-form, human-readable reasoning behind all major decisions, including
+  any unexpected or edge-case scenarios that shaped the code. A code comment
+  that needs a complex explanation points to the relevant section of that
+  document instead of repeating it.
