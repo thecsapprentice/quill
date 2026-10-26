@@ -531,13 +531,21 @@ Posting is part of `quill-board-ui`, so the server's board and every client use 
 - Decrypted HTML sanitized (`ammonia`) before rendering, exactly as in the web client.
 - Sign and notarize desktop release builds per platform; reproducible builds where the toolchain allows.
 
+### The desktop GUI's webview channel
+
+Dioxus desktop runs the app in native Rust and sends DOM changes to the webview, and events back, over a WebSocket on `127.0.0.1` (since 0.7; before, wry's custom protocol). This matters because decrypted text crosses that channel:
+
+- **Who can connect.** The socket listens on loopback only. Each window has a random client key and server key, handed to the page by the webview's initialization script rather than the page's own code; the server refuses connections without the key, and the page refuses a server that doesn't prove its key. Another local program can find the port but can't read edits or inject events without the keys.
+- **What it doesn't protect against.** The traffic is plain `ws://` on loopback. Anything able to watch loopback traffic or read the app's memory (an administrator, or malware running as the user) can read what's on screen anyway; that's outside the threat model for any local client.
+- **TLS that isn't used.** The WebSocket library is built with `native-tls`, which means OpenSSL on Linux, although the channel never uses TLS. `deny.toml` allows OpenSSL only through that path; the rest of the project stays OpenSSL-free. Drop the exception if Dioxus makes the TLS feature optional.
+
 ### Workspace additions
 
 | Crate | Role | Built in |
 | --- | --- | --- |
 | `quill-board-ui` | Prompt board components (list, filters, prompt view, tags, prompt posting and editing, persona picker); depends only on `quill-proto` | Phase 1 |
-| `quill-ui` | Session, editor, channel and attachment components; depends on `quill-core` | GUI phase |
-| `quill-gui` | Desktop binary: both UI crates + native `quill-core` (encrypted store, keychain) | GUI phase |
+| `quill-ui` | The client's views and app state; reaches `quill-core` only through its `Backend` trait, so the web client can supply its own | GUI phase (3b) |
+| `quill-gui` | Desktop binary and the native `Backend`: `quill-ui` + native `quill-core` (encrypted stores, keychain) | GUI phase (3b) |
 | `quill-web` | Wasm entry point: both UI crates + web `quill-core` (IndexedDB, RustCrypto) | Web-client phase |
 
 Phase 1 builds the board on Dioxus fullstack, which validates the SSR path early. A one-week spike at the start of the GUI phase should then build the session view (channels, long-form editor, image attachment) in Dioxus on both targets and test IME, spellcheck and screen-reader behavior before committing.

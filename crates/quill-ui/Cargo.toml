@@ -1,0 +1,24 @@
+[package]
+name = "quill-ui"
+description = "The writing client's views and app state (Dioxus), shared by the desktop GUI and the future web client. No platform code; talks to quill-core through the Backend trait."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+quill-proto.workspace = true
+
+dioxus = { workspace = true, features = ["hooks", "document"] }
+serde.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+dioxus-ssr.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[lints]
+workspace = true

@@ -30,6 +30,8 @@ quill-core = { path = "crates/quill-core" }
 quill-server = { path = "crates/quill-server" }
 quill-board-ui = { path = "crates/quill-board-ui" }
 quill-certs = { path = "crates/quill-certs" }
+quill-ui = { path = "crates/quill-ui" }
+quill-gui = { path = "crates/quill-gui", default-features = false }
 
 # Shared third-party dependencies
 anyhow = "1"
@@ -50,6 +52,9 @@ ed25519-dalek = { version = "2.2", default-features = false, features = ["std", 
 # "mls": minimal length encodings only, 30-bit lengths (RFC 9420).
 tls_codec = { version = "0.5", features = ["derive", "std", "mls"] }
 dioxus-ssr = "=0.7.10"
+# The desktop GUI only (3b), used directly so the server's `dioxus` keeps
+# its features.
+dioxus-desktop = { version = "=0.7.10", default-features = false, features = ["tokio_runtime"] }
 directories = "6"
 futures-util = { version = "0.3", default-features = false }
 getrandom = "0.4"
