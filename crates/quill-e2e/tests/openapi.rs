@@ -102,6 +102,7 @@ async fn story(server: &TestServer) {
     alice_c
         .update_account(&UpdateAccountSettings {
             maturity_max: Some(Maturity::General),
+            staff_name: None,
         })
         .await
         .unwrap();
@@ -319,23 +320,11 @@ async fn story(server: &TestServer) {
         .await
         .unwrap();
     let said = alice_c
-        .post_comment(
-            news.id,
-            &CreateComment {
-                persona: fox.id,
-                body: "Thanks".into(),
-            },
-        )
+        .post_comment(news.id, &CreateComment::as_persona(fox.id, "Thanks".into()))
         .await
         .unwrap();
     let kept = alice_c
-        .post_comment(
-            news.id,
-            &CreateComment {
-                persona: fox.id,
-                body: "More".into(),
-            },
-        )
+        .post_comment(news.id, &CreateComment::as_persona(fox.id, "More".into()))
         .await
         .unwrap();
     anon.comments(news.id, &CommentQuery::default())

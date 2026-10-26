@@ -24,6 +24,10 @@ pub enum AccountCommand {
         /// Highest maturity rating to show on the board.
         #[arg(long)]
         maturity: Option<Maturity>,
+        /// Administrators only: the public name to comment under as staff.
+        /// An empty string clears it.
+        #[arg(long)]
+        staff_name: Option<String>,
     },
     /// Show what administrators have done to your prompts and tags, and mark
     /// it read.
@@ -364,10 +368,14 @@ pub async fn account(ctx: &Ctx, cmd: AccountCommand) -> Result<()> {
     let settings = match cmd {
         AccountCommand::Notices { .. } => unreachable!("handled above"),
         AccountCommand::Show => client.account().await?,
-        AccountCommand::Set { maturity } => {
+        AccountCommand::Set {
+            maturity,
+            staff_name,
+        } => {
             client
                 .update_account(&UpdateAccountSettings {
                     maturity_max: maturity,
+                    staff_name,
                 })
                 .await?
         }
@@ -375,6 +383,9 @@ pub async fn account(ctx: &Ctx, cmd: AccountCommand) -> Result<()> {
     ctx.print(&settings, |s| {
         println!("maturity cap: {}", s.maturity_max);
         println!("administrator: {}", s.is_admin);
+        if let Some(name) = &s.staff_name {
+            println!("staff name: {name}");
+        }
         println!("unread notices: {}", s.unread_notices);
     })
 }
@@ -569,7 +580,7 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                         (ReportKind::Prompt, Some(p), _) => p.title.clone(),
                         (ReportKind::Prompt, None, _) => "(prompt deleted by its author)".into(),
                         (ReportKind::Comment, _, Some(c)) => {
-                            format!("comment {} by @{}", c.id, c.author.handle)
+                            format!("comment {} by {}", c.id, c.speaker())
                         }
                         (ReportKind::Comment, _, None) => "(comment deleted by its author)".into(),
                     };

@@ -6,8 +6,8 @@ use anyhow::{Result, bail};
 use clap::Subcommand;
 use quill_proto::{
     announcements::{
-        Announcement, AnnouncementQuery, Comment, CommentQuery, CreateAnnouncement, CreateComment,
-        RemoveComment, ReportComment, UpdateAnnouncement,
+        Announcement, AnnouncementQuery, Comment, CommentQuery, CommentVoice, CreateAnnouncement,
+        CreateComment, RemoveComment, ReportComment, UpdateAnnouncement,
     },
     board::ReportReason,
 };
@@ -38,11 +38,23 @@ pub enum AnnouncementsCommand {
         cursor: Option<String>,
     },
     /// Comment on an announcement. Comments can't be edited afterwards.
+    #[command(group(
+        clap::ArgGroup::new("speaker")
+            .required(true)
+            .args(["persona", "administrators", "staff"])
+    ))]
     Comment {
         id: Uuid,
         /// Persona to comment as (handle or id).
         #[arg(long = "as")]
-        persona: String,
+        persona: Option<String>,
+        /// Administrators only: comment as "Administrators".
+        #[arg(long)]
+        administrators: bool,
+        /// Administrators only: comment under your staff name (set it with
+        /// `quill account set --staff-name`).
+        #[arg(long)]
+        staff: bool,
         #[command(flatten)]
         body: BodyArgs,
     },
@@ -178,19 +190,22 @@ pub async fn announcements(ctx: &Ctx, cmd: AnnouncementsCommand) -> Result<()> {
                 }
             })
         }
-        AnnouncementsCommand::Comment { id, persona, body } => {
+        AnnouncementsCommand::Comment {
+            id,
+            persona,
+            administrators: _,
+            staff,
+            body,
+        } => {
             let Some(text) = body.read()? else {
                 bail!("give the comment with --body or --body-file");
             };
-            let c = client
-                .post_comment(
-                    id,
-                    &CreateComment {
-                        persona: persona_id(&client, &persona).await?,
-                        body: text,
-                    },
-                )
-                .await?;
+            let create = match persona {
+                Some(p) => CreateComment::as_persona(persona_id(&client, &p).await?, text),
+                None if staff => CreateComment::as_staff(CommentVoice::Staff, text),
+                None => CreateComment::as_staff(CommentVoice::Administrators, text),
+            };
+            let c = client.post_comment(id, &create).await?;
             ctx.print(&c, print_comment)
         }
         AnnouncementsCommand::DeleteComment { comment } => {
@@ -212,10 +227,11 @@ pub async fn announcements(ctx: &Ctx, cmd: AnnouncementsCommand) -> Result<()> {
 
 fn print_comment(c: &Comment) {
     println!(
-        "{}  {}  @{}{}",
+        "{}  {}  {}{}{}",
         c.id,
         c.created_at.date(),
-        c.author.handle,
+        c.speaker(),
+        if c.from_staff() { "  [admin]" } else { "" },
         if c.removed {
             "  (removed by a server administrator)"
         } else {

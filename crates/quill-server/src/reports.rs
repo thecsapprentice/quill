@@ -159,8 +159,8 @@ pub async fn file_report(
     Ok(())
 }
 
-/// Files a report about a comment from `reporter`. Removed comments, and
-/// those on a deleted announcement, can't be reported.
+/// Files a report about a comment from `reporter`. Removed comments,
+/// staff comments, and those on a deleted announcement, can't be reported.
 pub async fn file_comment_report(
     state: &AppState,
     reporter: Option<Uuid>,
@@ -174,7 +174,8 @@ pub async fn file_comment_report(
     let text: Option<String> = sqlx::query_scalar(
         "SELECT c.body_md FROM announcement_comments c
          JOIN announcements an ON an.id = c.announcement_id
-         WHERE c.id = $1 AND c.removed_at IS NULL AND an.deleted_at IS NULL",
+         WHERE c.id = $1 AND c.removed_at IS NULL AND an.deleted_at IS NULL
+           AND c.voice = 'persona'",
     )
     .bind(comment)
     .fetch_optional(&state.pool)

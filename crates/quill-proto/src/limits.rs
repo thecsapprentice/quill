@@ -70,6 +70,8 @@ pub const ANNOUNCEMENT_TITLE_MAX_CHARS: usize = PROMPT_TITLE_MAX_CHARS;
 pub const ANNOUNCEMENT_BODY_MAX_CHARS: usize = PROMPT_BODY_MAX_CHARS;
 /// A comment on an announcement.
 pub const COMMENT_BODY_MAX_CHARS: usize = 5000;
+/// The name an administrator comments under as staff.
+pub const STAFF_NAME_MAX_CHARS: usize = 40;
 
 /// Tags and tag namespaces.
 pub const TAG_SLUG_MAX_CHARS: usize = 40;

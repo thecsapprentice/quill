@@ -244,6 +244,9 @@ pub struct PersonasView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsView {
     pub settings: AccountSettings,
+    /// The staff name field (administrators only), kept on error.
+    pub staff_name: String,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -7,7 +7,8 @@ use quill_proto::{
         Resolution, Tag, TagNamespace, TagPolicy, TagStatus,
     },
     limits::{
-        PROMPT_BODY_MAX_CHARS, PROMPT_TITLE_MAX_CHARS, REPORT_DETAILS_MAX_CHARS, USERNAME_MAX_CHARS,
+        PROMPT_BODY_MAX_CHARS, PROMPT_TITLE_MAX_CHARS, REPORT_DETAILS_MAX_CHARS,
+        STAFF_NAME_MAX_CHARS, USERNAME_MAX_CHARS,
     },
 };
 
@@ -623,6 +624,7 @@ pub fn settings_page(chrome: &Chrome, view: SettingsView) -> String {
         let s = &view.settings;
         rsx! {
             h1 { "Settings" }
+            {error_notice(view.error.as_ref())}
             form { class: "form-card", method: "post", action: "/settings",
                 {csrf(&chrome_for_body)}
                 div { class: "field",
@@ -630,6 +632,17 @@ pub fn settings_page(chrome: &Chrome, view: SettingsView) -> String {
                         span { class: "hint", "Applies to the board and searches. Your own prompts always show." }
                     }
                     select { id: "maturity_max", name: "maturity_max", {maturity_options(Some(s.maturity_max))} }
+                }
+                if s.is_admin {
+                    div { class: "field",
+                        label { r#for: "staff_name", "Staff name"
+                            span { class: "hint",
+                                "Optional. Comment on announcements under this name, marked as an administrator, so writers know which of you they're talking to. It's public; your login name stays private. Leave it empty to comment only as “Administrators”."
+                            }
+                        }
+                        input { r#type: "text", id: "staff_name", name: "staff_name",
+                            value: "{view.staff_name}", maxlength: "{STAFF_NAME_MAX_CHARS}" }
+                    }
                 }
                 div { class: "actions",
                     button { class: "btn", r#type: "submit", "Save settings" }
@@ -671,7 +684,7 @@ pub fn admin_reports_page(chrome: &Chrome, view: AdminReportsView) -> String {
                             (ReportKind::Prompt, Some(p), _) => rsx! { a { href: "{prompt_url(p.id)}?show=1", "{p.title}" } },
                             (ReportKind::Prompt, None, _) => rsx! { "Prompt deleted by its author" },
                             (ReportKind::Comment, _, Some(c)) => rsx! {
-                                a { href: "{crate::comment_url(c.id)}", "Comment by @{c.author.handle}" }
+                                a { href: "{crate::comment_url(c.id)}", "Comment by {c.speaker()}" }
                             },
                             (ReportKind::Comment, _, None) => rsx! { "Comment deleted by its author" },
                         }

@@ -51,9 +51,12 @@ pub struct AnnouncementView {
     pub more_comments: Option<String>,
     /// The visitor's personas: to comment as, and to know their comments.
     pub personas: Vec<Persona>,
-    /// The comment form, kept when it's sent back with an error.
+    /// The comment form, kept when it's sent back with an error. `speak_as`
+    /// is a persona id or one of the `SPEAK_AS_*` values.
     pub draft: String,
-    pub persona: Option<Uuid>,
+    pub speak_as: Option<String>,
+    /// The visitor's staff name, if they're an administrator with one.
+    pub staff_name: Option<String>,
     pub error: Option<String>,
     /// The server shows comments to signed-in writers only, and the
     /// visitor isn't signed in: `comments` is empty.
@@ -189,18 +192,47 @@ pub fn announcement_page(chrome: &Chrome, view: AnnouncementView) -> String {
 
 // ---- Comments ----------------------------------------------------------------
 
+/// The form value for speaking as the administrators, and as one's staff
+/// name. Personas are chosen by id.
+pub const SPEAK_AS_ADMINISTRATORS: &str = "administrators";
+pub const SPEAK_AS_STAFF: &str = "staff";
+
 fn author_label(c: &Comment) -> String {
-    c.author.display_name.clone().map_or_else(
-        || format!("@{}", c.author.handle),
-        |name| format!("{name} (@{})", c.author.handle),
-    )
+    match &c.author {
+        Some(a) => a.display_name.clone().map_or_else(
+            || format!("@{}", a.handle),
+            |name| format!("{name} (@{})", a.handle),
+        ),
+        None => c.speaker(),
+    }
+}
+
+/// Who wrote a comment: a staff comment's name is marked as the
+/// administrators', in red.
+fn speaker(c: &Comment) -> Element {
+    if c.from_staff() {
+        rsx! {
+            span { class: "staff-name", "{author_label(c)}" }
+            span { class: "flag flag-admin", title: "Written by this server's administrators", "Admin" }
+        }
+    } else {
+        rsx! { span { "{author_label(c)}" } }
+    }
 }
 
 fn comments_section(chrome: &Chrome, v: &AnnouncementView) -> Element {
     let a = &v.announcement;
     let viewer = chrome.viewer.as_ref();
     let is_admin = viewer.is_some_and(|v| v.is_admin);
-    let mine = |c: &Comment| v.personas.iter().any(|p| p.id == c.author.id);
+    // Any administrator may delete a staff comment: the voice is shared.
+    let mine = |c: &Comment| {
+        (is_admin && c.from_staff())
+            || c.author
+                .as_ref()
+                .is_some_and(|au| v.personas.iter().any(|p| p.id == au.id))
+    };
+    let selected = |value: &str| v.speak_as.as_deref() == Some(value);
+    let can_post = !v.personas.is_empty() || is_admin;
     if v.comments_hidden {
         return rsx! {
             section { class: "comments", "aria-labelledby": "comments-title",
@@ -221,9 +253,10 @@ fn comments_section(chrome: &Chrome, v: &AnnouncementView) -> Element {
             }
             ol { class: "comment-list",
                 for c in v.comments.iter() {
-                    li { key: "{c.id}", id: "c-{c.id}", class: "comment",
+                    li { key: "{c.id}", id: "c-{c.id}",
+                        class: if c.from_staff() { "comment staff" } else { "comment" },
                         p { class: "card-meta",
-                            span { "{author_label(c)}" }
+                            {speaker(c)}
                             span { "{short_date(c.created_at)}" }
                             if c.removed {
                                 span { class: "removed", "Removed by a server administrator" }
@@ -243,10 +276,10 @@ fn comments_section(chrome: &Chrome, v: &AnnouncementView) -> Element {
                                         button { class: "btn btn-danger", r#type: "submit", "Delete comment" }
                                     }
                                 }
-                            } else if !c.removed {
+                            } else if !c.removed && !c.from_staff() {
                                 a { href: "{comment_url(c.id)}/report", "Report" }
                             }
-                            if is_admin && !c.removed {
+                            if is_admin && !c.removed && !c.from_staff() {
                                 {remove_form(chrome, c)}
                             }
                         }
@@ -260,18 +293,36 @@ fn comments_section(chrome: &Chrome, v: &AnnouncementView) -> Element {
                 p { class: "notice", "Comments are closed." }
             } else if viewer.is_none() {
                 p { a { href: "/login", "Sign in" } " to comment." }
-            } else if v.personas.is_empty() {
+            } else if !can_post {
                 p { "Comments are posted under a persona. " a { href: "/personas", "Create one" } " to comment." }
             } else {
                 {error_notice(v.error.as_ref())}
                 form { class: "form-card", method: "post", action: "{announcement_url(a.id)}/comments",
                     {csrf(chrome)}
                     div { class: "field",
-                        label { r#for: "persona", "Comment as" }
-                        select { id: "persona", name: "persona", required: true,
+                        label { r#for: "as", "Comment as"
+                            if is_admin && v.staff_name.is_none() {
+                                span { class: "hint",
+                                    "To comment under your own name as staff, "
+                                    a { href: "/settings", "set a staff name" }
+                                    "."
+                                }
+                            }
+                        }
+                        select { id: "as", name: "as", required: true,
                             for p in v.personas.iter() {
-                                option { key: "{p.id}", value: "{p.id}", selected: v.persona == Some(p.id),
+                                option { key: "{p.id}", value: "{p.id}", selected: selected(&p.id.to_string()),
                                     "@{p.handle}"
+                                }
+                            }
+                            if is_admin {
+                                option { value: SPEAK_AS_ADMINISTRATORS, selected: selected(SPEAK_AS_ADMINISTRATORS),
+                                    "Administrators (shown as staff)"
+                                }
+                                if let Some(name) = &v.staff_name {
+                                    option { value: SPEAK_AS_STAFF, selected: selected(SPEAK_AS_STAFF),
+                                        "{name} (your staff name, shown as staff)"
+                                    }
                                 }
                             }
                         }

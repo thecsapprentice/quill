@@ -17,8 +17,8 @@ use axum::{
 };
 use quill_proto::{
     announcements::{
-        Comment, CommentPage, CommentQuery, CommentVisibility, CreateComment, RemoveComment,
-        ReportComment,
+        Comment, CommentPage, CommentQuery, CommentVisibility, CommentVoice, CreateComment,
+        RemoveComment, ReportComment,
     },
     board::{PromptAuthor, ReportReason},
     limits::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE},
@@ -55,9 +55,11 @@ pub fn router() -> OpenApiRouter<AppState> {
 struct Row {
     id: Uuid,
     announcement_id: Uuid,
-    actor_id: Uuid,
-    handle: String,
+    voice: String,
+    actor_id: Option<Uuid>,
+    handle: Option<String>,
     display_name: Option<String>,
+    staff_name: Option<String>,
     body_md: String,
     body_html: String,
     removed: bool,
@@ -66,14 +68,21 @@ struct Row {
 
 impl From<Row> for Comment {
     fn from(r: Row) -> Self {
+        let author = match (r.actor_id, r.handle) {
+            (Some(id), Some(handle)) => Some(PromptAuthor {
+                id,
+                handle,
+                display_name: r.display_name,
+            }),
+            _ => None,
+        };
         Self {
             id: r.id,
             announcement: r.announcement_id,
-            author: PromptAuthor {
-                id: r.actor_id,
-                handle: r.handle,
-                display_name: r.display_name,
-            },
+            // The column's CHECK allows only the three voices.
+            voice: r.voice.parse().unwrap_or_default(),
+            author,
+            staff_name: r.staff_name,
             body: r.body_md,
             body_html: r.body_html,
             removed: r.removed,
@@ -82,10 +91,10 @@ impl From<Row> for Comment {
     }
 }
 
-const SELECT: &str = "SELECT c.id, c.announcement_id, a.id AS actor_id, \
-     a.preferred_username AS handle, a.display_name, c.body_md, c.body_html, \
+const SELECT: &str = "SELECT c.id, c.announcement_id, c.voice, a.id AS actor_id, \
+     a.preferred_username AS handle, a.display_name, c.staff_name, c.body_md, c.body_html, \
      c.removed_at IS NOT NULL AS removed, c.created_at \
-     FROM announcement_comments c JOIN actors a ON a.id = c.actor_id";
+     FROM announcement_comments c LEFT JOIN actors a ON a.id = c.actor_id";
 
 // ---- Reading ---------------------------------------------------------------
 
@@ -173,7 +182,7 @@ pub async fn announcement_of(
     let admin = viewer_is_admin(&state.pool, viewer).await?;
     let found: Option<Uuid> = sqlx::query_scalar(
         "SELECT c.announcement_id FROM announcement_comments c
-         JOIN actors a ON a.id = c.actor_id
+         LEFT JOIN actors a ON a.id = c.actor_id
          JOIN announcements an ON an.id = c.announcement_id
          WHERE c.id = $1 AND an.deleted_at IS NULL
            AND (c.removed_at IS NULL OR a.account_id = $2 OR $3)",
@@ -188,7 +197,69 @@ pub async fn announcement_of(
 
 // ---- Writing ---------------------------------------------------------------
 
-/// Posts a comment as one of `account`'s personas.
+/// Who a new comment is written by, once the voice is checked.
+struct Speaker {
+    actor: Option<Uuid>,
+    /// The administrator behind an admin voice.
+    admin: Option<Uuid>,
+    staff_name: Option<String>,
+}
+
+/// Checks that `account` may speak in the voice `body` asks for.
+async fn speaker(
+    state: &AppState,
+    account: Uuid,
+    body: &CreateComment,
+) -> Result<Speaker, ApiError> {
+    if body.voice == CommentVoice::Persona {
+        let owns: Option<i32> = match body.persona {
+            Some(persona) => {
+                sqlx::query_scalar("SELECT 1 FROM actors WHERE id = $1 AND account_id = $2")
+                    .bind(persona)
+                    .bind(account)
+                    .fetch_optional(&state.pool)
+                    .await?
+            }
+            None => None,
+        };
+        if owns.is_none() {
+            return Err(ApiError::BadRequest("unknown persona".into()));
+        }
+        return Ok(Speaker {
+            actor: body.persona,
+            admin: None,
+            staff_name: None,
+        });
+    }
+    if body.persona.is_some() {
+        return Err(ApiError::BadRequest(
+            "A comment speaks as a persona or as staff, not both.".into(),
+        ));
+    }
+    let row: Option<(bool, Option<String>)> =
+        sqlx::query_as("SELECT is_admin, staff_name FROM accounts WHERE id = $1")
+            .bind(account)
+            .fetch_optional(&state.pool)
+            .await?;
+    let Some((true, staff_name)) = row else {
+        return Err(ApiError::Forbidden(
+            "Only administrators comment as staff.".into(),
+        ));
+    };
+    let staff_name = match body.voice {
+        CommentVoice::Staff => Some(staff_name.ok_or_else(|| {
+            ApiError::BadRequest("Set a staff name in your settings first.".into())
+        })?),
+        _ => None,
+    };
+    Ok(Speaker {
+        actor: None,
+        admin: Some(account),
+        staff_name,
+    })
+}
+
+/// Posts a comment as one of `account`'s personas, or as staff.
 pub async fn post(
     state: &AppState,
     account: Uuid,
@@ -202,15 +273,7 @@ pub async fn post(
             "Comments are closed on this announcement.".into(),
         ));
     }
-    let owns: Option<i32> =
-        sqlx::query_scalar("SELECT 1 FROM actors WHERE id = $1 AND account_id = $2")
-            .bind(body.persona)
-            .bind(account)
-            .fetch_optional(&state.pool)
-            .await?;
-    if owns.is_none() {
-        return Err(ApiError::BadRequest("unknown persona".into()));
-    }
+    let who = speaker(state, account, body).await?;
     let key = format!("comment:{account}");
     if !state
         .limiter
@@ -221,13 +284,17 @@ pub async fn post(
     let id = Uuid::now_v7();
     // Closing comments while this is posted wins: the insert checks again.
     let inserted = sqlx::query(
-        "INSERT INTO announcement_comments (id, announcement_id, actor_id, body_md, body_html)
-         SELECT $1, $2, $3, $4, $5 FROM announcements
+        "INSERT INTO announcement_comments
+             (id, announcement_id, voice, actor_id, account_id, staff_name, body_md, body_html)
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8 FROM announcements
          WHERE id = $2 AND deleted_at IS NULL AND comments_open",
     )
     .bind(id)
     .bind(announcement)
-    .bind(body.persona)
+    .bind(body.voice.as_str())
+    .bind(who.actor)
+    .bind(who.admin)
+    .bind(&who.staff_name)
     .bind(&text)
     .bind(markdown::render(&text))
     .execute(&state.pool)
@@ -241,11 +308,15 @@ pub async fn post(
 }
 
 /// Deletes one of `account`'s comments for good. Reports about it stay,
-/// without it.
+/// without it. Any administrator may delete a staff comment, since the
+/// voice is shared.
 pub async fn delete_own(state: &AppState, account: Uuid, id: Uuid) -> Result<(), ApiError> {
     let result = sqlx::query(
-        "DELETE FROM announcement_comments c USING actors a
-         WHERE c.id = $1 AND a.id = c.actor_id AND a.account_id = $2",
+        "DELETE FROM announcement_comments c
+         WHERE c.id = $1 AND (
+             EXISTS (SELECT 1 FROM actors a WHERE a.id = c.actor_id AND a.account_id = $2)
+             OR (c.voice <> 'persona'
+                 AND EXISTS (SELECT 1 FROM accounts WHERE id = $2 AND is_admin)))",
     )
     .bind(id)
     .bind(account)
@@ -281,10 +352,10 @@ pub(crate) async fn remove_locked(
     reason: ReportReason,
     report: Option<Uuid>,
 ) -> Result<(), ApiError> {
-    let row: Option<(String, bool, Uuid, String, String)> = sqlx::query_as(
+    let row: Option<(String, bool, Uuid, String, Option<String>)> = sqlx::query_as(
         "SELECT c.body_md, c.removed_at IS NOT NULL, an.id, an.title, a.preferred_username
          FROM announcement_comments c
-         JOIN actors a ON a.id = c.actor_id
+         LEFT JOIN actors a ON a.id = c.actor_id
          JOIN announcements an ON an.id = c.announcement_id
          WHERE c.id = $1 FOR UPDATE OF c",
     )
@@ -292,6 +363,12 @@ pub(crate) async fn remove_locked(
     .fetch_optional(&mut *conn)
     .await?;
     let (text, removed, announcement, title, handle) = row.ok_or(ApiError::NotFound)?;
+    // Staff comments have no persona: the administrators delete them.
+    let Some(handle) = handle else {
+        return Err(ApiError::BadRequest(
+            "Comments from the administrators can't be removed; delete it instead.".into(),
+        ));
+    };
     if removed {
         return Err(ApiError::Conflict("comment already removed".into()));
     }
@@ -355,12 +432,12 @@ async fn api_list(
 #[utoipa::path(
     post, path = "/announcements/{id}/comments", tag = "announcements", security(("bearer" = [])),
     summary = "Comment on an announcement as one of the login's personas",
-    description = "At most 30 comments per login an hour. Comments can't be edited.",
+    description = "At most 30 comments per login an hour. Comments can't be edited. Administrators may speak as `administrators`, or as `staff` under the staff name in their account settings; the board marks both as the administrators'.",
     params(("id" = Uuid, Path, description = "The announcement")),
     request_body = CreateComment,
     responses(
         (status = 201, body = Comment),
-        (status = 403, description = "Comments are closed on this announcement"),
+        (status = 403, description = "Comments are closed on this announcement, or a staff voice from a login that isn't an administrator"),
         (status = 404, description = "No such announcement, or deleted"),
         (status = 429, description = "Too many comments"),
     ),

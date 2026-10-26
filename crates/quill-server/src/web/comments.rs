@@ -7,9 +7,11 @@ use axum::{
     http::StatusCode,
     response::Response,
 };
-use quill_board_ui::{CommentReportView, Nav, announcement_url};
+use quill_board_ui::{
+    CommentReportView, Nav, SPEAK_AS_ADMINISTRATORS, SPEAK_AS_STAFF, announcement_url,
+};
 use quill_proto::{
-    announcements::{Comment, CreateComment, ReportComment},
+    announcements::{Comment, CommentVoice, CreateComment, ReportComment},
     board::ReportReason,
 };
 use serde::Deserialize;
@@ -52,7 +54,9 @@ pub async fn goto(
 #[derive(Debug, Default, Deserialize)]
 pub struct CommentForm {
     csrf: Option<String>,
-    persona: Option<String>,
+    /// "Comment as": a persona id, or one of the board's `SPEAK_AS_*`.
+    #[serde(rename = "as")]
+    speak_as: Option<String>,
     body: Option<String>,
 }
 
@@ -72,18 +76,28 @@ pub async fn post(
     let Ok(id) = id.parse::<Uuid>() else {
         return error_page(&c, ApiError::NotFound);
     };
-    let persona = opt(&form.persona).and_then(|p| p.parse::<Uuid>().ok());
+    let speak_as = opt(&form.speak_as).map(str::to_owned);
     let body = form.body.clone().unwrap_or_default();
     let again = |error: String| Draft {
-        persona,
+        speak_as: speak_as.clone(),
         body: body.clone(),
         error: Some(error),
     };
-    let Some(persona) = persona else {
-        let draft = again("Choose a persona to comment as.".into());
-        return render_announcement(&state, Some(&s), id, None, None, draft).await;
+    let (voice, persona) = match speak_as.as_deref() {
+        Some(SPEAK_AS_ADMINISTRATORS) => (CommentVoice::Administrators, None),
+        Some(SPEAK_AS_STAFF) => (CommentVoice::Staff, None),
+        Some(p) => match p.parse::<Uuid>() {
+            Ok(p) => (CommentVoice::Persona, Some(p)),
+            Err(_) => (CommentVoice::Persona, None),
+        },
+        None => (CommentVoice::Persona, None),
     };
+    if voice == CommentVoice::Persona && persona.is_none() {
+        let draft = again("Choose who to comment as.".into());
+        return render_announcement(&state, Some(&s), id, None, None, draft).await;
+    }
     let create = CreateComment {
+        voice,
         persona,
         body: body.clone(),
     };

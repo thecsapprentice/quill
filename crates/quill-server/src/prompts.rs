@@ -83,16 +83,19 @@ pub async fn account_settings(
     state: &AppState,
     account: Uuid,
 ) -> Result<AccountSettings, ApiError> {
-    let row: Option<(String, bool)> =
-        sqlx::query_as("SELECT maturity_max::text, is_admin FROM accounts WHERE id = $1")
-            .bind(account)
-            .fetch_optional(&state.pool)
-            .await?;
-    let (maturity, is_admin) = row.ok_or(ApiError::Unauthorized)?;
+    let row: Option<(String, bool, Option<String>)> = sqlx::query_as(
+        "SELECT maturity_max::text, is_admin, staff_name FROM accounts WHERE id = $1",
+    )
+    .bind(account)
+    .fetch_optional(&state.pool)
+    .await?;
+    let (maturity, is_admin, staff_name) = row.ok_or(ApiError::Unauthorized)?;
     Ok(AccountSettings {
         maturity_max: parse_enum(&maturity)?,
         is_admin,
         unread_notices: crate::notices::unread_count(state, account).await?,
+        // Kept if admin rights are taken away, but only shown to admins.
+        staff_name: staff_name.filter(|_| is_admin),
     })
 }
 
@@ -101,13 +104,42 @@ pub async fn update_account_settings(
     account: Uuid,
     body: &UpdateAccountSettings,
 ) -> Result<AccountSettings, ApiError> {
+    // Checked first, so a refused staff name changes nothing.
+    let staff_name = body
+        .staff_name
+        .as_deref()
+        .map(validate::staff_name)
+        .transpose()?;
+    if staff_name.is_some() && !viewer_is_admin(&state.pool, Some(account)).await? {
+        return Err(ApiError::Forbidden(
+            "Only administrators have a staff name.".into(),
+        ));
+    }
+    let mut tx = state.pool.begin().await?;
     if let Some(m) = body.maturity_max {
         sqlx::query("UPDATE accounts SET maturity_max = $2::maturity WHERE id = $1")
             .bind(account)
             .bind(m.as_str())
-            .execute(&state.pool)
+            .execute(&mut *tx)
             .await?;
     }
+    if let Some(name) = staff_name {
+        let set = sqlx::query("UPDATE accounts SET staff_name = $2 WHERE id = $1")
+            .bind(account)
+            .bind(&name)
+            .execute(&mut *tx)
+            .await;
+        match set {
+            Ok(_) => {}
+            Err(e) if crate::error::is_unique_violation(&e) => {
+                return Err(ApiError::Conflict(
+                    "Another administrator already uses that staff name.".into(),
+                ));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+    tx.commit().await?;
     account_settings(state, account).await
 }
 
@@ -127,7 +159,11 @@ async fn get_account(
     patch, path = "/account", tag = "account", security(("bearer" = [])),
     summary = "Change the login's board settings",
     request_body = UpdateAccountSettings,
-    responses((status = 200, body = AccountSettings)),
+    responses(
+        (status = 200, body = AccountSettings),
+        (status = 403, description = "A staff name, from a login that isn't an administrator"),
+        (status = 409, description = "Another administrator uses that staff name"),
+    ),
 )]
 async fn update_account(
     State(state): State<AppState>,

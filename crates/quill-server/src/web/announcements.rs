@@ -126,7 +126,8 @@ pub struct ShowParams {
 /// The comment form's values, kept when it's sent back with an error.
 #[derive(Debug, Default)]
 pub(super) struct Draft {
-    pub persona: Option<Uuid>,
+    /// A persona id, or one of the board's `SPEAK_AS_*` values.
+    pub speak_as: Option<String>,
     pub body: String,
     pub error: Option<String>,
 }
@@ -158,14 +159,19 @@ pub(super) async fn render_announcement(
                 next_cursor: None,
             }
         };
-        let personas = match viewer {
-            Some(account) => crate::routes::personas(state, account).await?,
-            None => Vec::new(),
+        let (personas, staff_name) = match viewer {
+            Some(account) => (
+                crate::routes::personas(state, account).await?,
+                crate::prompts::account_settings(state, account)
+                    .await?
+                    .staff_name,
+            ),
+            None => (Vec::new(), None),
         };
-        Ok::<_, ApiError>((announcement, page, personas, !readable))
+        Ok::<_, ApiError>((announcement, page, personas, staff_name, !readable))
     }
     .await;
-    let (announcement, page, personas, comments_hidden) = match loaded {
+    let (announcement, page, personas, staff_name, comments_hidden) = match loaded {
         Ok(l) => l,
         Err(e) => return error_page(&c, e),
     };
@@ -190,7 +196,8 @@ pub(super) async fn render_announcement(
                 more_comments,
                 personas,
                 draft: draft.body,
-                persona: draft.persona,
+                speak_as: draft.speak_as,
+                staff_name,
                 error: draft.error,
                 comments_hidden,
             },

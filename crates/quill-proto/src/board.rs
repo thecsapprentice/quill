@@ -546,6 +546,10 @@ pub struct AccountSettings {
     /// Account notices not yet read.
     #[serde(default)]
     pub unread_notices: u64,
+    /// An administrator's name for commenting as staff, if set. Public on
+    /// their staff comments; the login name never is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staff_name: Option<String>,
 }
 
 /// `PATCH /account`.
@@ -555,6 +559,9 @@ pub struct AccountSettings {
 pub struct UpdateAccountSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maturity_max: Option<Maturity>,
+    /// Administrators only. An empty string clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staff_name: Option<String>,
 }
 
 // ---- Reports and the admin inbox -----------------------------------------

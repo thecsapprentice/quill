@@ -133,8 +133,15 @@ pub struct Comment {
     pub id: Uuid,
     /// The announcement it's on.
     pub announcement: Uuid,
-    /// The persona that wrote it.
-    pub author: PromptAuthor,
+    /// Who it speaks as.
+    #[serde(default)]
+    pub voice: CommentVoice,
+    /// The persona that wrote it (`persona` voice only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<PromptAuthor>,
+    /// The staff name it was posted under (`staff` voice only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staff_name: Option<String>,
     /// Markdown source.
     pub body: String,
     /// Sanitized HTML rendered by the server from `body`.
@@ -147,16 +154,78 @@ pub struct Comment {
     pub created_at: OffsetDateTime,
 }
 
+impl Comment {
+    /// Whether an administrator wrote it as staff (either admin voice).
+    pub fn from_staff(&self) -> bool {
+        self.voice != CommentVoice::Persona
+    }
+
+    /// The name it shows: `@handle`, "Administrators", or the staff name.
+    pub fn speaker(&self) -> String {
+        match (self.voice, &self.author, &self.staff_name) {
+            (CommentVoice::Persona, Some(a), _) => format!("@{}", a.handle),
+            (CommentVoice::Staff, _, Some(name)) => name.clone(),
+            _ => "Administrators".to_owned(),
+        }
+    }
+}
+
+crate::board::string_enum! {
+    /// Who a comment speaks as.
+    CommentVoice {
+        /// One of the writer's personas.
+        Persona => "persona",
+        /// The administrators together; which one isn't shown.
+        Administrators => "administrators",
+        /// One administrator, under the staff name they chose.
+        Staff => "staff",
+    }
+}
+
+// `string_enum!` writes the derives, so the default is implemented by hand.
+#[allow(clippy::derivable_impls)]
+impl Default for CommentVoice {
+    fn default() -> Self {
+        Self::Persona
+    }
+}
+
 /// `POST /announcements/{id}/comments`. Comments can't be edited, so a
 /// reported comment stays as it was reported; the author can delete it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateComment {
-    /// Persona (owned by the caller) the comment is written as.
-    pub persona: Uuid,
+    /// Who to speak as. `administrators` and `staff` are for administrators
+    /// only; `staff` needs a staff name set in the account settings.
+    #[serde(default)]
+    pub voice: CommentVoice,
+    /// Persona (owned by the caller) to write as; `persona` voice only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<Uuid>,
     /// Markdown.
     pub body: String,
+}
+
+impl CreateComment {
+    /// A comment written as one of the caller's personas.
+    pub fn as_persona(persona: Uuid, body: String) -> Self {
+        Self {
+            voice: CommentVoice::Persona,
+            persona: Some(persona),
+            body,
+        }
+    }
+
+    /// A comment from an administrator, as the shared voice or under their
+    /// staff name.
+    pub fn as_staff(voice: CommentVoice, body: String) -> Self {
+        Self {
+            voice,
+            persona: None,
+            body,
+        }
+    }
 }
 
 /// `GET /announcements/{id}/comments` query.

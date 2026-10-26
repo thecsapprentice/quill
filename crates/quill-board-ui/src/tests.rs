@@ -313,10 +313,17 @@ fn other_pages_render() {
                 maturity_max: Maturity::Mature,
                 is_admin: true,
                 unread_notices: 0,
+                staff_name: None,
             },
+            staff_name: "Nat <admin>".into(),
+            error: Some("a staff name must be".into()),
         },
     );
     assert!(settings.contains(r#"<option value="mature" selected"#));
+    // Administrators get the staff name field, kept on error.
+    assert!(settings.contains(r#"name="staff_name""#));
+    assert!(settings.contains("Nat &#60;admin&#62;"));
+    assert!(settings.contains("a staff name must be"));
 
     let admin = admin_reports_page(
         &c,
@@ -871,7 +878,8 @@ fn announcement_view(announcement: quill_proto::announcements::Announcement) -> 
         more_comments: None,
         personas: Vec::new(),
         draft: String::new(),
-        persona: None,
+        speak_as: None,
+        staff_name: None,
         error: None,
         comments_hidden: false,
     }
@@ -910,11 +918,13 @@ fn comment(
     quill_proto::announcements::Comment {
         id: Uuid::from_u128(id),
         announcement: Uuid::from_u128(7),
-        author: PromptAuthor {
+        voice: quill_proto::announcements::CommentVoice::Persona,
+        author: Some(PromptAuthor {
             id: Uuid::from_u128(author),
             handle: handle.into(),
             display_name: None,
-        },
+        }),
+        staff_name: None,
         body: "Thanks <b>all</b>".into(),
         body_html: "<p>Thanks &lt;b&gt;all&lt;/b&gt;</p>".into(),
         removed,
@@ -1154,4 +1164,57 @@ fn listings_tag_sticky_and_closed_announcements() {
         },
     );
     assert!(!list.contains(r#"name="back""#));
+}
+
+fn staff_comment(id: u128, staff_name: Option<&str>) -> quill_proto::announcements::Comment {
+    use quill_proto::announcements::CommentVoice;
+    quill_proto::announcements::Comment {
+        voice: if staff_name.is_some() {
+            CommentVoice::Staff
+        } else {
+            CommentVoice::Administrators
+        },
+        author: None,
+        staff_name: staff_name.map(str::to_owned),
+        ..comment(id, 0, "unused", false)
+    }
+}
+
+#[test]
+fn staff_comments_are_marked_and_only_admins_speak_as_staff() {
+    let mut view = announcement_view(announcement("Welcome", false));
+    view.comments = vec![
+        staff_comment(200, None),
+        staff_comment(201, Some("Nathan")),
+        comment(202, 1, "ink_fox", false),
+    ];
+
+    // Readers see both staff voices marked in red, with no Report link.
+    let html = announcement_page(&chrome(true, false), view.clone());
+    assert_eq!(html.matches(r#"class="comment staff""#).count(), 2);
+    assert!(html.contains(r#"<span class="staff-name">Administrators</span>"#));
+    assert!(html.contains(r#"<span class="staff-name">Nathan</span>"#));
+    assert_eq!(html.matches(r#"class="flag flag-admin""#).count(), 2);
+    assert!(!html.contains("/comments/00000000-0000-0000-0000-0000000000c8/report"));
+    assert!(html.contains("/comments/00000000-0000-0000-0000-0000000000ca/report"));
+    // A writer with no personas can't post, and isn't offered staff voices.
+    assert!(!html.contains(r#"value="administrators""#));
+    assert!(html.contains("Create one"));
+
+    // An administrator without a staff name gets the shared voice and a
+    // pointer to Settings; with one, their name too. They can delete staff
+    // comments but not remove or report them.
+    let html = announcement_page(&chrome(true, true), view.clone());
+    assert!(html.contains(r#"value="administrators""#));
+    assert!(!html.contains(r#"value="staff""#));
+    assert!(html.contains("set a staff name"));
+    assert!(html.contains("/comments/00000000-0000-0000-0000-0000000000c8/delete"));
+    assert!(!html.contains("/admin/comments/00000000-0000-0000-0000-0000000000c8/remove"));
+    assert!(html.contains("/admin/comments/00000000-0000-0000-0000-0000000000ca/remove"));
+    view.staff_name = Some("Nathan".into());
+    view.speak_as = Some(SPEAK_AS_STAFF.into());
+    let html = announcement_page(&chrome(true, true), view);
+    assert!(html.contains(r#"value="staff" selected"#));
+    assert!(html.contains("Nathan (your staff name, shown as staff)"));
+    assert!(!html.contains("set a staff name"));
 }

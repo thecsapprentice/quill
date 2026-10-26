@@ -59,13 +59,7 @@ async fn announce(admin: &Client, title: &str) -> Announcement {
 
 async fn comment(client: &Client, persona: Uuid, on: Uuid, text: &str) -> Uuid {
     client
-        .post_comment(
-            on,
-            &CreateComment {
-                persona,
-                body: text.into(),
-            },
-        )
+        .post_comment(on, &CreateComment::as_persona(persona, text.into()))
         .await
         .unwrap()
         .id
@@ -102,14 +96,11 @@ async fn writers_comment_until_comments_close() {
     let first = alice
         .post_comment(
             a.id,
-            &CreateComment {
-                persona: alice_pen,
-                body: "Hello *all*".into(),
-            },
+            &CreateComment::as_persona(alice_pen, "Hello *all*".into()),
         )
         .await
         .unwrap();
-    assert_eq!(first.author.handle, "alice_pen");
+    assert_eq!(first.author.as_ref().unwrap().handle, "alice_pen");
     assert_eq!(first.body_html, "<p>Hello <em>all</em></p>\n");
     let second = comment(&bob, bob_pen, a.id, "Hi").await;
 
@@ -117,33 +108,18 @@ async fn writers_comment_until_comments_close() {
     let theirs = bob
         .post_comment(
             a.id,
-            &CreateComment {
-                persona: alice_pen,
-                body: "Not mine".into(),
-            },
+            &CreateComment::as_persona(alice_pen, "Not mine".into()),
         )
         .await
         .unwrap_err();
     assert_eq!(status(&theirs), 400);
     let empty = bob
-        .post_comment(
-            a.id,
-            &CreateComment {
-                persona: bob_pen,
-                body: " \n ".into(),
-            },
-        )
+        .post_comment(a.id, &CreateComment::as_persona(bob_pen, " \n ".into()))
         .await
         .unwrap_err();
     assert_eq!(status(&empty), 400);
     let signed_out = anonymous
-        .post_comment(
-            a.id,
-            &CreateComment {
-                persona: bob_pen,
-                body: "Hi".into(),
-            },
-        )
+        .post_comment(a.id, &CreateComment::as_persona(bob_pen, "Hi".into()))
         .await
         .unwrap_err();
     assert!(matches!(signed_out, CoreError::NotLoggedIn));
@@ -183,13 +159,7 @@ async fn writers_comment_until_comments_close() {
         .await
         .unwrap();
     let refused = bob
-        .post_comment(
-            a.id,
-            &CreateComment {
-                persona: bob_pen,
-                body: "Late".into(),
-            },
-        )
+        .post_comment(a.id, &CreateComment::as_persona(bob_pen, "Late".into()))
         .await
         .unwrap_err();
     assert_eq!(status(&refused), 403);
@@ -221,13 +191,7 @@ async fn writers_comment_until_comments_close() {
         .unwrap_err();
     assert_eq!(status(&gone), 404);
     let gone = bob
-        .post_comment(
-            a.id,
-            &CreateComment {
-                persona: bob_pen,
-                body: "Hello?".into(),
-            },
-        )
+        .post_comment(a.id, &CreateComment::as_persona(bob_pen, "Hello?".into()))
         .await
         .unwrap_err();
     assert_eq!(status(&gone), 404);
@@ -250,10 +214,7 @@ async fn comments_are_rate_limited_per_login() {
     let limited = alice
         .post_comment(
             a.id,
-            &CreateComment {
-                persona: alice_pen,
-                body: "One more".into(),
-            },
+            &CreateComment::as_persona(alice_pen, "One more".into()),
         )
         .await
         .unwrap_err();
@@ -528,7 +489,7 @@ async fn comments_on_the_board() {
     let blank = alice
         .post(
             &format!("{page_path}/comments"),
-            &[("csrf", &csrf), ("persona", &pen), ("body", " ")],
+            &[("csrf", &csrf), ("as", &pen), ("body", " ")],
         )
         .await;
     assert_eq!(blank.status, StatusCode::BAD_REQUEST);
@@ -537,7 +498,7 @@ async fn comments_on_the_board() {
     let posted = alice
         .post(
             &format!("{page_path}/comments"),
-            &[("csrf", &csrf), ("persona", &pen), ("body", "First!")],
+            &[("csrf", &csrf), ("as", &pen), ("body", "First!")],
         )
         .await;
     assert_eq!(posted.status, StatusCode::SEE_OTHER);
@@ -722,4 +683,177 @@ async fn administrators_can_hide_comments_from_visitors() {
             .body
             .contains("Visible to whom?")
     );
+}
+
+#[tokio::test]
+async fn administrators_comment_as_staff() {
+    use quill_proto::{announcements::CommentVoice, board::UpdateAccountSettings};
+
+    let server = server!();
+    let boss = server.admin_account("boss").await.unwrap();
+    let ward = server.admin_account("ward").await.unwrap();
+    let (alice, alice_pen) = writer(&server, "alice").await;
+    let a = announce(&boss, "Welcome").await;
+    let name = |n: &str| UpdateAccountSettings {
+        staff_name: Some(n.into()),
+        ..UpdateAccountSettings::default()
+    };
+
+    // Staff names: administrators only, not the shared voice's name, and
+    // unique whatever the case.
+    assert_eq!(
+        status(&alice.update_account(&name("Alice")).await.unwrap_err()),
+        403
+    );
+    assert_eq!(
+        status(
+            &boss
+                .update_account(&name("administrators"))
+                .await
+                .unwrap_err()
+        ),
+        400
+    );
+    let settings = boss.update_account(&name("Nathan")).await.unwrap();
+    assert_eq!(settings.staff_name.as_deref(), Some("Nathan"));
+    assert_eq!(
+        status(&ward.update_account(&name("nathan")).await.unwrap_err()),
+        409
+    );
+
+    // The shared voice, and a staff name; the login never shows.
+    let shared = boss
+        .post_comment(
+            a.id,
+            &CreateComment::as_staff(CommentVoice::Administrators, "We're on it.".into()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(shared.voice, CommentVoice::Administrators);
+    assert!(shared.author.is_none());
+    assert_eq!(shared.speaker(), "Administrators");
+    let named = boss
+        .post_comment(
+            a.id,
+            &CreateComment::as_staff(CommentVoice::Staff, "I'll look myself.".into()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(named.speaker(), "Nathan");
+    let json = serde_json::to_string(&named).unwrap();
+    assert!(!json.contains("boss"));
+
+    // Without a staff name, only the shared voice; writers get neither,
+    // and a comment speaks one way only.
+    let nameless = ward
+        .post_comment(
+            a.id,
+            &CreateComment::as_staff(CommentVoice::Staff, "Hi".into()),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(status(&nameless), 400);
+    let writer_refused = alice
+        .post_comment(
+            a.id,
+            &CreateComment::as_staff(CommentVoice::Administrators, "Hi".into()),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(status(&writer_refused), 403);
+    let both = boss
+        .post_comment(
+            a.id,
+            &CreateComment {
+                voice: CommentVoice::Staff,
+                persona: Some(alice_pen),
+                body: "Hi".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(status(&both), 400);
+
+    // Staff comments can't be reported or removed; any administrator can
+    // delete them, a writer can't.
+    let refused = alice
+        .report_comment(shared.id, &report(ReportReason::Spam))
+        .await
+        .unwrap_err();
+    assert_eq!(status(&refused), 404);
+    let refused = ward
+        .admin_remove_comment(
+            shared.id,
+            &RemoveComment {
+                reason: ReportReason::Spam,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(status(&refused), 400);
+    assert_eq!(
+        status(&alice.delete_comment(shared.id).await.unwrap_err()),
+        404
+    );
+    ward.delete_comment(shared.id).await.unwrap();
+    assert_eq!(visible(&alice, a.id).await, vec![(named.id, false)]);
+
+    // On the board: the staff name in red, marked Admin.
+    let mut reader = Browser::new(&server);
+    let page = reader.get(&format!("/announcements/{}", a.id)).await;
+    assert!(
+        page.body
+            .contains(r#"<span class="staff-name">Nathan</span>"#)
+    );
+    assert!(page.body.contains(r#"class="flag flag-admin""#));
+    assert!(!page.body.contains("boss"));
+}
+
+#[tokio::test]
+async fn administrators_set_a_staff_name_and_speak_as_staff_on_the_board() {
+    let server = server!();
+    let boss = server.admin_account("boss").await.unwrap();
+    let a = announce(&boss, "Welcome").await;
+    let page_path = format!("/announcements/{}", a.id);
+
+    let mut b = Browser::new(&server);
+    b.sign_in("boss").await;
+    let page = b.get(&page_path).await;
+    // No personas needed: an administrator can always speak as staff.
+    assert!(page.body.contains(r#"value="administrators""#));
+    assert!(page.body.contains("set a staff name"));
+    let csrf = page.csrf();
+
+    let refused = b
+        .post(
+            "/settings",
+            &[("csrf", &csrf), ("staff_name", "Administrators")],
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST);
+    assert!(refused.body.contains("staff name must be"));
+    let saved = b
+        .post("/settings", &[("csrf", &csrf), ("staff_name", "Nathan")])
+        .await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER);
+
+    let page = b.get(&page_path).await;
+    assert!(page.body.contains(r#"value="staff""#));
+    let posted = b
+        .post(
+            &format!("{page_path}/comments"),
+            &[
+                ("csrf", &csrf),
+                ("as", "staff"),
+                ("body", "Hello from staff"),
+            ],
+        )
+        .await;
+    assert_eq!(posted.status, StatusCode::SEE_OTHER);
+    let page = b.get(posted.location()).await;
+    assert!(
+        page.body
+            .contains(r#"<span class="staff-name">Nathan</span>"#)
+    );
+    assert!(page.body.contains("Hello from staff"));
 }

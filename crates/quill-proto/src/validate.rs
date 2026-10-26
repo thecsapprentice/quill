@@ -34,6 +34,10 @@ pub enum ValidationError {
         "channel {0:?} must be 1-{CHANNEL_MAX_CHARS} characters of a-z, 0-9 and single hyphens, not starting or ending with one"
     )]
     Channel(String),
+    #[error(
+        "a staff name must be 1-{STAFF_NAME_MAX_CHARS} characters on one line, and can't be “Administrators”"
+    )]
+    StaffName,
 }
 
 /// The longest channel name (protocol draft, section 5).
@@ -111,6 +115,19 @@ pub fn display_name(input: Option<&str>) -> Result<Option<String>, ValidationErr
         });
     }
     Ok(value)
+}
+
+/// An administrator's staff name. Blank clears it (`None`). It can't be
+/// the shared voice's own name, so nobody's comments read as both.
+pub fn staff_name(input: &str) -> Result<Option<String>, ValidationError> {
+    let value =
+        optional_text(Some(input), STAFF_NAME_MAX_CHARS).map_err(|_| ValidationError::StaffName)?;
+    match value {
+        Some(v) if v.contains('\n') || v.eq_ignore_ascii_case("administrators") => {
+            Err(ValidationError::StaffName)
+        }
+        other => Ok(other),
+    }
 }
 
 pub fn summary(input: Option<&str>) -> Result<Option<String>, ValidationError> {

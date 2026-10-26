@@ -22,6 +22,10 @@
   /* Sticky announcements: a tint of the action colour. */
   --sticky: #e3f2ef;
   --sticky-line: #a9d3cc;
+  /* Administrators speaking as staff: a soft red. */
+  --staff: #b03a32;
+  --staff-bg: #fbeae8;
+  --staff-line: #eab3ad;
   --danger: #a3302b;
   --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino,
     "URW Palladio L", "P052", Georgia, serif;
@@ -50,6 +54,9 @@
     --warn-line: #8a7230;
     --sticky: #182d2b;
     --sticky-line: #2c534e;
+    --staff: #f2a19a;
+    --staff-bg: #3a2220;
+    --staff-line: #7a3d38;
     --danger: #f08a82;
   }
 }
@@ -619,6 +626,23 @@ input[type="color"] {
   border: 1px solid var(--line);
   border-radius: 2px;
   padding: 0 0.35em;
+}
+
+/* Comments written as the administrators: their name in a soft red. */
+.staff-name {
+  color: var(--staff);
+  font-weight: 600;
+}
+
+.flag-admin {
+  color: var(--staff);
+  border-color: var(--staff-line);
+  background: var(--staff-bg);
+}
+
+.comment.staff {
+  border-left: 3px solid var(--staff-line);
+  padding-left: 0.75rem;
 }
 
 .flag-sticky {

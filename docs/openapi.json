@@ -108,6 +108,26 @@
               }
             }
           },
+          "403": {
+            "description": "A staff name, from a login that isn't an administrator",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another administrator uses that staff name",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "413": {
             "description": "The body is over the instance's size limit.",
             "content": {
@@ -2948,7 +2968,7 @@
           "announcements"
         ],
         "summary": "Comment on an announcement as one of the login's personas",
-        "description": "At most 30 comments per login an hour. Comments can't be edited.",
+        "description": "At most 30 comments per login an hour. Comments can't be edited. Administrators may speak as `administrators`, or as `staff` under the staff name in their account settings; the board marks both as the administrators'.",
         "operationId": "post_announcements_by_id_comments",
         "parameters": [
           {
@@ -3004,7 +3024,7 @@
             }
           },
           "403": {
-            "description": "Comments are closed on this announcement",
+            "description": "Comments are closed on this announcement, or a staff voice from a login that isn't an administrator",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -7788,6 +7808,13 @@
           "maturityMax": {
             "$ref": "#/components/schemas/Maturity"
           },
+          "staffName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An administrator's name for commenting as staff, if set. Public on\ntheir staff comments; the login name never is."
+          },
           "unreadNotices": {
             "type": "integer",
             "format": "int64",
@@ -8363,7 +8390,6 @@
         "required": [
           "id",
           "announcement",
-          "author",
           "body",
           "bodyHtml",
           "createdAt"
@@ -8375,8 +8401,15 @@
             "description": "The announcement it's on."
           },
           "author": {
-            "$ref": "#/components/schemas/PromptAuthor",
-            "description": "The persona that wrote it."
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PromptAuthor",
+                "description": "The persona that wrote it (`persona` voice only)."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "body": {
             "type": "string",
@@ -8397,6 +8430,17 @@
           "removed": {
             "type": "boolean",
             "description": "Set once an administrator removed it. Only its author and\nadministrators see it then."
+          },
+          "staffName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The staff name it was posted under (`staff` voice only)."
+          },
+          "voice": {
+            "$ref": "#/components/schemas/CommentVoice",
+            "description": "Who it speaks as."
           }
         }
       },
@@ -8426,6 +8470,14 @@
         "enum": [
           "public",
           "signed-in"
+        ]
+      },
+      "CommentVoice": {
+        "type": "string",
+        "enum": [
+          "persona",
+          "administrators",
+          "staff"
         ]
       },
       "CommitBackup": {
@@ -8471,7 +8523,6 @@
         "type": "object",
         "description": "`POST /announcements/{id}/comments`. Comments can't be edited, so a\nreported comment stays as it was reported; the author can delete it.",
         "required": [
-          "persona",
           "body"
         ],
         "properties": {
@@ -8480,9 +8531,16 @@
             "description": "Markdown."
           },
           "persona": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "uuid",
-            "description": "Persona (owned by the caller) the comment is written as."
+            "description": "Persona (owned by the caller) to write as; `persona` voice only."
+          },
+          "voice": {
+            "$ref": "#/components/schemas/CommentVoice",
+            "description": "Who to speak as. `administrators` and `staff` are for administrators\nonly; `staff` needs a staff name set in the account settings."
           }
         }
       },
@@ -10455,6 +10513,13 @@
                 "type": "null"
               }
             ]
+          },
+          "staffName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Administrators only. An empty string clears it."
           }
         }
       },

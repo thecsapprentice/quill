@@ -79,6 +79,7 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `is_admin`      | `login`    | Whether the login administers the server.                            |
 | `created_at`    | `metadata` | When the login was made.                                             |
 | `maturity_max`  | `login`    | The highest maturity the login chose to see on the board.            |
+| `staff_name`    | `public`   | An administrator's chosen name for commenting as staff; shown on their staff comments, never the login name. |
 
 ### `actors`
 
@@ -140,7 +141,10 @@ Not listed column by column: sqlx's own record of which migrations ran
 |-------------------|--------------|-------------------------------------------------------------------------|
 | `id`              | `metadata`   | Comment id.                                                             |
 | `announcement_id` | `metadata`   | The announcement it's on.                                               |
-| `actor_id`        | `public`     | The persona that wrote it, shown beside it.                             |
+| `actor_id`        | `public`     | The persona that wrote it, shown beside it (persona comments only).     |
+| `voice`           | `public`     | Written as a persona, as "Administrators", or under a staff name.       |
+| `account_id`      | `moderation` | The administrator behind an Administrators or staff comment; never shown to writers. |
+| `staff_name`      | `public`     | The staff name it was posted under, as it was then.                     |
 | `body_md`         | `public`     | Its Markdown text, public under the announcement.                       |
 | `body_html`       | `public`     | The same, rendered and sanitized.                                       |
 | `created_at`      | `public`     | When it was posted.                                                     |
