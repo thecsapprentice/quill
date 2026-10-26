@@ -12,8 +12,10 @@ use quill_board_ui::{
 };
 use quill_proto::{
     announcements::{
-        Announcement, AnnouncementQuery, CommentQuery, CreateAnnouncement, UpdateAnnouncement,
+        Announcement, AnnouncementQuery, CommentPage, CommentQuery, CommentVisibility,
+        CreateAnnouncement, UpdateAnnouncement,
     },
+    board::UpdateServerSettings,
     limits::MAX_PAGE_SIZE,
 };
 use serde::Deserialize;
@@ -144,15 +146,24 @@ pub(super) async fn render_announcement(
             cursor: after.map(str::to_owned),
             limit: Some(MAX_PAGE_SIZE),
         };
-        let page = crate::comments::list(state, viewer, id, &query).await?;
+        // Hidden comments aren't an error here: the page says to sign in.
+        let readable = crate::comments::readable_by(state, viewer).await?;
+        let page = if readable {
+            crate::comments::list(state, viewer, id, &query).await?
+        } else {
+            CommentPage {
+                items: Vec::new(),
+                next_cursor: None,
+            }
+        };
         let personas = match viewer {
             Some(account) => crate::routes::personas(state, account).await?,
             None => Vec::new(),
         };
-        Ok::<_, ApiError>((announcement, page, personas))
+        Ok::<_, ApiError>((announcement, page, personas, !readable))
     }
     .await;
-    let (announcement, page, personas) = match loaded {
+    let (announcement, page, personas, comments_hidden) = match loaded {
         Ok(l) => l,
         Err(e) => return error_page(&c, e),
     };
@@ -179,6 +190,7 @@ pub(super) async fn render_announcement(
                 draft: draft.body,
                 persona: draft.persona,
                 error: draft.error,
+                comments_hidden,
             },
         ),
     )
@@ -228,8 +240,14 @@ async fn render_admin_list(
         cursor: opt(&params.cursor).map(str::to_owned),
         limit: None,
     };
-    let page = match announcements::list(state, &query).await {
-        Ok(p) => p,
+    let loaded = async {
+        let page = announcements::list(state, &query).await?;
+        let settings = crate::server_settings::settings(state).await?;
+        Ok::<_, ApiError>((page, settings.comment_visibility))
+    }
+    .await;
+    let (page, comment_visibility) = match loaded {
+        Ok(l) => l,
         Err(e) => return error_page(&c, e),
     };
     let status = if error.is_some() {
@@ -249,6 +267,7 @@ async fn render_admin_list(
                 // A new form starts with comments allowed.
                 comments_open: form.is_none_or(|f| f.comments.is_some()),
                 error,
+                comment_visibility,
             },
         ),
     )
@@ -376,6 +395,40 @@ pub async fn admin_edit(
             Some(m) => render_admin_edit(&state, &s, &id, Some(&form), Some(m)).await,
             None => error_page(&c, e),
         },
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct VisibilityForm {
+    csrf: Option<String>,
+    visibility: Option<String>,
+}
+
+/// The server-wide "who can read comments" setting.
+pub async fn admin_comment_visibility(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Form(form): Form<VisibilityForm>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let c = chrome(&state, Some(&s), Nav::ServerSettings, None);
+    if !s.csrf_matches(form.csrf.as_deref()) {
+        return csrf_failed(&c);
+    }
+    let Some(visibility) = opt(&form.visibility).and_then(|v| v.parse::<CommentVisibility>().ok())
+    else {
+        return error_page(&c, ApiError::BadRequest("Choose a setting.".into()));
+    };
+    let body = UpdateServerSettings {
+        comment_visibility: Some(visibility),
+        ..UpdateServerSettings::default()
+    };
+    match crate::server_settings::update(&state, s.account_id, &body).await {
+        Ok(_) => redirect("/admin/settings/announcements?notice=comment-visibility-saved"),
+        Err(e) => error_page(&c, e),
     }
 }
 

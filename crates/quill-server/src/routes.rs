@@ -73,6 +73,7 @@ async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, A
         default_maturity_max: quill_proto::board::Maturity::DEFAULT_MAX,
         limits: state.config.limits,
         attachments: settings.attachments,
+        comment_visibility: settings.comment_visibility,
     }))
 }
 

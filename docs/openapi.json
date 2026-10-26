@@ -2897,7 +2897,7 @@
             }
           },
           "401": {
-            "description": "No valid bearer token.",
+            "description": "This server shows comments to signed-in writers only (`commentVisibility` in `GET /instance`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3902,7 +3902,7 @@
           "reports"
         ],
         "summary": "Report a comment to the administrators",
-        "description": "Signing in is optional. The author never learns who reported, and reports (of prompts and comments together) are rate-limited per reporter.",
+        "description": "Signing in is optional, unless the server shows comments to signed-in writers only. The author never learns who reported, and reports (of prompts and comments together) are rate-limited per reporter.",
         "operationId": "post_comments_by_id_report",
         "parameters": [
           {
@@ -3941,7 +3941,7 @@
             }
           },
           "401": {
-            "description": "No valid bearer token.",
+            "description": "This server shows comments to signed-in writers only",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -8407,6 +8407,13 @@
           }
         }
       },
+      "CommentVisibility": {
+        "type": "string",
+        "enum": [
+          "public",
+          "signed-in"
+        ]
+      },
       "CommitBackup": {
         "type": "object",
         "description": "`POST /backup/{generation}/commit`: the new backup is complete.",
@@ -8924,6 +8931,10 @@
           "attachments": {
             "type": "boolean",
             "description": "Whether sessions here take attachments: the administrators' choice."
+          },
+          "commentVisibility": {
+            "$ref": "#/components/schemas/CommentVisibility",
+            "description": "Who can read comments on announcements, so a client knows to ask a\nvisitor to sign in first."
           },
           "defaultMaturityMax": {
             "$ref": "#/components/schemas/Maturity",
@@ -10052,6 +10063,10 @@
             "type": "boolean",
             "description": "Whether sessions on this server take attachments (2i)."
           },
+          "commentVisibility": {
+            "$ref": "#/components/schemas/CommentVisibility",
+            "description": "Who can read comments on announcements."
+          },
           "newTags": {
             "$ref": "#/components/schemas/TagPolicy",
             "description": "Whether writers may create new tags."
@@ -10561,6 +10576,16 @@
             "type": [
               "boolean",
               "null"
+            ]
+          },
+          "commentVisibility": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CommentVisibility"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "newTags": {

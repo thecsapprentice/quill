@@ -297,7 +297,7 @@ Not listed column by column: sqlx's own record of which migrations ran
 
 | Column       | Class      | What                                                  |
 |--------------|------------|-------------------------------------------------------|
-| `key`        | `settings` | A setting's name (new tags, attachments).             |
+| `key`        | `settings` | A setting's name (new tags, attachments, comment visibility). |
 | `value`      | `settings` | Its value.                                            |
 | `updated_at` | `settings` | When it last changed.                                 |
 

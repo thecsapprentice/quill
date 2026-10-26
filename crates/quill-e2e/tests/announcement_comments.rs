@@ -600,3 +600,125 @@ async fn comments_on_the_board() {
     assert_eq!(deleted.status, StatusCode::SEE_OTHER);
     assert!(!alice.get(&page_path).await.body.contains("First!"));
 }
+
+#[tokio::test]
+async fn administrators_can_hide_comments_from_visitors() {
+    use quill_proto::{announcements::CommentVisibility, board::UpdateServerSettings};
+
+    let server = server!();
+    let admin = server.admin_account("boss").await.unwrap();
+    let (alice, alice_pen) = writer(&server, "alice").await;
+    let (bob, _) = writer(&server, "bob").await;
+    let anonymous = server.client();
+    let a = announce(&admin, "Welcome").await;
+    let said = comment(&alice, alice_pen, a.id, "Visible to whom?").await;
+
+    // Public until an administrator says otherwise.
+    assert_eq!(
+        anonymous.instance().await.unwrap().comment_visibility,
+        CommentVisibility::Public
+    );
+    assert_eq!(visible(&anonymous, a.id).await.len(), 1);
+
+    let refused = bob
+        .admin_update_settings(&UpdateServerSettings {
+            comment_visibility: Some(CommentVisibility::SignedIn),
+            ..UpdateServerSettings::default()
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(status(&refused), 403);
+    let settings = admin
+        .admin_update_settings(&UpdateServerSettings {
+            comment_visibility: Some(CommentVisibility::SignedIn),
+            ..UpdateServerSettings::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(settings.comment_visibility, CommentVisibility::SignedIn);
+    assert_eq!(
+        anonymous.instance().await.unwrap().comment_visibility,
+        CommentVisibility::SignedIn
+    );
+    let log = admin
+        .admin_log_filtered(&AdminLogQuery::default())
+        .await
+        .unwrap();
+    assert_eq!(log[0].action, AdminAction::ChangeSetting);
+    assert_eq!(log[0].subject.as_deref(), Some("comment_visibility"));
+    assert_eq!(
+        log[0].detail.as_deref(),
+        Some("comments readable by: everyone → signed-in writers only")
+    );
+
+    // Visitors can't read or report comments, even ones that don't exist;
+    // signed-in writers still can. The announcement itself stays public.
+    let hidden = anonymous
+        .comments(a.id, &CommentQuery::default())
+        .await
+        .unwrap_err();
+    assert_eq!(status(&hidden), 401);
+    let hidden = anonymous
+        .comments(Uuid::now_v7(), &CommentQuery::default())
+        .await
+        .unwrap_err();
+    assert_eq!(status(&hidden), 401);
+    let hidden = anonymous
+        .report_comment(said, &report(ReportReason::Spam))
+        .await
+        .unwrap_err();
+    assert_eq!(status(&hidden), 401);
+    assert_eq!(visible(&bob, a.id).await, vec![(said, false)]);
+    bob.report_comment(said, &report(ReportReason::Spam))
+        .await
+        .unwrap();
+    anonymous.announcement(a.id).await.unwrap();
+
+    // On the board, visitors are asked to sign in instead.
+    let page_path = format!("/announcements/{}", a.id);
+    let mut reader = Browser::new(&server);
+    let page = reader.get(&page_path).await;
+    assert_eq!(page.status, StatusCode::OK);
+    assert!(page.body.contains("comments are for signed-in writers"));
+    assert!(!page.body.contains("Visible to whom?"));
+    for path in [
+        format!("/comments/{said}"),
+        format!("/comments/{said}/report"),
+    ] {
+        let page = reader.get(&path).await;
+        assert_eq!(page.status, StatusCode::SEE_OTHER, "{path}");
+        assert_eq!(page.location(), "/login");
+    }
+    let mut bob_browser = Browser::new(&server);
+    bob_browser.sign_in("bob").await;
+    assert!(
+        bob_browser
+            .get(&page_path)
+            .await
+            .body
+            .contains("Visible to whom?")
+    );
+
+    // Switched back on the admin tab: public again.
+    let mut boss = Browser::new(&server);
+    boss.sign_in("boss").await;
+    let tab = boss.get("/admin/settings/announcements").await;
+    assert!(tab.body.contains(r#"value="signed-in" checked"#));
+    let saved = boss
+        .post(
+            "/admin/settings/comment-visibility",
+            &[("csrf", &tab.csrf()), ("visibility", "public")],
+        )
+        .await;
+    assert_eq!(
+        saved.location(),
+        "/admin/settings/announcements?notice=comment-visibility-saved"
+    );
+    assert!(
+        reader
+            .get(&page_path)
+            .await
+            .body
+            .contains("Visible to whom?")
+    );
+}

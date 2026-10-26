@@ -17,7 +17,8 @@ use axum::{
 };
 use quill_proto::{
     announcements::{
-        Comment, CommentPage, CommentQuery, CreateComment, RemoveComment, ReportComment,
+        Comment, CommentPage, CommentQuery, CommentVisibility, CreateComment, RemoveComment,
+        ReportComment,
     },
     board::{PromptAuthor, ReportReason},
     limits::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE},
@@ -36,6 +37,7 @@ use crate::{
     prompts::{decode_cursor, encode_cursor, viewer_is_admin},
     reports::{self, comment_hash},
     routes::ApiJson,
+    server_settings,
 };
 
 /// Comments one account may post per hour, across its personas.
@@ -87,6 +89,27 @@ const SELECT: &str = "SELECT c.id, c.announcement_id, a.id AS actor_id, \
 
 // ---- Reading ---------------------------------------------------------------
 
+/// Whether `viewer` may read comments: everyone can, unless the
+/// administrators made them visible to signed-in writers only.
+pub async fn readable_by(state: &AppState, viewer: Option<Uuid>) -> Result<bool, ApiError> {
+    if viewer.is_some() {
+        return Ok(true);
+    }
+    let mut conn = state.pool.acquire().await?;
+    Ok(server_settings::comment_visibility(&mut conn).await? == CommentVisibility::Public)
+}
+
+/// Refuses a visitor who isn't signed in when comments are for signed-in
+/// writers only. Checked before anything is looked up, so the refusal
+/// doesn't say whether a comment exists.
+pub(crate) async fn check_readable(state: &AppState, viewer: Option<Uuid>) -> Result<(), ApiError> {
+    if readable_by(state, viewer).await? {
+        Ok(())
+    } else {
+        Err(ApiError::Unauthorized)
+    }
+}
+
 /// A comment in any state, for the administrators' inbox.
 pub async fn load(pool: &PgPool, id: Uuid) -> Result<Option<Comment>, ApiError> {
     // Safe: built only from compile-time constants; values are bound.
@@ -106,6 +129,7 @@ pub async fn list(
     announcement: Uuid,
     q: &CommentQuery,
 ) -> Result<CommentPage, ApiError> {
+    check_readable(state, viewer).await?;
     crate::announcements::get(state, announcement).await?;
     let admin = viewer_is_admin(&state.pool, viewer).await?;
     let limit = q.limit.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE);
@@ -145,6 +169,7 @@ pub async fn announcement_of(
     viewer: Option<Uuid>,
     id: Uuid,
 ) -> Result<Uuid, ApiError> {
+    check_readable(state, viewer).await?;
     let admin = viewer_is_admin(&state.pool, viewer).await?;
     let found: Option<Uuid> = sqlx::query_scalar(
         "SELECT c.announcement_id FROM announcement_comments c
@@ -310,7 +335,11 @@ pub(crate) async fn remove_locked(
     summary = "Comments on an announcement, oldest first",
     description = "Removed comments are left out, except for their author and administrators, who see them marked as removed. Pages by `cursor`, which the previous page returns.",
     params(("id" = Uuid, Path, description = "The announcement"), CommentQuery),
-    responses((status = 200, body = CommentPage), (status = 404, description = "No such announcement, or deleted")),
+    responses(
+        (status = 200, body = CommentPage),
+        (status = 401, description = "This server shows comments to signed-in writers only (`commentVisibility` in `GET /instance`)"),
+        (status = 404, description = "No such announcement, or deleted"),
+    ),
 )]
 async fn api_list(
     State(state): State<AppState>,
@@ -364,11 +393,12 @@ async fn api_delete(
 #[utoipa::path(
     post, path = "/comments/{id}/report", tag = "reports", security((), ("bearer" = [])),
     summary = "Report a comment to the administrators",
-    description = "Signing in is optional. The author never learns who reported, and reports (of prompts and comments together) are rate-limited per reporter.",
+    description = "Signing in is optional, unless the server shows comments to signed-in writers only. The author never learns who reported, and reports (of prompts and comments together) are rate-limited per reporter.",
     params(("id" = Uuid, Path, description = "The comment")),
     request_body = ReportComment,
     responses(
         (status = 202, description = "Received"),
+        (status = 401, description = "This server shows comments to signed-in writers only"),
         (status = 404, description = "No such comment"),
         (status = 429, description = "Too many reports"),
     ),

@@ -114,6 +114,10 @@ pub fn router() -> Router<AppState> {
             "/admin/settings/announcements/{id}/delete",
             post(announcements::admin_delete),
         )
+        .route(
+            "/admin/settings/comment-visibility",
+            post(announcements::admin_comment_visibility),
+        )
         .route("/admin/settings/tag-requests", get(settings::tag_requests))
         .route(
             "/admin/settings/handles",
@@ -354,6 +358,7 @@ fn notice_text(key: &str) -> Option<&'static str> {
         "announcement-saved" => "Changes saved.",
         "announcement-comments" => "Setting saved.",
         "announcement-deleted" => "Announcement deleted.",
+        "comment-visibility-saved" => "Setting saved.",
         "comment-posted" => "Comment posted.",
         "comment-deleted" => "Comment deleted.",
         "comment-removed" => "Comment removed. Its author has been told why.",

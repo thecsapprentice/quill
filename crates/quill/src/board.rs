@@ -231,6 +231,10 @@ pub enum AdminCommand {
         /// Whether sessions take attachments: on or off.
         #[arg(long, value_parser = clap::builder::BoolishValueParser::new())]
         attachments: Option<bool>,
+        /// Who can read comments on announcements: public, or signed-in
+        /// (signed-in writers only).
+        #[arg(long)]
+        comments: Option<quill_proto::announcements::CommentVisibility>,
     },
     /// List tags with how many prompts use them, aliases included.
     Tags {
@@ -777,12 +781,14 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
         AdminCommand::Settings {
             new_tags,
             attachments,
+            comments,
         } => {
-            let settings = if new_tags.is_some() || attachments.is_some() {
+            let settings = if new_tags.is_some() || attachments.is_some() || comments.is_some() {
                 client
                     .admin_update_settings(&UpdateServerSettings {
                         new_tags,
                         attachments,
+                        comment_visibility: comments,
                     })
                     .await?
             } else {
@@ -798,6 +804,7 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                         "not allowed"
                     }
                 );
+                println!("who can read comments: {}", s.comment_visibility);
             })
         }
         AdminCommand::Reserved { search } => {

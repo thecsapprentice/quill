@@ -391,6 +391,9 @@ pub struct ServerSettings {
     /// Whether sessions on this server take attachments (2i).
     #[serde(default = "yes")]
     pub attachments: bool,
+    /// Who can read comments on announcements.
+    #[serde(default)]
+    pub comment_visibility: crate::announcements::CommentVisibility,
 }
 
 fn yes() -> bool {
@@ -406,6 +409,8 @@ pub struct UpdateServerSettings {
     pub new_tags: Option<TagPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachments: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment_visibility: Option<crate::announcements::CommentVisibility>,
 }
 
 // ---- Prompts -------------------------------------------------------------

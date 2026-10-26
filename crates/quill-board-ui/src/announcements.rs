@@ -3,7 +3,7 @@
 
 use dioxus::prelude::*;
 use quill_proto::{
-    announcements::{Announcement, Comment},
+    announcements::{Announcement, Comment, CommentVisibility},
     api::Persona,
     board::ReportReason,
     limits::{
@@ -55,6 +55,9 @@ pub struct AnnouncementView {
     pub draft: String,
     pub persona: Option<Uuid>,
     pub error: Option<String>,
+    /// The server shows comments to signed-in writers only, and the
+    /// visitor isn't signed in: `comments` is empty.
+    pub comments_hidden: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +77,8 @@ pub struct AdminAnnouncementsView {
     pub body: String,
     pub comments_open: bool,
     pub error: Option<String>,
+    /// The server-wide setting: who can read comments.
+    pub comment_visibility: CommentVisibility,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,6 +189,18 @@ fn comments_section(chrome: &Chrome, v: &AnnouncementView) -> Element {
     let viewer = chrome.viewer.as_ref();
     let is_admin = viewer.is_some_and(|v| v.is_admin);
     let mine = |c: &Comment| v.personas.iter().any(|p| p.id == c.author.id);
+    if v.comments_hidden {
+        return rsx! {
+            section { class: "comments", "aria-labelledby": "comments-title",
+                h2 { id: "comments-title", class: "form-title", "Comments" }
+                p {
+                    "On this server, comments are for signed-in writers. "
+                    a { href: "/login", "Sign in" }
+                    " to read them."
+                }
+            }
+        };
+    }
     rsx! {
         section { class: "comments", "aria-labelledby": "comments-title",
             h2 { id: "comments-title", class: "form-title", "Comments" }
@@ -394,6 +411,31 @@ pub fn admin_announcements_page(chrome: &Chrome, view: AdminAnnouncementsView) -
                 }
                 div { class: "actions",
                     button { class: "btn", r#type: "submit", "Post announcement" }
+                }
+            }
+            form { class: "form-card", method: "post", action: "/admin/settings/comment-visibility",
+                {csrf(c)}
+                fieldset { class: "choices",
+                    legend { class: "form-title", "Who can read comments" }
+                    label { class: "inline-check",
+                        input { r#type: "radio", name: "visibility", value: "public",
+                            checked: v.comment_visibility == CommentVisibility::Public }
+                        span {
+                            "Everyone"
+                            span { class: "hint", "Anyone can read comments, signed in or not. Only signed-in writers can post them." }
+                        }
+                    }
+                    label { class: "inline-check",
+                        input { r#type: "radio", name: "visibility", value: "signed-in",
+                            checked: v.comment_visibility == CommentVisibility::SignedIn }
+                        span {
+                            "Signed-in writers only"
+                            span { class: "hint", "Visitors who aren't signed in see the announcements, but not their comments. Applies to every announcement." }
+                        }
+                    }
+                }
+                div { class: "actions",
+                    button { class: "btn", r#type: "submit", "Save" }
                 }
             }
             if v.announcements.is_empty() {

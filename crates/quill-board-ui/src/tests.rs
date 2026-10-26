@@ -829,9 +829,14 @@ fn admin_announcement_pages_render() {
             body: "Draft body".into(),
             comments_open: false,
             error: Some("title is required".into()),
+            comment_visibility: quill_proto::announcements::CommentVisibility::SignedIn,
         },
     );
     assert!(html.contains(r#"aria-current="page">Announcements"#));
+    // The visibility setting shows its current value.
+    assert!(html.contains(r#"action="/admin/settings/comment-visibility""#));
+    assert!(html.contains(r#"value="signed-in" checked"#));
+    assert!(!html.contains(r#"value="public" checked"#));
     assert!(html.contains("title is required"));
     assert!(html.contains(r#"value="Draft &#60;title&#62;""#));
     assert!(html.contains(r#"name="csrf" value="csrf-token-123""#));
@@ -865,7 +870,21 @@ fn announcement_view(announcement: quill_proto::announcements::Announcement) -> 
         draft: String::new(),
         persona: None,
         error: None,
+        comments_hidden: false,
     }
+}
+
+#[test]
+fn hidden_comments_ask_the_visitor_to_sign_in() {
+    let mut view = announcement_view(announcement("Welcome", false));
+    view.comments_hidden = true;
+    let html = announcement_page(&chrome(false, false), view);
+    assert!(html.contains("comments are for signed-in writers"));
+    assert!(html.contains(r#"href="/login""#));
+    assert!(!html.contains("No comments yet."));
+    assert!(!html.contains("to comment."));
+    // The announcement itself still shows.
+    assert!(html.contains("<p>Maintenance <em>tonight</em></p>"));
 }
 
 fn persona(id: u128, handle: &str) -> Persona {

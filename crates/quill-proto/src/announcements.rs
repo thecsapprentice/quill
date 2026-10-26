@@ -93,6 +93,25 @@ pub struct AnnouncementPage {
 
 // ---- Comments ----------------------------------------------------------------
 
+crate::board::string_enum! {
+    /// Who can read comments on announcements: an administrators' setting.
+    CommentVisibility {
+        /// Everyone, signed in or not.
+        Public => "public",
+        /// Signed-in writers only. Visitors who aren't signed in can't
+        /// read, follow links to or report comments.
+        SignedIn => "signed-in",
+    }
+}
+
+// `string_enum!` writes the derives, so the default is implemented by hand.
+#[allow(clippy::derivable_impls)]
+impl Default for CommentVisibility {
+    fn default() -> Self {
+        Self::Public
+    }
+}
+
 /// A writer's comment on an announcement: flat, under the announcement,
 /// oldest first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
