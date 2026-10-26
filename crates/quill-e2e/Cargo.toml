@@ -27,6 +27,10 @@ reqwest = { workspace = true, features = ["rustls"] }
 url.workspace = true
 serde_json.workspace = true
 tracing-subscriber.workspace = true
+# The desktop app's native backend (3b), without its window.
+quill-gui.workspace = true
+quill-ui.workspace = true
+tempfile = "3"
 # Checks the server's answers against the OpenAPI file.
 boon = "0.6"
 
