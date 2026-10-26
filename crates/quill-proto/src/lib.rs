@@ -5,6 +5,7 @@
 //! depend on any cryptographic or MLS crate. Validation rules live here so the
 //! server and every client enforce identical limits.
 
+pub mod announcements;
 pub mod api;
 pub mod board;
 pub mod color;

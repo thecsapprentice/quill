@@ -717,6 +717,10 @@ fn action_label(action: AdminAction) -> &'static str {
         AdminAction::RecolorTag => "Tag colour changed",
         AdminAction::ReserveHandles => "Handles reserved",
         AdminAction::UnreserveHandle => "Handle no longer reserved",
+        AdminAction::PostAnnouncement => "Announcement posted",
+        AdminAction::EditAnnouncement => "Announcement edited",
+        AdminAction::DeleteAnnouncement => "Announcement deleted",
+        AdminAction::SetAnnouncementComments => "Announcement comments changed",
     }
 }
 

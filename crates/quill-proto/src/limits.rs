@@ -65,6 +65,10 @@ pub const PROMPT_TITLE_MAX_CHARS: usize = 200;
 pub const PROMPT_BODY_MAX_CHARS: usize = 20_000;
 pub const PROMPT_MAX_TAGS: usize = 15;
 
+/// Announcements from administrators: the same bounds as prompts.
+pub const ANNOUNCEMENT_TITLE_MAX_CHARS: usize = PROMPT_TITLE_MAX_CHARS;
+pub const ANNOUNCEMENT_BODY_MAX_CHARS: usize = PROMPT_BODY_MAX_CHARS;
+
 /// Tags and tag namespaces.
 pub const TAG_SLUG_MAX_CHARS: usize = 40;
 pub const TAG_DISPLAY_MAX_CHARS: usize = 40;

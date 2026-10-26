@@ -136,13 +136,24 @@ pub fn prompt_title(input: &str) -> Result<String, ValidationError> {
 /// Prompt bodies are Markdown; line breaks and tabs are allowed. Line endings
 /// are normalized to `\n`.
 pub fn prompt_body(input: &str) -> Result<String, ValidationError> {
+    markdown_body(input, PROMPT_BODY_MAX_CHARS)
+}
+
+pub fn announcement_title(input: &str) -> Result<String, ValidationError> {
+    required_line("title", input, ANNOUNCEMENT_TITLE_MAX_CHARS)
+}
+
+/// Announcement bodies are Markdown, like prompt bodies.
+pub fn announcement_body(input: &str) -> Result<String, ValidationError> {
+    markdown_body(input, ANNOUNCEMENT_BODY_MAX_CHARS)
+}
+
+/// Required Markdown text, its line endings normalized to `\n`.
+fn markdown_body(input: &str, max: usize) -> Result<String, ValidationError> {
     let normalized = input.replace("\r\n", "\n").replace('\r', "\n");
-    match optional_text(Some(&normalized), PROMPT_BODY_MAX_CHARS) {
+    match optional_text(Some(&normalized), max) {
         Ok(Some(v)) => Ok(v),
-        _ => Err(ValidationError::Required {
-            field: "body",
-            max: PROMPT_BODY_MAX_CHARS,
-        }),
+        _ => Err(ValidationError::Required { field: "body", max }),
     }
 }
 

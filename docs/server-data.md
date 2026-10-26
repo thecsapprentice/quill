@@ -118,6 +118,20 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `account_id` | `metadata`   | A login the decision was against.                      |
 | `login`      | `moderation` | Its login name, as it was, for administrators.         |
 
+### `announcements`
+
+| Column          | Class      | What                                                                   |
+|-----------------|------------|------------------------------------------------------------------------|
+| `id`            | `metadata` | Announcement id.                                                       |
+| `title`         | `public`   | Its title, shown on the board.                                         |
+| `body_md`       | `public`   | Its Markdown text.                                                     |
+| `body_html`     | `public`   | The same, rendered and sanitized.                                      |
+| `comments_open` | `settings` | Whether writers may comment on it.                                     |
+| `created_by`    | `metadata` | The administrator who posted it; readers see "the administrators".    |
+| `created_at`    | `public`   | When it was posted.                                                    |
+| `updated_at`    | `public`   | When it last changed.                                                  |
+| `deleted_at`    | `metadata` | When an administrator deleted it; it then shows nowhere.               |
+
 ### `api_tokens`
 
 | Column       | Class      | What                                                          |

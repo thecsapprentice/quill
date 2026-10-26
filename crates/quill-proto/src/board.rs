@@ -173,6 +173,10 @@ string_enum! {
         RecolorTag => "recolor_tag",
         ReserveHandles => "reserve_handles",
         UnreserveHandle => "unreserve_handle",
+        PostAnnouncement => "post_announcement",
+        EditAnnouncement => "edit_announcement",
+        DeleteAnnouncement => "delete_announcement",
+        SetAnnouncementComments => "set_announcement_comments",
     }
 }
 
