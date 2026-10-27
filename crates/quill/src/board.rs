@@ -160,6 +160,10 @@ pub enum AdminCommand {
     /// Post, edit and delete announcements.
     #[command(subcommand)]
     Announce(crate::announce_cmd::AnnounceCommand),
+    /// Moderation scripts, their chains, common data, templates and dry
+    /// runs.
+    #[command(subcommand)]
+    Automod(crate::automod_cmd::AutomodCommand),
     /// Show open reports (or all with --all).
     Reports {
         #[arg(long)]
@@ -569,6 +573,7 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
     let client = ctx.client()?;
     match cmd {
         AdminCommand::Announce(cmd) => crate::announce_cmd::announce(ctx, cmd).await,
+        AdminCommand::Automod(cmd) => crate::automod_cmd::automod(ctx, cmd).await,
         AdminCommand::Reports { all } => {
             let reports = client.admin_reports(all).await?;
             ctx.print(&reports, |list| {
