@@ -1,8 +1,0 @@
-[[rule]]
-name = "Banned words"
-any_words = [
-    "spam",
-    "free crypto",
-
-then = "reject"
-message = "This prompt uses words that aren't allowed here."

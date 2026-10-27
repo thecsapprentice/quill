@@ -39,7 +39,7 @@ ordered chain per hook with an error setting, and start from seven
 templates. Admin pages under Server settings → Moderation, the
 `/admin/moderation` API and `quill admin automod`. Design: the
 architecture document, "Automated moderation"; reference for admins:
-[automod.md](automod.md); the engine spike: `spikes/automod/FINDINGS.md`.
+[automod.md](automod.md).
 
 ### 1c: Docker setup and demo data
 
