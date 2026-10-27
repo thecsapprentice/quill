@@ -502,6 +502,7 @@ fn admin_log_shows_tag_and_report_entries() {
             LogActor::Reporter
         },
         admin_login: subject.is_some().then(|| "boss & co".to_owned()),
+        script_name: None,
         // The server sends a preview of five and the full count.
         targets: if subject.is_some() {
             (1..=5).map(|i| format!("writer{i}")).collect()
@@ -566,6 +567,7 @@ fn admin_log_entry_lists_accounts_and_their_prompts() {
         admin: None,
         actor: LogActor::Admin,
         admin_login: Some("boss".into()),
+        script_name: None,
         targets: vec!["alice".into(), "zed".into()],
         target_count: 250,
     };

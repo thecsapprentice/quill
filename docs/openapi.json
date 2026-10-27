@@ -7999,7 +7999,18 @@
           "delete_announcement",
           "set_announcement_comments",
           "set_announcement_sticky",
-          "delete_comment"
+          "delete_comment",
+          "upload_script",
+          "replace_script",
+          "remove_script",
+          "set_script_mode",
+          "update_chain",
+          "save_moderation_data",
+          "delete_moderation_data",
+          "automod_reject",
+          "automod_flag",
+          "automod_dismiss",
+          "automod_error"
         ]
       },
       "AdminLogDetail": {
@@ -8115,6 +8126,13 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "scriptName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The moderation script that acted, or that an administrator changed,\nas it was named then."
           },
           "subject": {
             "type": [
@@ -9243,7 +9261,8 @@
         "enum": [
           "admin",
           "server",
-          "reporter"
+          "reporter",
+          "automod"
         ]
       },
       "LoggedMessage": {

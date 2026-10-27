@@ -534,6 +534,7 @@ struct LogRow {
     admin_id: Option<Uuid>,
     actor: String,
     admin_login: Option<String>,
+    script_name: Option<String>,
     targets: Vec<String>,
     target_count: i64,
 }
@@ -556,6 +557,7 @@ impl LogRow {
             admin: self.admin_id,
             actor: crate::prompts::parse_enum(&self.actor)?,
             admin_login: self.admin_login,
+            script_name: self.script_name,
             targets: self.targets,
             target_count: u64::try_from(self.target_count).unwrap_or(0),
         })
@@ -611,7 +613,7 @@ async fn fetch_log(
         .filter(|s| !s.is_empty());
     let rows: Vec<LogRow> = sqlx::query_as(
         "SELECT l.id, l.at, l.action, l.report_id, l.prompt_id, l.comment_id, l.prompt_hash,
-                l.reason::text AS reason, l.subject, l.detail, l.admin_id, l.actor, l.admin_login,
+                l.reason::text AS reason, l.subject, l.detail, l.admin_id, l.actor, l.admin_login, l.script_name,
                 ARRAY(SELECT t.login FROM admin_log_targets t WHERE t.log_id = l.id
                       ORDER BY t.login = lower($4) DESC, t.login LIMIT $6) AS targets,
                 (SELECT count(*) FROM admin_log_targets t WHERE t.log_id = l.id) AS target_count
