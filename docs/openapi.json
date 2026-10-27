@@ -9349,6 +9349,12 @@
             ],
             "description": "For a merge: the tag the prompts carry now, as `namespace:slug`."
           },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "reason": {
             "oneOf": [
               {
@@ -9359,6 +9365,13 @@
                 "type": "null"
               }
             ]
+          },
+          "refused": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a refused submission: what it was (`prompt`, `edit`, `comment`,\n`tag` or `report`), its title or tag name if it had one, and the\nmessage the writer was shown. Never the refused text."
           },
           "tag": {
             "type": [
@@ -9373,6 +9386,12 @@
               "null"
             ],
             "description": "The tag's display name at the time."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "to": {
             "type": [
@@ -9393,7 +9412,8 @@
           "tag_shown",
           "tag_renamed",
           "tag_approved",
-          "comment_removed"
+          "comment_removed",
+          "content_rejected"
         ]
       },
       "NoticePrompt": {

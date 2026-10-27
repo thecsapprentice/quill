@@ -75,7 +75,31 @@ fn sentence(n: &AccountNotice) -> (String, &'static str) {
                 "",
             )
         }
+        NoticeKind::ContentRejected => (refused_sentence(n), ""),
     }
+}
+
+/// "Your prompt “Title” was refused: <message>". The refused text itself
+/// was never kept.
+fn refused_sentence(n: &AccountNotice) -> String {
+    let title = n.fields.title.as_deref().filter(|t| !t.is_empty());
+    let what = match (n.fields.refused.as_deref(), title) {
+        (Some("edit"), Some(t)) => format!("Your edit to “{t}”"),
+        (Some("edit"), None) => "Your edit".to_owned(),
+        (Some("comment"), Some(t)) => format!("Your comment on “{t}”"),
+        (Some("comment"), None) => "Your comment".to_owned(),
+        (Some("tag"), Some(t)) => format!("Your new tag {t}"),
+        (Some("report"), Some(t)) => format!("Your report about “{t}”"),
+        (Some("report"), None) => "Your report".to_owned(),
+        (_, Some(t)) => format!("Your prompt “{t}”"),
+        (_, None) => "Your submission".to_owned(),
+    };
+    let message = n
+        .fields
+        .message
+        .as_deref()
+        .unwrap_or(quill_proto::automod::GENERIC_REFUSAL);
+    format!("{what} was refused by the server's moderation rules: {message}")
 }
 
 pub fn notices_page(chrome: &Chrome, view: NoticesView) -> String {

@@ -54,7 +54,9 @@ fn subject(account: Uuid, actor: Uuid, title: &str, body: &str) -> context::Subj
         report: None,
         actor: Some(actor),
         account,
+        submitter: Some(account),
         prompt: None,
+        about: None,
     }
 }
 

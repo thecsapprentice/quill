@@ -126,10 +126,17 @@ pub struct Subject {
     pub report: Option<ReportInfo>,
     /// The persona writing, if a persona is.
     pub actor: Option<Uuid>,
-    /// The account writing.
+    /// The account whose writing it is, and whose history scripts see: the
+    /// reported writer, for a report.
     pub account: Uuid,
+    /// Who submitted it, and is told if it's refused: the reporter for a
+    /// report (none if they weren't signed in), else `account`.
+    pub submitter: Option<Uuid>,
     /// The prompt being edited or reported, left out of "similar" lists.
     pub prompt: Option<Uuid>,
+    /// What a refusal notice names when there's no title: the announcement
+    /// a comment was on.
+    pub about: Option<String>,
 }
 
 fn minutes_since(at: OffsetDateTime, now: OffsetDateTime) -> f64 {

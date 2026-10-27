@@ -191,23 +191,28 @@ pub fn skeleton(text: &str) -> String {
         .collect()
 }
 
-/// Repeated letters collapsed ("spaaam" → "spam") and runs of three or more
-/// single letters joined ("s p a m", "s.p.a.m" → "spam").
+/// Runs of three or more single letters joined ("s p a m", "s.p.a.m" →
+/// "spam"), then repeated letters collapsed ("spaaam" → "spam"). Joining
+/// comes first so "f r e e" and "free" end up the same ("fre").
 pub fn squash(text: &str) -> String {
-    let mut collapsed = String::with_capacity(text.len());
+    let joined = join_letters(text);
+    let mut out = String::with_capacity(joined.len());
     let mut last = None;
-    for c in text.chars() {
+    for c in joined.chars() {
         if Some(c) != last || !c.is_alphanumeric() {
-            collapsed.push(c);
+            out.push(c);
         }
         last = Some(c);
     }
+    out
+}
 
+fn join_letters(text: &str) -> String {
     // Word segmentation keeps "s.p.a.m" as one word (like "e.g."), so
     // dotted runs are joined here; spaced runs are joined below.
-    let tokens: Vec<std::borrow::Cow<'_, str>> = collapsed.split_word_bounds().map(undot).collect();
+    let tokens: Vec<std::borrow::Cow<'_, str>> = text.split_word_bounds().map(undot).collect();
     let tokens: Vec<&str> = tokens.iter().map(|t| t.as_ref()).collect();
-    let mut out = String::with_capacity(collapsed.len());
+    let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < tokens.len() {
         let mut j = i;
@@ -554,6 +559,8 @@ mod tests {
         assert_eq!(banned.find_in("spaaaam!"), ["spam"]);
         assert_eq!(banned.find_in("s.p.a.m"), ["spam"]);
         assert_eq!(banned.find_in("FREE crypto here"), ["free crypto"]);
+        assert_eq!(banned.find_in("F R E E crypto"), ["free crypto"]);
+        assert_eq!(banned.find_in("s p a a m"), ["spam"]);
         assert_eq!(banned.find_in("log in to p\u{0430}yp\u{0430}l"), ["paypal"]);
         assert_eq!(banned.find_in("sp\u{200B}am"), ["spam"]);
         assert!(banned.find_in("a spammer's lament").is_empty());

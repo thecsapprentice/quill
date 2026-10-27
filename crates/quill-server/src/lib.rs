@@ -48,6 +48,8 @@ pub struct AppState {
     pub events: events::Events,
     /// Common data as moderation scripts read it, parsed once per version.
     pub(crate) automod_data: Arc<moderation::data::DataCache>,
+    /// Moderation scripts, compiled once per version.
+    pub(crate) automod_scripts: Arc<moderation::scripts::ScriptCache>,
 }
 
 impl AppState {
@@ -73,6 +75,7 @@ impl AppState {
             limiter: Arc::default(),
             events: events::Events::default(),
             automod_data: Arc::default(),
+            automod_scripts: Arc::default(),
         })
     }
 }
