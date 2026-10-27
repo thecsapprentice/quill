@@ -13,6 +13,7 @@ mod admin;
 mod announcements;
 pub mod chips;
 mod layout;
+mod moderation;
 mod notices;
 mod pages;
 
@@ -31,6 +32,7 @@ use uuid::Uuid;
 
 pub use admin::*;
 pub use announcements::*;
+pub use moderation::*;
 pub use notices::notices_page;
 pub use pages::*;
 

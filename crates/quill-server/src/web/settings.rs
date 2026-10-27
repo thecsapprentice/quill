@@ -57,6 +57,12 @@ pub struct NoticeQuery {
     notice: Option<String>,
 }
 
+impl NoticeQuery {
+    pub(super) fn notice(&self) -> Option<&str> {
+        self.notice.as_deref()
+    }
+}
+
 pub async fn index(State(state): State<AppState>, MaybeSession(session): MaybeSession) -> Response {
     match require_admin(&state, session) {
         Ok(_) => redirect("/admin/settings/tag-types"),

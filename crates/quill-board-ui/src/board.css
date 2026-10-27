@@ -765,6 +765,41 @@ textarea.short {
   font-size: 1rem;
 }
 
+/* Moderation scripts and common data: code and lists, not prose. */
+textarea.code {
+  min-height: 22rem;
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  tab-size: 4;
+}
+
+pre.code {
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.automated {
+  font-weight: 600;
+}
+
+.decision-reject,
+.decision-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.decision-flag,
+.decision-dismiss {
+  font-weight: 600;
+}
+
+input.position {
+  width: 4.5rem;
+}
+
 .form-card {
   background: var(--card);
   border: 1px solid var(--line);
