@@ -88,6 +88,16 @@ impl Snapshot {
         self.0.get(name)
     }
 
+    /// This snapshot with some entries replaced by unsaved content, for
+    /// trying an edit in a dry run before saving it.
+    pub fn with_overrides(&self, overrides: impl IntoIterator<Item = (String, String)>) -> Self {
+        let mut map = (*self.0).clone();
+        for (name, content) in overrides {
+            map.insert(name.clone(), Arc::new(Entry::new(name, 0, content)));
+        }
+        Self(Arc::new(map))
+    }
+
     /// A snapshot of entries made in memory, for dry runs and tests.
     pub fn from_entries(entries: impl IntoIterator<Item = (String, i32, String)>) -> Self {
         Self(Arc::new(

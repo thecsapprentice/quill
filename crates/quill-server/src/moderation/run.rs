@@ -10,7 +10,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use quill_proto::automod::{GENERIC_REFUSAL, Hook, OnError, UNCHECKED_REFUSAL};
+use quill_proto::automod::{
+    DryRun, DryRunDecision, DryRunResult, DryRunStep, GENERIC_REFUSAL, Hook, OnError,
+    UNCHECKED_REFUSAL,
+};
 use quill_proto::board::{AdminAction, ReportReason};
 use quill_proto::notices::{NoticeFields, NoticeKind};
 use rhai::Dynamic;
@@ -351,6 +354,170 @@ async fn refuse(
     }
     tx.commit().await?;
     Ok(ApiError::ContentRejected(message))
+}
+
+/// Runs a chain, or one script, without doing anything: every script runs,
+/// whether or not an earlier one decided, and nothing is logged.
+pub async fn dry_run(state: &AppState, req: &DryRun) -> Result<DryRunResult, ApiError> {
+    let rows: Vec<(Uuid, String, String, Vec<u8>, bool)> = match req.script {
+        Some(id) => sqlx::query_as(
+            "SELECT id, name, source, source_hash, log_only FROM moderation_scripts WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_all(&state.pool)
+        .await?,
+        None => {
+            sqlx::query_as(
+                "SELECT s.id, s.name, s.source, s.source_hash, s.log_only
+                 FROM moderation_chain_steps c JOIN moderation_scripts s ON s.id = c.script_id
+                 WHERE c.hook = $1 AND s.enabled ORDER BY c.position",
+            )
+            .bind(req.hook.as_str())
+            .fetch_all(&state.pool)
+            .await?
+        }
+    };
+    if req.script.is_some() && rows.is_empty() {
+        return Err(ApiError::NotFound);
+    }
+    let limits = &state.config.automod;
+    let steps: Vec<Step> = rows
+        .into_iter()
+        .map(|(id, name, source, hash, log_only)| Step {
+            script: state
+                .automod_scripts
+                .get_or_compile(id, &hash, &source, limits),
+            id,
+            name,
+            log_only,
+        })
+        .collect();
+    let names = data_names(&steps);
+    let overrides = req.data.iter().map(|d| (d.name.clone(), d.content.clone()));
+    let snapshot = data::snapshot(&state.pool, &state.automod_data, &names)
+        .await?
+        .with_overrides(overrides);
+    let post = match req.prompt {
+        Some(prompt) => {
+            context::build(&state.pool, existing_prompt(state, req.hook, prompt).await?).await?
+        }
+        None => {
+            let mut post = context::sample(req.hook);
+            if !req.title.is_empty() || !req.body.is_empty() {
+                post.title = req.title.clone();
+                post.body = req.body.clone();
+            }
+            post
+        }
+    };
+    let post =
+        to_dynamic(&post).map_err(|e| ApiError::Internal(anyhow::anyhow!("context: {e}")))?;
+    let time_limit = Duration::from_millis(limits.time_ms);
+    let hook = req.hook;
+    let out = tokio::task::spawn_blocking(move || {
+        let mut decided = false;
+        steps
+            .iter()
+            .map(|step| {
+                let (result, printed, took) = match &step.script {
+                    Ok(script) => {
+                        let run = script.run(&[("post", post.clone())], &snapshot, time_limit);
+                        (run.result, run.printed, run.took)
+                    }
+                    Err(e) => (Err(e.clone()), Vec::new(), Duration::ZERO),
+                };
+                let (decision, detail, category) = match &result {
+                    Ok(Outcome::Pass) => (DryRunDecision::Pass, None, None),
+                    Ok(Outcome::Reject { message }) => (
+                        DryRunDecision::Reject,
+                        Some(
+                            message
+                                .clone()
+                                .unwrap_or_else(|| GENERIC_REFUSAL.to_owned()),
+                        ),
+                        None,
+                    ),
+                    Ok(Outcome::Flag { reason, category }) => (
+                        DryRunDecision::Flag,
+                        Some(reason.clone()),
+                        Some(category.as_str().to_owned()),
+                    ),
+                    Ok(Outcome::Dismiss { reason }) if hook == Hook::PromptReported => {
+                        (DryRunDecision::Dismiss, Some(reason.clone()), None)
+                    }
+                    Ok(Outcome::Dismiss { .. }) => (
+                        DryRunDecision::Error,
+                        Some(
+                            "dismiss(...) only closes reports; use it in the prompt_reported chain"
+                                .into(),
+                        ),
+                        None,
+                    ),
+                    Err(e) => (DryRunDecision::Error, Some(describe(e)), None),
+                };
+                let handled = !matches!(decision, DryRunDecision::Pass | DryRunDecision::Error);
+                let decides = handled && !step.log_only && !decided;
+                decided |= decides;
+                DryRunStep {
+                    script_id: step.id,
+                    name: step.name.clone(),
+                    decision,
+                    detail,
+                    category,
+                    printed,
+                    micros: u64::try_from(took.as_micros()).unwrap_or(u64::MAX),
+                    log_only: step.log_only,
+                    decides,
+                }
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| ApiError::Internal(e.into()))?;
+    Ok(DryRunResult { steps: out })
+}
+
+fn data_names(steps: &[Step]) -> Vec<String> {
+    let mut names: Vec<String> = steps
+        .iter()
+        .filter_map(|s| s.script.as_ref().ok())
+        .flat_map(|s| s.data_names().iter().cloned())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// An existing prompt as `hook` would see it, with its writer's history.
+async fn existing_prompt(state: &AppState, hook: Hook, prompt: Uuid) -> Result<Subject, ApiError> {
+    let row: Option<(String, String, Uuid, Uuid, String, Vec<i64>)> = sqlx::query_as(
+        "SELECT p.title, p.body_md, p.actor_id, a.account_id, p.maturity::text, p.tag_ids
+         FROM prompts p JOIN actors a ON a.id = p.actor_id WHERE p.id = $1",
+    )
+    .bind(prompt)
+    .fetch_optional(&state.pool)
+    .await?;
+    let (title, body, actor, account, maturity, tag_ids) = row.ok_or(ApiError::NotFound)?;
+    let tags = crate::prompts::load_tags(&state.pool, &tag_ids).await?;
+    Ok(Subject {
+        hook,
+        title,
+        body,
+        tags: tag_ids
+            .iter()
+            .filter_map(|t| tags.get(t))
+            .map(|t| t.key())
+            .collect(),
+        maturity,
+        previous: None,
+        tag: None,
+        report: None,
+        actor: Some(actor),
+        account,
+        submitter: None,
+        prompt: Some(prompt),
+        about: None,
+    })
 }
 
 /// What a flag is about, once it's saved.

@@ -9,10 +9,11 @@ pub mod engine;
 pub(crate) mod hooks;
 mod run;
 pub mod scripts;
+pub mod templates;
 pub mod text;
 
 pub use quill_proto::automod::{Hook, OnError};
-pub use run::{Automated, FlagTarget, Verdict, applies_to, check, file_flag};
+pub use run::{Automated, FlagTarget, Verdict, applies_to, check, dry_run, file_flag};
 
 /// What scripts and common data may use. Set from `QUILL_AUTOMOD_*`
 /// environment variables; the defaults are safe for a small server.

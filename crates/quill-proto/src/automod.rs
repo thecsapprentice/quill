@@ -142,6 +142,123 @@ pub struct UpdateChain {
     pub scripts: Vec<Uuid>,
 }
 
+/// A template scripts can be started from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptTemplate {
+    pub id: String,
+    pub name: String,
+    pub summary: String,
+    /// The chains it's written for.
+    pub hooks: Vec<Hook>,
+    pub source: String,
+    /// The common data entries it reads, created empty if missing.
+    #[serde(default)]
+    pub data: Vec<String>,
+}
+
+/// `POST /admin/moderation/templates/{id}`: a new script from a template.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct UseTemplate {
+    /// The new script's name; the template's own if left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// `POST /admin/moderation/data/{name}/restore`: undo back to a version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreData {
+    pub version: i32,
+}
+
+/// One saved version's content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ModerationDataContent {
+    pub name: String,
+    pub version: i32,
+    pub content: String,
+}
+
+/// `POST /admin/moderation/dry-run`: runs scripts without doing anything.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct DryRun {
+    pub hook: Hook,
+    /// One script to run; the hook's whole chain if left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script: Option<Uuid>,
+    /// Run on this existing prompt, with its writer's history. Otherwise
+    /// on `title` and `body`, from a made-up writer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<Uuid>,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+    /// Common data to use instead of what's saved, to try an edit before
+    /// saving it.
+    #[serde(default)]
+    pub data: Vec<DataOverride>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct DataOverride {
+    pub name: String,
+    pub content: String,
+}
+
+string_enum! {
+    /// What a script decided in a dry run.
+    DryRunDecision {
+        Pass => "pass",
+        Reject => "reject",
+        Flag => "flag",
+        Dismiss => "dismiss",
+        /// It failed: an error, or a limit reached.
+        Error => "error",
+    }
+}
+
+/// What one script did in a dry run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct DryRunStep {
+    pub script_id: Uuid,
+    pub name: String,
+    pub decision: DryRunDecision,
+    /// The message, reason or error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// What the script printed.
+    #[serde(default)]
+    pub printed: Vec<String>,
+    pub micros: u64,
+    pub log_only: bool,
+    /// Whether this is the script that would decide for the chain.
+    pub decides: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct DryRunResult {
+    /// Every script, run whether or not an earlier one decided.
+    pub steps: Vec<DryRunStep>,
+}
+
 /// What a writer is told when a script refuses without a message.
 pub const GENERIC_REFUSAL: &str = "This was refused by the server's moderation rules.";
 
