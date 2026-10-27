@@ -3,6 +3,7 @@
 //! architecture document, "Automated moderation".
 
 pub mod data;
+pub mod engine;
 pub mod text;
 
 /// What scripts and common data may use. Set from `QUILL_AUTOMOD_*`

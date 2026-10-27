@@ -78,13 +78,26 @@ pub fn parse_lines(content: &str) -> Vec<&str> {
 #[derive(Debug, Default)]
 pub struct DataCache(Mutex<HashMap<String, Arc<Entry>>>);
 
-/// The common data a chain reads, fixed when the chain starts.
+/// The common data a chain reads, fixed when the chain starts. Cheap to
+/// clone: each script in the chain gets the same one.
 #[derive(Debug, Default, Clone)]
-pub struct Snapshot(HashMap<String, Arc<Entry>>);
+pub struct Snapshot(Arc<HashMap<String, Arc<Entry>>>);
 
 impl Snapshot {
     pub fn get(&self, name: &str) -> Option<&Arc<Entry>> {
         self.0.get(name)
+    }
+
+    /// A snapshot of entries made in memory, for dry runs and tests.
+    pub fn from_entries(entries: impl IntoIterator<Item = (String, i32, String)>) -> Self {
+        Self(Arc::new(
+            entries
+                .into_iter()
+                .map(|(name, version, content)| {
+                    (name.clone(), Arc::new(Entry::new(name, version, content)))
+                })
+                .collect(),
+        ))
     }
 }
 
@@ -140,7 +153,7 @@ pub async fn snapshot(
             out.insert(name, entry);
         }
     }
-    Ok(Snapshot(out))
+    Ok(Snapshot(Arc::new(out)))
 }
 
 /// [`snapshot`] with the server's own cache, for tests outside the crate.
