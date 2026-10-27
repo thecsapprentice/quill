@@ -12,6 +12,7 @@ pub mod events;
 pub mod groups;
 pub mod keys;
 mod markdown;
+pub mod moderation;
 pub mod notices;
 pub mod openapi;
 pub mod prompts;
@@ -45,6 +46,10 @@ pub struct AppState {
     limiter: Arc<ratelimit::RateLimiter>,
     /// Live notices for `GET /events`.
     pub events: events::Events,
+    /// Common data as moderation scripts read it, parsed once per version.
+    pub(crate) automod_data: Arc<moderation::data::DataCache>,
+    /// Moderation scripts, compiled once per version.
+    pub(crate) automod_scripts: Arc<moderation::scripts::ScriptCache>,
 }
 
 impl AppState {
@@ -69,6 +74,8 @@ impl AppState {
             dummy_hash: Arc::new(dummy),
             limiter: Arc::default(),
             events: events::Events::default(),
+            automod_data: Arc::default(),
+            automod_scripts: Arc::default(),
         })
     }
 }

@@ -75,6 +75,18 @@ tower-http = { version = "0.7", features = ["limit"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 unicode-normalization = "0.1"
+# Automated moderation (#43): the script engine and its `text` API.
+aho-corasick = "1"
+linkify = "0.11"
+regex = "1"
+# "sync": scripts run on blocking threads, and shared values are Arc-based.
+# "internals": walking a script's syntax tree to find the common data it
+# reads. That API isn't covered by semver, hence the exact version.
+rhai = { version = "=1.27.0", features = ["sync", "serde", "internals"] }
+strsim = "0.11"
+unicode-script = "0.5"
+unicode-security = "0.1"
+unicode-segmentation = "1"
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 # The OpenAPI file (2m): the server and quill-proto's `openapi` feature.

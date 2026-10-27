@@ -339,6 +339,7 @@ fn other_pages_render() {
                 created_at: datetime!(2026-10-22 12:00 UTC),
                 resolved_at: None,
                 resolution: None,
+                script: None,
             }],
             all: false,
         },
@@ -502,6 +503,7 @@ fn admin_log_shows_tag_and_report_entries() {
             LogActor::Reporter
         },
         admin_login: subject.is_some().then(|| "boss & co".to_owned()),
+        script_name: None,
         // The server sends a preview of five and the full count.
         targets: if subject.is_some() {
             (1..=5).map(|i| format!("writer{i}")).collect()
@@ -566,6 +568,7 @@ fn admin_log_entry_lists_accounts_and_their_prompts() {
         admin: None,
         actor: LogActor::Admin,
         admin_login: Some("boss".into()),
+        script_name: None,
         targets: vec!["alice".into(), "zed".into()],
         target_count: 250,
     };
@@ -1011,6 +1014,7 @@ fn comment_reports_and_notices_render() {
         created_at: datetime!(2026-10-22 12:00 UTC),
         resolved_at: None,
         resolution: None,
+        script: None,
     };
     let html = admin_reports_page(
         &chrome(true, true),
@@ -1217,4 +1221,217 @@ fn staff_comments_are_marked_and_only_admins_speak_as_staff() {
     assert!(html.contains(r#"value="staff" selected"#));
     assert!(html.contains("Nathan (your staff name, shown as staff)"));
     assert!(!html.contains("set a staff name"));
+}
+
+mod moderation_pages {
+    use quill_proto::automod::{
+        ChainStep, DryRunDecision, DryRunResult, DryRunStep, Hook, ModerationChain, ModerationData,
+        ModerationDataVersion, ModerationScript, OnError, ScriptTemplate,
+    };
+
+    use super::*;
+
+    fn script(name: &str, log_only: bool) -> ModerationScript {
+        ModerationScript {
+            id: Uuid::from_u128(7),
+            name: name.into(),
+            source: "if post.body.contains(\"<b>\") { reject(\"No bold & no tags\") }".into(),
+            source_hash: "ab".repeat(32),
+            enabled: true,
+            log_only,
+            data: vec!["blocked_words".into()],
+            chains: vec![Hook::PromptCreated, Hook::CommentCreated],
+            uploaded_by: Some("boss".into()),
+            created_at: datetime!(2026-10-26 12:00 UTC),
+            updated_at: datetime!(2026-10-26 12:00 UTC),
+        }
+    }
+
+    pub(super) fn scripts_view() -> ModerationScriptsView {
+        ModerationScriptsView {
+            scripts: vec![script("Words", false), script("Trial", true)],
+            templates: vec![ScriptTemplate {
+                id: "shouting".into(),
+                name: "Shouting".into(),
+                summary: "Flags posts in capitals.".into(),
+                hooks: vec![Hook::PromptCreated],
+                source: "let caps = 0.7;".into(),
+                data: vec![],
+            }],
+            ..ModerationScriptsView::default()
+        }
+    }
+
+    pub(super) fn chains_view() -> ModerationChainsView {
+        ModerationChainsView {
+            chains: Hook::ALL
+                .iter()
+                .map(|h| ModerationChain {
+                    hook: *h,
+                    on_error: if *h == Hook::PromptCreated {
+                        OnError::Flag
+                    } else {
+                        OnError::Continue
+                    },
+                    steps: if *h == Hook::PromptCreated {
+                        vec![ChainStep {
+                            script_id: Uuid::from_u128(7),
+                            name: "Words".into(),
+                            enabled: true,
+                            log_only: false,
+                        }]
+                    } else {
+                        vec![]
+                    },
+                })
+                .collect(),
+            scripts: vec![script("Words", false)],
+            error: None,
+        }
+    }
+
+    pub(super) fn steps() -> DryRunResult {
+        DryRunResult {
+            steps: vec![
+                DryRunStep {
+                    script_id: Uuid::from_u128(1),
+                    name: "Trial".into(),
+                    decision: DryRunDecision::Flag,
+                    detail: Some("Looks odd".into()),
+                    category: Some("spam".into()),
+                    printed: vec!["checking".into()],
+                    micros: 40,
+                    log_only: true,
+                    decides: false,
+                },
+                DryRunStep {
+                    script_id: Uuid::from_u128(2),
+                    name: "Words".into(),
+                    decision: DryRunDecision::Reject,
+                    detail: Some("Not here".into()),
+                    category: None,
+                    printed: vec![],
+                    micros: 12,
+                    log_only: false,
+                    decides: true,
+                },
+            ],
+        }
+    }
+
+    pub(super) fn data_view() -> ModerationDataView {
+        ModerationDataView {
+            entry: ModerationData {
+                name: "blocked_words".into(),
+                description: "Words to refuse".into(),
+                content: "# notes\nspam".into(),
+                version: 3,
+                updated_at: datetime!(2026-10-26 12:00 UTC),
+                updated_by: Some("boss".into()),
+                used_by: vec!["Words".into()],
+            },
+            history: (1..=3)
+                .rev()
+                .map(|v| ModerationDataVersion {
+                    version: v,
+                    size: 20,
+                    created_at: datetime!(2026-10-26 12:00 UTC),
+                    created_by: Some("boss".into()),
+                })
+                .collect(),
+            description: "Words to refuse".into(),
+            content: "# notes\nspam\nscam".into(),
+            base_version: 3,
+            preview_title: "A deal".into(),
+            preview_body: "s c a m".into(),
+            preview: Some(vec![(Hook::PromptCreated, steps())]),
+            viewing: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn scripts_page_lists_modes_chains_and_templates() {
+        let html = moderation_scripts_page(&chrome(true, true), scripts_view());
+        assert!(html.contains(r#"aria-current="page">Moderation"#));
+        assert!(html.contains("Log only") && html.contains("A comment is posted"));
+        assert!(html.contains(r#"action="/admin/moderation/templates/shouting""#));
+        assert!(html.contains("blob/main/docs/automod.md"));
+    }
+
+    #[test]
+    fn script_source_is_escaped() {
+        let view = ModerationScriptView {
+            script: script("Words", false),
+            name: "Words".into(),
+            source: "reject(\"<b>&</b>\")".into(),
+            error: Some("line 1: oops".into()),
+        };
+        let html = moderation_script_page(&chrome(true, true), view);
+        let at = html.find("name=\"source\"").unwrap();
+        assert!(
+            html[at..].contains("&#60;b&#62;&#38;&#60;/b&#62;"),
+            "{}",
+            &html[at..at + 200]
+        );
+        assert!(!html.contains("<b>&</b>"));
+        assert!(html.contains("line 1: oops"));
+    }
+
+    #[test]
+    fn chains_page_numbers_the_scripts_in_each_chain() {
+        let html = moderation_chains_page(&chrome(true, true), chains_view());
+        assert!(html.contains(r#"value="1""#));
+        assert!(html.contains(r#"value="flag" checked"#));
+    }
+
+    #[test]
+    fn data_page_shows_the_preview_and_history() {
+        let html = moderation_data_page(&chrome(true, true), data_view());
+        assert!(html.contains("What would happen with your changes"));
+        assert!(html.contains("decision-reject") && html.contains("This decides."));
+        assert!(html.contains("Save as version 4"));
+        assert!(html.contains("Go back to this version"));
+        // In use, so there's no delete form.
+        assert!(!html.contains("/delete"));
+    }
+
+    #[test]
+    #[ignore = "writes HTML previews for looking at the pages by eye"]
+    fn write_previews() {
+        let Some(dir) = std::env::var_os("QUILL_PREVIEW_DIR") else {
+            return;
+        };
+        let dir = std::path::PathBuf::from(dir);
+        let css = format!("<style>{}</style>", crate::STYLESHEET);
+        let c = chrome(true, true);
+        let pages = [
+            ("scripts", moderation_scripts_page(&c, scripts_view())),
+            ("chains", moderation_chains_page(&c, chains_view())),
+            ("data", moderation_data_page(&c, data_view())),
+            (
+                "dry-run",
+                moderation_dry_run_page(
+                    &c,
+                    ModerationDryRunView {
+                        scripts: vec![script("Words", false)],
+                        hook: Hook::PromptCreated,
+                        script: None,
+                        prompt: String::new(),
+                        title: "A deal".into(),
+                        body: "s p a m".into(),
+                        result: Some(steps()),
+                        error: None,
+                    },
+                ),
+            ),
+        ];
+        for (name, html) in pages {
+            let html = html.replace(
+                r#"<link rel="stylesheet" href="/static/board.css?v=0.1.0"/>"#,
+                &css,
+            );
+            std::fs::write(dir.join(format!("{name}.html")), html).unwrap();
+        }
+    }
 }

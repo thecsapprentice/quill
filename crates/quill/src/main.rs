@@ -4,6 +4,7 @@
 //! later phase adds the commands that exercise its server features.
 
 mod announce_cmd;
+mod automod_cmd;
 mod backup_cmd;
 mod board;
 mod keys_cmd;

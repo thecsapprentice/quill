@@ -32,6 +32,9 @@ crate::board::string_enum! {
         /// A comment on an announcement was removed, after a report or
         /// directly.
         CommentRemoved => "comment_removed",
+        /// The server's moderation rules refused a submission. Nothing was
+        /// saved; the writer was told when they submitted it.
+        ContentRejected => "content_rejected",
     }
 }
 
@@ -65,6 +68,15 @@ pub struct NoticeFields {
     pub announcement_title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
+    /// For a refused submission: what it was (`prompt`, `edit`, `comment`,
+    /// `tag` or `report`), its title or tag name if it had one, and the
+    /// message the writer was shown. Never the refused text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 /// One of the account's prompts as it was when the action was taken.

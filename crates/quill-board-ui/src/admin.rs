@@ -25,6 +25,7 @@ pub(crate) enum Tab {
     Handles,
     Sessions,
     Announcements,
+    Moderation,
 }
 
 pub(crate) fn tabs(chrome: &Chrome, current: Tab) -> Element {
@@ -44,6 +45,7 @@ pub(crate) fn tabs(chrome: &Chrome, current: Tab) -> Element {
             a { href: "/admin/settings/handles", "aria-current": mark(Tab::Handles), "Handles" }
             a { href: "/admin/settings/sessions", "aria-current": mark(Tab::Sessions), "Sessions" }
             a { href: "/admin/settings/announcements", "aria-current": mark(Tab::Announcements), "Announcements" }
+            a { href: "/admin/moderation/scripts", "aria-current": mark(Tab::Moderation), "Moderation" }
         }
     }
 }

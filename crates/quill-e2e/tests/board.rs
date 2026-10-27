@@ -1378,3 +1378,150 @@ async fn the_sessions_tab_switches_attachments_and_shows_storage() {
     assert!(!refused.body.contains("Attachments in sessions"));
     server.stop().await.unwrap();
 }
+
+#[tokio::test]
+async fn moderation_scripts_through_the_board() {
+    let server = server!();
+    let mut admin = Browser::new(&server);
+    let csrf = admin_browser(&server, &mut admin, "night_admin").await;
+
+    let scripts = admin.get("/admin/moderation/scripts").await;
+    assert_eq!(scripts.status, StatusCode::OK);
+    assert!(
+        scripts.body.contains("Start from a template"),
+        "{}",
+        scripts.body
+    );
+
+    // A template becomes a script, and creates the list it reads.
+    let used = admin
+        .post(
+            "/admin/moderation/templates/blocked_words",
+            &[("csrf", &csrf)],
+        )
+        .await;
+    assert_eq!(used.status, StatusCode::SEE_OTHER, "{}", used.body);
+    let script_page = used
+        .location()
+        .trim_end_matches("?notice=script-uploaded")
+        .to_owned();
+    let script_id = script_page.rsplit('/').next().unwrap().to_owned();
+    let data = admin.get("/admin/moderation/data/blocked_words").await;
+    assert!(data.body.contains("Version 1"), "{}", data.body);
+    let saved = admin
+        .post(
+            "/admin/moderation/data/blocked_words",
+            &[
+                ("csrf", &csrf),
+                ("description", "Words to refuse"),
+                ("content", "spam\r\nfree crypto"),
+                ("base_version", "1"),
+                ("action", "save"),
+            ],
+        )
+        .await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER, "{}", saved.body);
+
+    // Into the prompt chain, numbered first.
+    let pos = format!("pos_{script_id}");
+    let chain = admin
+        .post(
+            "/admin/moderation/chains/prompt_created",
+            &[("csrf", &csrf), ("on_error", "continue"), (&pos, "1")],
+        )
+        .await;
+    assert_eq!(chain.status, StatusCode::SEE_OTHER, "{}", chain.body);
+    let chains = admin.get("/admin/moderation/chains").await;
+    assert!(
+        chains
+            .body
+            .contains(r#"aria-label="Order of Blocked words and phrases" value="1""#),
+        "{}",
+        chains.body
+    );
+
+    // Trying an unsaved edit to the list: without "spam", nothing happens.
+    let preview = admin
+        .post(
+            "/admin/moderation/data/blocked_words",
+            &[
+                ("csrf", &csrf),
+                ("description", "Words to refuse"),
+                ("content", "free crypto"),
+                ("base_version", "2"),
+                ("action", "preview"),
+                ("preview_title", "A deal"),
+                ("preview_body", "s p a m for sale"),
+            ],
+        )
+        .await;
+    assert_eq!(preview.status, StatusCode::OK);
+    assert!(
+        preview.body.contains("What would happen"),
+        "{}",
+        preview.body
+    );
+    assert!(preview.body.contains("decision-pass"), "{}", preview.body);
+    // Nothing was saved by the preview.
+    let still = admin.get("/admin/moderation/data/blocked_words").await;
+    assert!(still.body.contains("Version 2"));
+
+    // A dry run with the saved list refuses it.
+    let run = admin
+        .post(
+            "/admin/moderation/dry-run",
+            &[
+                ("csrf", &csrf),
+                ("hook", "prompt_created"),
+                ("title", "A deal"),
+                ("body", "s p a m for sale"),
+            ],
+        )
+        .await;
+    assert!(
+        run.body.contains("decision-reject") && run.body.contains("This decides."),
+        "{}",
+        run.body
+    );
+
+    // A writer's refused prompt comes back on the form, text kept.
+    let mut writer = Browser::new(&server);
+    let wcsrf = writer.register("day_writer", "day_pen").await;
+    let persona = first_persona(&mut writer).await;
+    let refused = writer
+        .post(
+            "/new",
+            &[
+                ("csrf", &wcsrf),
+                ("persona", &persona),
+                ("title", "Cheap spam"),
+                ("body", "Buy my S P A M."),
+                ("maturity", "general"),
+                ("state", "open"),
+                ("op", "save"),
+            ],
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST);
+    assert!(refused.body.contains("allowed here"), "{}", refused.body);
+    assert!(refused.body.contains("Cheap spam") && refused.body.contains("Buy my S P A M."));
+
+    // A broken upload is refused with its line, the source kept.
+    let broken = admin
+        .post(
+            "/admin/moderation/scripts",
+            &[
+                ("csrf", &csrf),
+                ("name", "Broken"),
+                ("source", "let a = 1;\nif a > { reject() }"),
+            ],
+        )
+        .await;
+    assert_eq!(broken.status, StatusCode::BAD_REQUEST);
+    assert!(broken.body.contains("line 2"), "{}", broken.body);
+
+    // Writers can't open the moderation pages.
+    let denied = writer.get("/admin/moderation/scripts").await;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN);
+    server.stop().await.unwrap();
+}

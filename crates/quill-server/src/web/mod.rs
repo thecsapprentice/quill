@@ -7,6 +7,7 @@
 mod announcements;
 mod comments;
 mod handlers;
+mod moderation;
 mod picker;
 pub mod session;
 mod settings;
@@ -83,6 +84,52 @@ pub fn router() -> Router<AppState> {
         .route("/admin/reports/{id}/resolve", post(handlers::admin_resolve))
         .route("/admin/log", get(handlers::admin_log))
         .route("/admin/log/{id}", get(handlers::admin_log_entry))
+        .route("/admin/moderation", get(moderation::index))
+        .route(
+            "/admin/moderation/scripts",
+            get(moderation::scripts_page).post(moderation::upload),
+        )
+        .route(
+            "/admin/moderation/scripts/{id}",
+            get(moderation::script_page).post(moderation::script_save),
+        )
+        .route(
+            "/admin/moderation/scripts/{id}/mode",
+            post(moderation::script_mode),
+        )
+        .route(
+            "/admin/moderation/scripts/{id}/delete",
+            post(moderation::script_delete),
+        )
+        .route(
+            "/admin/moderation/templates/{id}",
+            post(moderation::use_template),
+        )
+        .route("/admin/moderation/chains", get(moderation::chains_page))
+        .route(
+            "/admin/moderation/chains/{hook}",
+            post(moderation::chain_save),
+        )
+        .route(
+            "/admin/moderation/data",
+            get(moderation::data_list_page).post(moderation::data_create),
+        )
+        .route(
+            "/admin/moderation/data/{name}",
+            get(moderation::data_page).post(moderation::data_save),
+        )
+        .route(
+            "/admin/moderation/data/{name}/restore",
+            post(moderation::data_restore),
+        )
+        .route(
+            "/admin/moderation/data/{name}/delete",
+            post(moderation::data_delete),
+        )
+        .route(
+            "/admin/moderation/dry-run",
+            get(moderation::dry_run_page).post(moderation::dry_run_submit),
+        )
         .route("/admin/settings", get(settings::index))
         .route(
             "/admin/settings/tag-types",
@@ -367,6 +414,14 @@ fn notice_text(key: &str) -> Option<&'static str> {
         "comment-posted" => "Comment posted.",
         "comment-deleted" => "Comment deleted.",
         "comment-removed" => "Comment removed. Its author has been told why.",
+        "script-uploaded" => "Script uploaded. Add it to a chain to run it.",
+        "script-saved" => "Script saved.",
+        "script-mode" => "Setting saved.",
+        "script-removed" => "Script removed.",
+        "chain-saved" => "Chain saved.",
+        "data-saved" => "Saved as a new version.",
+        "data-restored" => "Saved the old version again, as a new version.",
+        "data-deleted" => "Entry deleted.",
         _ => return None,
     })
 }

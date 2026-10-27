@@ -32,6 +32,8 @@ pub struct Config {
     /// Starting value of the "attachments" server setting
     /// (`QUILL_ATTACHMENTS`); the live value is in the database.
     pub attachments: bool,
+    /// Limits for moderation scripts and their common data.
+    pub automod: crate::moderation::Limits,
 }
 
 impl Config {
@@ -57,6 +59,7 @@ impl Config {
                 ..Limits::default()
             },
             attachments: parse_or("QUILL_ATTACHMENTS", true)?,
+            automod: automod_limits()?,
         })
     }
 
@@ -74,8 +77,30 @@ impl Config {
             reserved_handles_file: None,
             limits: Limits::default(),
             attachments: true,
+            automod: crate::moderation::Limits::default(),
         }
     }
+}
+
+/// `QUILL_AUTOMOD_MAX_OPERATIONS`, `QUILL_AUTOMOD_TIME_MS`,
+/// `QUILL_AUTOMOD_DATA_ENTRY_BYTES` and `QUILL_AUTOMOD_DATA_TOTAL_BYTES`.
+fn automod_limits() -> Result<crate::moderation::Limits> {
+    let d = crate::moderation::Limits::default();
+    let limits = crate::moderation::Limits {
+        max_operations: parse_or("QUILL_AUTOMOD_MAX_OPERATIONS", d.max_operations)?,
+        time_ms: parse_or("QUILL_AUTOMOD_TIME_MS", d.time_ms)?,
+        data_entry_bytes: parse_or("QUILL_AUTOMOD_DATA_ENTRY_BYTES", d.data_entry_bytes)?,
+        data_total_bytes: parse_or("QUILL_AUTOMOD_DATA_TOTAL_BYTES", d.data_total_bytes)?,
+    };
+    anyhow::ensure!(
+        limits.max_operations > 0 && limits.time_ms > 0,
+        "QUILL_AUTOMOD_MAX_OPERATIONS and QUILL_AUTOMOD_TIME_MS must be above 0"
+    );
+    anyhow::ensure!(
+        limits.data_entry_bytes <= limits.data_total_bytes,
+        "QUILL_AUTOMOD_DATA_ENTRY_BYTES can't be more than QUILL_AUTOMOD_DATA_TOTAL_BYTES"
+    );
+    Ok(limits)
 }
 
 /// `QUILL_RETENTION_DAYS`: how long the server keeps any ciphertext, read

@@ -28,6 +28,7 @@ use crate::{
     auth::{Authed, MaybeAuthed},
     error::ApiError,
     markdown,
+    moderation::hooks,
     routes::ApiJson,
     server_settings,
 };
@@ -651,16 +652,26 @@ pub async fn post_prompt(
     let specs = validate::tag_specs(&body.tags)?;
     let prompt_state = body.state.unwrap_or(PromptState::Open);
 
-    let mut tx = state.pool.begin().await?;
     let owns: Option<i32> =
         sqlx::query_scalar("SELECT 1 FROM actors WHERE id = $1 AND account_id = $2")
             .bind(body.persona)
             .bind(account)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&state.pool)
             .await?;
     if owns.is_none() {
         return Err(ApiError::BadRequest("unknown persona".into()));
     }
+    // Moderation scripts run before anything is saved, outside the
+    // transaction so its locks aren't held while they run.
+    let draft = hooks::PromptDraft {
+        title: &title,
+        body: &markdown_body,
+        tags: &specs,
+        maturity: body.maturity,
+    };
+    let checks = hooks::before_new_prompt(state, account, body.persona, &draft).await?;
+
+    let mut tx = state.pool.begin().await?;
     let tag_ids = resolve_for_write(&mut tx, specs).await?;
     check_required_types(&mut tx, &tag_ids).await?;
     let id = Uuid::now_v7();
@@ -679,6 +690,7 @@ pub async fn post_prompt(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
+    hooks::after_prompt(state, checks, account, id, &title, &markdown_body).await;
 
     load_prompt(&state.pool, id, Some(account), true)
         .await?
@@ -725,6 +737,28 @@ pub async fn edit_prompt(
         .map(validate::prompt_body)
         .transpose()?;
     let specs = body.tags.as_deref().map(validate::tag_specs).transpose()?;
+    // Any edit must meet the current required tag types, and is checked by
+    // moderation scripts. Changing only the open/busy/closed status isn't
+    // an edit.
+    let edits_content = body.title.is_some()
+        || body.body.is_some()
+        || body.maturity.is_some()
+        || body.tags.is_some();
+    let checks = if edits_content {
+        let before = before_edit_checks(
+            state,
+            account,
+            id,
+            title.as_deref(),
+            markdown_body.as_deref(),
+            specs.as_deref(),
+            body.maturity,
+        )
+        .await?;
+        Some(before)
+    } else {
+        None
+    };
 
     let mut tx = state.pool.begin().await?;
     let current: Option<(bool, Vec<i64>)> = sqlx::query_as(
@@ -766,12 +800,6 @@ pub async fn edit_prompt(
         }
         None => None,
     };
-    // Any edit must meet the current required tag types. Changing only the
-    // open/busy/closed status doesn't count as an edit.
-    let edits_content = body.title.is_some()
-        || body.body.is_some()
-        || body.maturity.is_some()
-        || body.tags.is_some();
     if edits_content {
         check_required_types(&mut tx, tag_ids.as_deref().unwrap_or(&current_tags)).await?;
     }
@@ -801,9 +829,68 @@ pub async fn edit_prompt(
     }
     tx.commit().await?;
 
-    load_prompt(&state.pool, id, Some(account), true)
+    let prompt = load_prompt(&state.pool, id, Some(account), true)
         .await?
-        .ok_or(ApiError::NotFound)
+        .ok_or(ApiError::NotFound)?;
+    if let Some(checks) = checks {
+        hooks::after_prompt(state, checks, account, id, &prompt.title, &prompt.body).await;
+    }
+    Ok(prompt)
+}
+
+/// Runs `prompt_edited` (and `tag_requested` for new tags) on the prompt as
+/// it would be after the edit, with how it was.
+async fn before_edit_checks(
+    state: &AppState,
+    account: Uuid,
+    id: Uuid,
+    title: Option<&str>,
+    body: Option<&str>,
+    specs: Option<&[TagSpec]>,
+    maturity: Option<Maturity>,
+) -> Result<hooks::PromptChecks, ApiError> {
+    let row: Option<(Uuid, String, String, String, Vec<i64>)> = sqlx::query_as(
+        "SELECT p.actor_id, p.title, p.body_md, p.maturity::text, p.tag_ids
+         FROM prompts p JOIN actors a ON a.id = p.actor_id
+         WHERE p.id = $1 AND a.account_id = $2",
+    )
+    .bind(id)
+    .bind(account)
+    .fetch_optional(&state.pool)
+    .await?;
+    // A missing prompt is reported by the edit itself.
+    let Some((persona, old_title, old_body, old_maturity, old_tags)) = row else {
+        return Ok(hooks::PromptChecks::default());
+    };
+    let tags = load_tags(&state.pool, &old_tags).await?;
+    let old_specs: Vec<TagSpec> = old_tags
+        .iter()
+        .filter_map(|t| tags.get(t))
+        .map(|t| TagSpec {
+            namespace: t.namespace.clone(),
+            slug: t.slug.clone(),
+            display: t.display.clone(),
+        })
+        .collect();
+    let previous = crate::moderation::context::Previous {
+        title: old_title.clone(),
+        body: old_body.clone(),
+        tags: old_specs
+            .iter()
+            .map(|t| format!("{}:{}", t.namespace, t.slug))
+            .collect(),
+        maturity: old_maturity.clone(),
+    };
+    let draft = hooks::PromptDraft {
+        title: title.unwrap_or(&old_title),
+        body: body.unwrap_or(&old_body),
+        tags: specs.unwrap_or(&old_specs),
+        maturity: match maturity {
+            Some(m) => m,
+            None => parse_enum(&old_maturity)?,
+        },
+    };
+    hooks::before_edit(state, account, persona, id, &draft, previous).await
 }
 
 #[utoipa::path(

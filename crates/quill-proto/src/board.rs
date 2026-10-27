@@ -179,6 +179,22 @@ string_enum! {
         SetAnnouncementComments => "set_announcement_comments",
         SetAnnouncementSticky => "set_announcement_sticky",
         DeleteComment => "delete_comment",
+        UploadScript => "upload_script",
+        ReplaceScript => "replace_script",
+        RemoveScript => "remove_script",
+        /// A script switched on or off, or into or out of log-only mode.
+        SetScriptMode => "set_script_mode",
+        UpdateChain => "update_chain",
+        SaveModerationData => "save_moderation_data",
+        DeleteModerationData => "delete_moderation_data",
+        /// A script refused a submission; nothing was saved.
+        AutomodReject => "automod_reject",
+        /// A script flagged a pending tag.
+        AutomodFlag => "automod_flag",
+        /// A script closed a writer's report.
+        AutomodDismiss => "automod_dismiss",
+        /// A script failed, and its chain's error setting was applied.
+        AutomodError => "automod_error",
     }
 }
 
@@ -620,6 +636,10 @@ pub struct Report {
     pub resolved_at: Option<OffsetDateTime>,
     #[serde(default)]
     pub resolution: Option<Resolution>,
+    /// The moderation script that filed it, as named then; `None` for a
+    /// writer's report. `details` holds the script's reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script: Option<String>,
 }
 
 /// `GET /admin/reports` query.
@@ -681,6 +701,10 @@ pub struct AdminLogEntry {
     /// The acting administrator's login name, as it was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin_login: Option<String>,
+    /// The moderation script that acted, or that an administrator changed,
+    /// as it was named then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script_name: Option<String>,
     /// Login names of the accounts the decision was against, as they were:
     /// the first [`LOG_TARGET_PREVIEW`] alphabetically (an account being
     /// filtered for comes first). Empty for server-wide changes. The full
@@ -762,6 +786,8 @@ string_enum! {
         Server => "server",
         /// A writer's report. The reporter isn't named.
         Reporter => "reporter",
+        /// A moderation script, named in `scriptName`.
+        Automod => "automod",
     }
 }
 

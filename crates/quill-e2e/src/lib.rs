@@ -173,6 +173,15 @@ impl TestServer {
         Ok(self.client().with_token(token.token))
     }
 
+    /// Grants administrator rights to an account registered some other way,
+    /// such as through the CLI.
+    pub async fn make_admin(&self, username: &str) -> Result<()> {
+        let pool = sqlx::PgPool::connect(&self.db_url).await?;
+        anyhow::ensure!(quill_server::set_admin(&pool, username, true).await?);
+        pool.close().await;
+        Ok(())
+    }
+
     /// Registers `username` as a server administrator and returns its client.
     pub async fn admin_account(&self, username: &str) -> Result<Client> {
         let client = self.account(username).await?;

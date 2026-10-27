@@ -691,6 +691,9 @@ pub fn admin_reports_page(chrome: &Chrome, view: AdminReportsView) -> String {
                     }
                     p { class: "card-meta",
                         span { "{reason_label(r.reason)}" }
+                        if let Some(script) = &r.script {
+                            span { class: "automated", "Automated: {script}" }
+                        }
                         span { "Received {short_date(r.created_at)}" }
                         match (r.resolution, r.kind) {
                             (Some(Resolution::Discard), _) => rsx! { span { "Discarded" } },
@@ -757,6 +760,17 @@ fn action_label(action: AdminAction) -> &'static str {
         AdminAction::SetAnnouncementComments => "Announcement comments changed",
         AdminAction::SetAnnouncementSticky => "Announcement made sticky or not",
         AdminAction::DeleteComment => "Comment removed",
+        AdminAction::UploadScript => "Moderation script added",
+        AdminAction::ReplaceScript => "Moderation script replaced",
+        AdminAction::RemoveScript => "Moderation script removed",
+        AdminAction::SetScriptMode => "Moderation script switched",
+        AdminAction::UpdateChain => "Moderation chain changed",
+        AdminAction::SaveModerationData => "Moderation data saved",
+        AdminAction::DeleteModerationData => "Moderation data deleted",
+        AdminAction::AutomodReject => "Refused by a script",
+        AdminAction::AutomodFlag => "Tag flagged by a script",
+        AdminAction::AutomodDismiss => "Report closed by a script",
+        AdminAction::AutomodError => "Moderation script failed",
     }
 }
 
@@ -789,9 +803,13 @@ fn log_detail(e: &AdminLogEntry) -> Element {
     }
 }
 
-/// Who made the entry: an administrator (a filter link), the server, or a
-/// report (whose writer isn't named, even here).
+/// Who made the entry: an administrator (a filter link), the server, a
+/// report (whose writer isn't named, even here), or a moderation script.
 fn log_actor(e: &AdminLogEntry) -> Element {
+    if e.actor == LogActor::Automod {
+        let name = e.script_name.as_deref().unwrap_or("a script");
+        return rsx! { em { "Automated: " } "{name}" };
+    }
     match (e.actor, e.admin_login.as_deref()) {
         (LogActor::Admin, Some(login)) => rsx! {
             a { href: "{admin_log_url(Some(login), None, None)}", title: "Everything {login} did", "{login}" }
@@ -799,6 +817,7 @@ fn log_actor(e: &AdminLogEntry) -> Element {
         (LogActor::Admin, None) => rsx! { "An administrator" },
         (LogActor::Server, _) => rsx! { em { "Server" } },
         (LogActor::Reporter, _) => rsx! { em { "A report" } },
+        (LogActor::Automod, _) => rsx! { em { "A moderation script" } },
     }
 }
 
