@@ -355,6 +355,19 @@ async fn story(server: &TestServer) {
     alice_c.notices(None).await.unwrap();
     alice_c.mark_notices_read().await.unwrap();
 
+    // The server rules (#42).
+    anon.rules().await.unwrap_err();
+    let rules = admin
+        .admin_update_rules(&quill_proto::rules::UpdateRules {
+            body: "# Be kind".into(),
+            minor: false,
+        })
+        .await
+        .unwrap();
+    anon.rules().await.unwrap();
+    alice_c.accept_rules(rules.version + 1).await.unwrap_err();
+    alice_c.accept_rules(rules.version).await.unwrap();
+
     // Leaving, and signing out.
     sessions::leave(&bob, &bob_c, &id).await.unwrap();
     alice_c.delete_prompt(prompt.id).await.unwrap();
