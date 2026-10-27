@@ -75,6 +75,8 @@ async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, A
         limits: state.config.limits,
         attachments: settings.attachments,
         comment_visibility: settings.comment_visibility,
+        rules_updated_at: None,
+        rules_acceptance: settings.rules_acceptance,
     }))
 }
 

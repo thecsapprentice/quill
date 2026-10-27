@@ -771,6 +771,7 @@ fn action_label(action: AdminAction) -> &'static str {
         AdminAction::AutomodFlag => "Tag flagged by a script",
         AdminAction::AutomodDismiss => "Report closed by a script",
         AdminAction::AutomodError => "Moderation script failed",
+        AdminAction::UpdateRules => "Server rules changed",
     }
 }
 

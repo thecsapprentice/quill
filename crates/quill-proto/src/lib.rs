@@ -17,6 +17,7 @@ pub mod keys;
 pub mod limits;
 pub mod notices;
 pub mod requests;
+pub mod rules;
 pub mod sessions;
 pub mod validate;
 

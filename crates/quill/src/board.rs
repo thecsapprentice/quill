@@ -805,6 +805,7 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                         new_tags,
                         attachments,
                         comment_visibility: comments,
+                        rules_acceptance: None,
                     })
                     .await?
             } else {

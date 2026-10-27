@@ -195,6 +195,8 @@ string_enum! {
         AutomodDismiss => "automod_dismiss",
         /// A script failed, and its chain's error setting was applied.
         AutomodError => "automod_error",
+        /// The server rules were saved (#42).
+        UpdateRules => "update_rules",
     }
 }
 
@@ -411,6 +413,9 @@ pub struct ServerSettings {
     /// Who can read comments on announcements.
     #[serde(default)]
     pub comment_visibility: crate::announcements::CommentVisibility,
+    /// When accounts must accept the server rules.
+    #[serde(default)]
+    pub rules_acceptance: crate::rules::RulesAcceptance,
 }
 
 fn yes() -> bool {
@@ -428,6 +433,8 @@ pub struct UpdateServerSettings {
     pub attachments: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment_visibility: Option<crate::announcements::CommentVisibility>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules_acceptance: Option<crate::rules::RulesAcceptance>,
 }
 
 // ---- Prompts -------------------------------------------------------------

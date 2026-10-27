@@ -68,6 +68,8 @@ pub const PROMPT_MAX_TAGS: usize = 15;
 /// Announcements from administrators: the same bounds as prompts.
 pub const ANNOUNCEMENT_TITLE_MAX_CHARS: usize = PROMPT_TITLE_MAX_CHARS;
 pub const ANNOUNCEMENT_BODY_MAX_CHARS: usize = PROMPT_BODY_MAX_CHARS;
+/// The server rules page: one document, so longer than a prompt.
+pub const RULES_BODY_MAX_CHARS: usize = 50_000;
 /// A comment on an announcement.
 pub const COMMENT_BODY_MAX_CHARS: usize = 5000;
 /// The name an administrator comments under as staff.

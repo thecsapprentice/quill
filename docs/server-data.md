@@ -358,11 +358,32 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `handle`     | `public` | A deleted persona's handle, never reused.                     |
 | `retired_at` | `metadata` | When it was retired.                                        |
 
+### `rules_acceptances`
+
+| Column        | Class      | What                                                           |
+|---------------|------------|----------------------------------------------------------------|
+| `account_id`  | `metadata` | The login.                                                     |
+| `version`     | `metadata` | The newest version of the server rules it accepted.            |
+| `accepted_at` | `metadata` | When.                                                          |
+
+### `server_pages`
+
+| Column           | Class      | What                                                                   |
+|------------------|------------|------------------------------------------------------------------------|
+| `name`           | `settings` | Which page (`rules`).                                                  |
+| `body_md`        | `public`   | Its Markdown text, shown to everyone.                                  |
+| `body_html`      | `public`   | The same, rendered and sanitized.                                      |
+| `version`        | `public`   | Goes up by one on every save.                                          |
+| `accept_version` | `settings` | The newest version accounts must accept; a minor edit doesn't change it. |
+| `accept_since`   | `settings` | When that version was saved.                                           |
+| `updated_at`     | `public`   | When it last changed.                                                  |
+| `updated_by`     | `metadata` | The administrator who last saved it.                                   |
+
 ### `server_settings`
 
 | Column       | Class      | What                                                  |
 |--------------|------------|-------------------------------------------------------|
-| `key`        | `settings` | A setting's name (new tags, attachments, comment visibility). |
+| `key`        | `settings` | A setting's name (new tags, attachments, comment visibility, rules acceptance). |
 | `value`      | `settings` | Its value.                                            |
 | `updated_at` | `settings` | When it last changed.                                 |
 

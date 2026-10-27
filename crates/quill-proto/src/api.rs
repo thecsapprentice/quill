@@ -27,6 +27,13 @@ pub struct InstanceInfo {
     /// visitor to sign in first.
     #[serde(default)]
     pub comment_visibility: crate::announcements::CommentVisibility,
+    /// When the server rules last changed, or `None` if there are none.
+    /// Clients compare it with what they showed to know when to fetch again.
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub rules_updated_at: Option<OffsetDateTime>,
+    /// When accounts must accept the rules, so a sign-up form knows to ask.
+    #[serde(default)]
+    pub rules_acceptance: crate::rules::RulesAcceptance,
 }
 
 fn default_attachments() -> bool {
@@ -105,6 +112,40 @@ impl std::fmt::Debug for Credentials {
         f.debug_struct("Credentials")
             .field("username", &self.username)
             .field("password", &"<redacted>")
+            .finish()
+    }
+}
+
+/// `POST /api/v1/auth/register`: credentials, and the version of the
+/// server rules the person accepted when the server asks for that on joining.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct Registration {
+    pub username: String,
+    pub password: String,
+    /// The rules version shown at sign-up. Required when `InstanceInfo`'s
+    /// `rulesAcceptance` includes joining and the server has rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accept_rules: Option<u32>,
+}
+
+impl From<Credentials> for Registration {
+    fn from(c: Credentials) -> Self {
+        Self {
+            username: c.username,
+            password: c.password,
+            accept_rules: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for Registration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Registration")
+            .field("username", &self.username)
+            .field("password", &"<redacted>")
+            .field("accept_rules", &self.accept_rules)
             .finish()
     }
 }
@@ -213,18 +254,27 @@ mod tests {
             limits: Limits::default(),
             attachments: true,
             comment_visibility: crate::announcements::CommentVisibility::SignedIn,
+            rules_updated_at: None,
+            rules_acceptance: crate::rules::RulesAcceptance::OnJoin,
         };
         let json = serde_json::to_value(&info).unwrap();
         assert_eq!(json["limits"]["maxMessageBytes"], 65536);
         assert_eq!(json["protocolVersions"][0], "0.1");
         assert_eq!(json["commentVisibility"], "signed-in");
-        // Older servers don't send it: comments are public there.
+        assert_eq!(json["rulesAcceptance"], "on-join");
+        assert!(json["rulesUpdatedAt"].is_null());
+        // Older servers don't send these: comments are public there, and
+        // there are no rules to accept.
         let mut old = json;
-        old.as_object_mut().unwrap().remove("commentVisibility");
+        for key in ["commentVisibility", "rulesUpdatedAt", "rulesAcceptance"] {
+            old.as_object_mut().unwrap().remove(key);
+        }
         let read: InstanceInfo = serde_json::from_value(old).unwrap();
         assert_eq!(
             read.comment_visibility,
             crate::announcements::CommentVisibility::Public
         );
+        assert_eq!(read.rules_updated_at, None);
+        assert_eq!(read.rules_acceptance, crate::rules::RulesAcceptance::None);
     }
 }

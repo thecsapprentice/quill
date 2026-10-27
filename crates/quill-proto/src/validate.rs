@@ -165,6 +165,11 @@ pub fn announcement_body(input: &str) -> Result<String, ValidationError> {
     markdown_body(input, ANNOUNCEMENT_BODY_MAX_CHARS)
 }
 
+/// The server rules: Markdown, up to [`RULES_BODY_MAX_CHARS`].
+pub fn rules_body(input: &str) -> Result<String, ValidationError> {
+    markdown_body(input, RULES_BODY_MAX_CHARS)
+}
+
 /// Comments are Markdown too, shorter than prompts.
 pub fn comment_body(input: &str) -> Result<String, ValidationError> {
     markdown_body(input, COMMENT_BODY_MAX_CHARS)
