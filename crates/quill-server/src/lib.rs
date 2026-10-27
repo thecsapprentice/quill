@@ -12,6 +12,7 @@ pub mod events;
 pub mod groups;
 pub mod keys;
 mod markdown;
+pub mod moderation;
 pub mod notices;
 pub mod openapi;
 pub mod prompts;
