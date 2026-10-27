@@ -38,7 +38,7 @@ build. The numbers come from `cargo run --release`, `-- limits`,
   writing").
 
 **Recommendation:** Rhai with the `text` API, shipped with a set of
-templates. Decision still open (#43, "Still open" 4).
+templates. Decided 2026-10-26: Rhai with templates, plus common data (#43).
 
 ## 1. The samples
 

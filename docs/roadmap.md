@@ -26,6 +26,21 @@ personas, CLI skeleton, the server dependency ban.
 | 1g | Persona handle rules | done |
 | 1h | Account moderation notices | done |
 
+Admin tools added since, tracked as issues under the Phase 1 epic (#34):
+announcements and comments (#41), automated moderation (#43), the rules
+page (#42), hold-for-review (#44) and shared script code (#47).
+
+### Automated moderation (#43)
+
+Administrators' scripts check prompts, edits, comments, new tags and
+reports before they're saved, and can refuse, flag or dismiss. Scripts are
+in Rhai with a native `text` API, read shared common data, run in an
+ordered chain per hook with an error setting, and start from seven
+templates. Admin pages under Server settings → Moderation, the
+`/admin/moderation` API and `quill admin automod`. Design: the
+architecture document, "Automated moderation"; reference for admins:
+[automod.md](automod.md); the engine spike: `spikes/automod/FINDINGS.md`.
+
 ### 1c: Docker setup and demo data
 
 - `Dockerfile` and `compose.yaml` for local testing (done).
@@ -1291,6 +1306,14 @@ ranges. Known so far:
 
 ## Decisions
 
+- **#43, automated moderation (decided 2026-10-26): Rhai, with default
+  templates and common data.** The spike ran the same scripts in rule files,
+  Rhai, Luau, Starlark and JavaScript; Rhai stopped every hostile script with
+  built-in limits and is pure Rust. Templates, not a second simpler
+  language, serve admins who don't write code. Common data is admin-kept
+  named strings that scripts read but can't change, parsed on the server
+  once per version. A failing script's effect is set per chain; the first
+  release ships `reject` and `flag` (`hold` is #44).
 - **1f, JavaScript on the board (decided 2026-10-22): none.** Adding a tag
   is a form button that reloads the form with the visitor's input kept and
   jumps back to the tag field. Removing a tag is instant without JavaScript:
