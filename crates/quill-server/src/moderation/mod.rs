@@ -2,9 +2,12 @@
 //! hooks in the board's write paths. Design and reasoning are in the
 //! architecture document, "Automated moderation".
 
+pub mod context;
 pub mod data;
 pub mod engine;
 pub mod text;
+
+pub use quill_proto::automod::{Hook, OnError};
 
 /// What scripts and common data may use. Set from `QUILL_AUTOMOD_*`
 /// environment variables; the defaults are safe for a small server.

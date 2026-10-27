@@ -85,6 +85,10 @@ CREATE UNIQUE INDEX reports_one_per_script_idx
     ON reports (script_name, coalesce(prompt_id, comment_id), prompt_hash)
     WHERE script_name IS NOT NULL;
 
+-- Scripts are told how alike a new prompt is to recent ones (the same text
+-- from several accounts); this makes that one indexed query.
+CREATE INDEX prompts_text_trgm_idx ON prompts USING gin ((title || ' ' || body_md) gin_trgm_ops);
+
 -- A script's `flag` on a requested tag marks it in the pending-tag queue.
 ALTER TABLE tags
     ADD COLUMN flag_script text,

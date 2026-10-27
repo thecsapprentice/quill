@@ -4,6 +4,49 @@
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+use crate::board::string_enum;
+
+string_enum! {
+    /// Where in the board a chain of scripts runs, before the change is
+    /// saved.
+    Hook {
+        PromptCreated => "prompt_created",
+        PromptEdited => "prompt_edited",
+        /// A comment on an announcement.
+        CommentCreated => "comment_created",
+        /// A writer used a tag the server doesn't have yet.
+        TagRequested => "tag_requested",
+        /// A writer reported a prompt.
+        PromptReported => "prompt_reported",
+    }
+}
+
+impl Hook {
+    /// What `post` holds at this hook: `prompt`, `comment`, `tag` or
+    /// `report`.
+    pub fn kind(self) -> &'static str {
+        match self {
+            Self::PromptCreated | Self::PromptEdited => "prompt",
+            Self::CommentCreated => "comment",
+            Self::TagRequested => "tag",
+            Self::PromptReported => "report",
+        }
+    }
+}
+
+string_enum! {
+    /// What a chain does when one of its scripts fails (an error, or a
+    /// limit reached).
+    OnError {
+        /// Skip the script and run the rest of the chain.
+        Continue => "continue",
+        /// Refuse the submission with a "couldn't be checked" message.
+        Reject => "reject",
+        /// Let it through and file a report for an administrator.
+        Flag => "flag",
+    }
+}
+
 /// Longest common data name.
 pub const MAX_DATA_NAME: usize = 64;
 

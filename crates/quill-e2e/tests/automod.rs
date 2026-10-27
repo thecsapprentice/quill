@@ -6,8 +6,109 @@
 use quill_e2e::TestServer;
 use quill_proto::automod::SaveModerationData;
 use quill_server::error::ApiError;
-use quill_server::moderation::data;
+use quill_server::moderation::{Hook, context, data};
 use uuid::Uuid;
+
+async fn writer(server: &TestServer, name: &str) -> (quill_core::Client, Uuid, Uuid) {
+    let client = server.account(name).await.unwrap();
+    let persona = client
+        .create_persona(&quill_proto::api::CreatePersona {
+            handle: format!("{name}_pen"),
+            display_name: None,
+            summary: None,
+        })
+        .await
+        .unwrap();
+    let account: Uuid = sqlx::query_scalar("SELECT id FROM accounts WHERE login_name = $1")
+        .bind(name)
+        .fetch_one(&server.db().await.unwrap())
+        .await
+        .unwrap();
+    (client, persona.id, account)
+}
+
+async fn post(client: &quill_core::Client, persona: Uuid, title: &str, body: &str) -> Uuid {
+    client
+        .create_prompt(&quill_proto::board::CreatePrompt {
+            persona,
+            title: title.into(),
+            body: body.into(),
+            maturity: quill_proto::board::Maturity::General,
+            tags: vec![],
+            state: None,
+        })
+        .await
+        .unwrap()
+        .id
+}
+
+fn subject(account: Uuid, actor: Uuid, title: &str, body: &str) -> context::Subject {
+    context::Subject {
+        hook: Hook::PromptCreated,
+        title: title.into(),
+        body: body.into(),
+        tags: vec![],
+        maturity: "general".into(),
+        previous: None,
+        tag: None,
+        report: None,
+        actor: Some(actor),
+        account,
+        prompt: None,
+    }
+}
+
+#[tokio::test]
+async fn the_context_counts_bursts_and_finds_copies() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let state = server.state().await.unwrap();
+    let (first, first_persona, _) = writer(&server, "first").await;
+    let (second, second_persona, second_account) = writer(&server, "second").await;
+
+    let text =
+        "Looking for someone to write a slow, quiet story about a lighthouse keeper's last night.";
+    post(&first, first_persona, "The last night", text).await;
+    for i in 0..3 {
+        post(
+            &second,
+            second_persona,
+            &format!("Idea {i}"),
+            "Two rivals stuck in a lift for an afternoon.",
+        )
+        .await;
+    }
+
+    let post = context::build(
+        &state.pool,
+        subject(second_account, second_persona, "The last night", text),
+    )
+    .await
+    .unwrap();
+    assert_eq!(post.author.handle, "second_pen");
+    assert!(post.author.account_age_days < 1.0);
+    assert_eq!(post.history.prompts_last_hour, 3);
+    assert_eq!(post.history.recent_minutes_ago.len(), 3);
+
+    // The same text from another account, found board-wide.
+    let copy = &post.history.similar_on_board[0];
+    assert!(!copy.same_account);
+    assert!(copy.similarity > 0.9, "{copy:?}");
+    assert!(post.history.most_similar_on_board > 0.9);
+    // The account's own prompts are listed whatever they say.
+    assert_eq!(post.history.own_recent.len(), 3);
+    assert!(
+        post.history
+            .own_recent
+            .iter()
+            .all(|s| s.same_account && s.similarity < 0.5)
+    );
+
+    // No login name anywhere in what a script sees.
+    let json = serde_json::to_string(&post).unwrap();
+    assert!(!json.contains("\"second\""), "{json}");
+}
 
 async fn admin_id(server: &TestServer, login: &str) -> Uuid {
     server.admin_account(login).await.unwrap();
