@@ -2,6 +2,7 @@
 //! hooks in the board's write paths. Design and reasoning are in the
 //! architecture document, "Automated moderation".
 
+pub mod api;
 pub mod chains;
 pub mod context;
 pub mod data;

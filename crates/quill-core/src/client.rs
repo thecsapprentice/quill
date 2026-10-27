@@ -9,6 +9,11 @@ use quill_proto::{
         CreatePersona, Credentials, InstanceInfo, PROBLEM_CONTENT_TYPE, Persona, Problem,
         TokenResponse, UpdatePersona,
     },
+    automod::{
+        DryRun, DryRunResult, Hook, ModerationChain, ModerationData, ModerationDataContent,
+        ModerationDataSummary, ModerationDataVersion, ModerationScript, ReplaceScript, RestoreData,
+        SaveModerationData, ScriptTemplate, SetScriptMode, UpdateChain, UploadScript, UseTemplate,
+    },
     board::{
         AccountSettings, AdminLogEntry, AdminTag, AdminTagQuery, CreateNamespace, CreatePrompt,
         CreateReport, CreateTag, DeletedTag, Prompt, PromptPage, PromptQuery, Report, ReportQuery,
@@ -408,6 +413,126 @@ impl Client {
     pub async fn resolve_report(&self, id: Uuid, action: Resolution) -> Result<Report, CoreError> {
         let builder = self.authed(Method::POST, &format!("/admin/reports/{id}/resolve"))?;
         Self::json(Self::with_json(builder, &ResolveReport { action })).await
+    }
+
+    // ---- Automated moderation (administrators) --------------------------
+
+    pub async fn automod_scripts(&self) -> Result<Vec<ModerationScript>, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/moderation/scripts")?).await
+    }
+
+    pub async fn automod_script(&self, id: Uuid) -> Result<ModerationScript, CoreError> {
+        Self::json(self.authed(Method::GET, &format!("/admin/moderation/scripts/{id}"))?).await
+    }
+
+    pub async fn automod_upload(&self, body: &UploadScript) -> Result<ModerationScript, CoreError> {
+        let builder = self.authed(Method::POST, "/admin/moderation/scripts")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn automod_replace(
+        &self,
+        id: Uuid,
+        body: &ReplaceScript,
+    ) -> Result<ModerationScript, CoreError> {
+        let builder = self.authed(Method::PUT, &format!("/admin/moderation/scripts/{id}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn automod_set_mode(
+        &self,
+        id: Uuid,
+        body: &SetScriptMode,
+    ) -> Result<ModerationScript, CoreError> {
+        let builder = self.authed(Method::PATCH, &format!("/admin/moderation/scripts/{id}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn automod_remove(&self, id: Uuid) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::DELETE, &format!("/admin/moderation/scripts/{id}"))?).await
+    }
+
+    pub async fn automod_chains(&self) -> Result<Vec<ModerationChain>, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/moderation/chains")?).await
+    }
+
+    pub async fn automod_update_chain(
+        &self,
+        hook: Hook,
+        body: &UpdateChain,
+    ) -> Result<ModerationChain, CoreError> {
+        let builder = self.authed(Method::PUT, &format!("/admin/moderation/chains/{hook}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn automod_data_list(&self) -> Result<Vec<ModerationDataSummary>, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/moderation/data")?).await
+    }
+
+    /// Common data names are lowercase letters, digits and underscores, so
+    /// they go into paths as they are.
+    pub async fn automod_data(&self, name: &str) -> Result<ModerationData, CoreError> {
+        Self::json(self.authed(Method::GET, &format!("/admin/moderation/data/{name}"))?).await
+    }
+
+    pub async fn automod_save_data(
+        &self,
+        name: &str,
+        body: &SaveModerationData,
+    ) -> Result<ModerationData, CoreError> {
+        let builder = self.authed(Method::PUT, &format!("/admin/moderation/data/{name}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn automod_delete_data(&self, name: &str) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::DELETE, &format!("/admin/moderation/data/{name}"))?).await
+    }
+
+    pub async fn automod_data_history(
+        &self,
+        name: &str,
+    ) -> Result<Vec<ModerationDataVersion>, CoreError> {
+        let path = format!("/admin/moderation/data/{name}/versions");
+        Self::json(self.authed(Method::GET, &path)?).await
+    }
+
+    pub async fn automod_data_version(
+        &self,
+        name: &str,
+        version: i32,
+    ) -> Result<ModerationDataContent, CoreError> {
+        let path = format!("/admin/moderation/data/{name}/versions/{version}");
+        Self::json(self.authed(Method::GET, &path)?).await
+    }
+
+    pub async fn automod_restore_data(
+        &self,
+        name: &str,
+        version: i32,
+    ) -> Result<ModerationData, CoreError> {
+        let builder = self.authed(
+            Method::POST,
+            &format!("/admin/moderation/data/{name}/restore"),
+        )?;
+        Self::json(Self::with_json(builder, &RestoreData { version })).await
+    }
+
+    pub async fn automod_templates(&self) -> Result<Vec<ScriptTemplate>, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/moderation/templates")?).await
+    }
+
+    pub async fn automod_use_template(
+        &self,
+        id: &str,
+        body: &UseTemplate,
+    ) -> Result<ModerationScript, CoreError> {
+        let builder = self.authed(Method::POST, &format!("/admin/moderation/templates/{id}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn automod_dry_run(&self, body: &DryRun) -> Result<DryRunResult, CoreError> {
+        let builder = self.authed(Method::POST, "/admin/moderation/dry-run")?;
+        Self::json(Self::with_json(builder, body)).await
     }
 
     pub async fn admin_log(

@@ -40,6 +40,7 @@ pub fn api() -> OpenApiRouter<AppState> {
         .merge(crate::reports::router())
         .merge(crate::tag_admin::router())
         .merge(crate::server_settings::router())
+        .merge(crate::moderation::api::router())
         .merge(crate::reserved::router())
         .merge(crate::notices::router())
         .merge(crate::keys::router())
