@@ -45,7 +45,7 @@ docker compose down        # stop; add -v to also delete the database
 For a board full of test data instead, seed the empty database:
 
 ```sh
-docker compose --profile demo run --rm seed
+docker compose --profile demo run --build --rm seed
 ```
 
 This creates 6 accounts (including `admin`), 1 to 3 personas each, 150

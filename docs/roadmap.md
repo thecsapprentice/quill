@@ -44,7 +44,7 @@ architecture document, "Automated moderation"; reference for admins:
 ### 1c: Docker setup and demo data
 
 - `Dockerfile` and `compose.yaml` for local testing (done).
-- A demo-data seeder, run by `docker compose --profile demo run --rm seed`:
+- A demo-data seeder, run by `docker compose --profile demo run --build --rm seed`:
   at least 4 accounts, 1 to 3 personas each, 100+ prompts spread across tags,
   maturity ratings, states and dates, plus a few reports and one admin.
 - The seeder (`quill-seed`, in `quill-devtools`) is a separate development
