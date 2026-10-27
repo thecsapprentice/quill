@@ -88,6 +88,16 @@ impl Snapshot {
         self.0.get(name)
     }
 
+    /// Parses every entry and builds its word list, if not done already for
+    /// its version. Called before scripts run, so a large list's one-off
+    /// build doesn't count against a script's time limit.
+    pub fn warm(&self) {
+        for entry in self.0.values() {
+            // An entry that can't be a word list fails when a script uses it.
+            let _ = entry.word_list();
+        }
+    }
+
     /// This snapshot with some entries replaced by unsaved content, for
     /// trying an edit in a dry run before saving it.
     pub fn with_overrides(&self, overrides: impl IntoIterator<Item = (String, String)>) -> Self {

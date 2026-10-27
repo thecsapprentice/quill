@@ -198,8 +198,9 @@ pub fn squash(text: &str) -> String {
     let joined = join_letters(text);
     let mut out = String::with_capacity(joined.len());
     let mut last = None;
+    // Letters only: "100" and "10" are different numbers.
     for c in joined.chars() {
-        if Some(c) != last || !c.is_alphanumeric() {
+        if Some(c) != last || !c.is_alphabetic() {
             out.push(c);
         }
         last = Some(c);
@@ -567,6 +568,19 @@ mod tests {
     }
 
     #[test]
+    fn a_huge_word_list_stays_fast() {
+        // Built once per version of the list and cached; each post only
+        // pays for the search, which is one pass over the text.
+        let words: Vec<String> = (0..50_000).map(|i| format!("word{i}")).collect();
+        let list = WordList::new(&words).unwrap();
+        let text = "an ordinary prompt about a lighthouse ".repeat(500) + "word49999";
+        let started = std::time::Instant::now();
+        assert_eq!(list.find_in(&text), ["word49999"]);
+        let took = started.elapsed();
+        assert!(took < std::time::Duration::from_millis(500), "{took:?}");
+    }
+
+    #[test]
     fn word_lists_report_each_entry_once_in_list_order() {
         let banned = list(&["bee", "ant"]);
         assert_eq!(banned.find_in("ant bee ant bee"), ["bee", "ant"]);
@@ -628,5 +642,6 @@ mod tests {
         assert_eq!(normalize("ﬁne"), "fine");
         assert_eq!(skeleton("p\u{0430}ypal"), skeleton("paypal"));
         assert_eq!(squash("s p a m and ok"), "spam and ok");
+        assert_eq!(squash("1000 sooo"), "1000 so");
     }
 }

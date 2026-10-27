@@ -118,6 +118,7 @@ pub async fn check(state: &AppState, subject: Subject) -> Result<Verdict, ApiErr
 
     let time_limit = Duration::from_millis(limits.time_ms);
     let (steps, results) = tokio::task::spawn_blocking(move || {
+        snapshot.warm();
         let results = run_steps(&steps, &post, &snapshot, time_limit, hook, on_error);
         (steps, results)
     })
@@ -415,6 +416,7 @@ pub async fn dry_run(state: &AppState, req: &DryRun) -> Result<DryRunResult, Api
     let time_limit = Duration::from_millis(limits.time_ms);
     let hook = req.hook;
     let out = tokio::task::spawn_blocking(move || {
+        snapshot.warm();
         let mut decided = false;
         steps
             .iter()

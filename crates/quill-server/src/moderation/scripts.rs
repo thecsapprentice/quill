@@ -126,6 +126,7 @@ async fn check(state: &AppState, source: &str, hooks: &[Hook]) -> Result<Script,
     let (script, failure) = tokio::task::spawn_blocking({
         let hooks = hooks.to_vec();
         move || {
+            snapshot.warm();
             let failure = try_on_samples(&script, &hooks, &snapshot, time_limit);
             (script, failure)
         }
