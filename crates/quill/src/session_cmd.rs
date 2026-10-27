@@ -17,6 +17,7 @@ pub enum SessionCommand {
     /// Show a session's messages.
     Read {
         /// The session id, or enough of its start to be unambiguous.
+        #[arg(allow_hyphen_values = true)]
         id: String,
         /// Only this channel.
         #[arg(long)]
@@ -27,6 +28,7 @@ pub enum SessionCommand {
     },
     /// Write to a session.
     Write {
+        #[arg(allow_hyphen_values = true)]
         id: String,
         /// The message (Markdown).
         #[arg(long, conflicts_with = "file")]
@@ -47,6 +49,7 @@ pub enum SessionCommand {
     /// Show the safety numbers to compare with the other writer, in person
     /// or over another channel you trust.
     Verify {
+        #[arg(allow_hyphen_values = true)]
         id: String,
         /// They match: mark the other writer verified on this device.
         #[arg(long)]
@@ -54,6 +57,7 @@ pub enum SessionCommand {
     },
     /// Save a message's attachments into a folder.
     Save {
+        #[arg(allow_hyphen_values = true)]
         id: String,
         /// The message's number, as `read` shows it.
         message: u64,
@@ -61,12 +65,16 @@ pub enum SessionCommand {
         to: PathBuf,
     },
     /// A session's channels: what each is for, and what you haven't seen.
-    Channels { id: String },
+    Channels {
+        #[arg(allow_hyphen_values = true)]
+        id: String,
+    },
     /// Name a channel, or describe it again.
     #[command(subcommand)]
     Channel(ChannelCommand),
     /// Change one of your messages. Every version is kept.
     Edit {
+        #[arg(allow_hyphen_values = true)]
         id: String,
         /// The message's number, as `read` shows it.
         message: u64,
@@ -75,12 +83,23 @@ pub enum SessionCommand {
     },
     /// Delete one of your messages. It shows as deleted; its versions are
     /// kept.
-    Delete { id: String, message: u64 },
+    Delete {
+        #[arg(allow_hyphen_values = true)]
+        id: String,
+        message: u64,
+    },
     /// Every version of a message.
-    History { id: String, message: u64 },
+    History {
+        #[arg(allow_hyphen_values = true)]
+        id: String,
+        message: u64,
+    },
     /// Leave a session. With two writers, that ends it for both; what's
     /// been written stays readable.
-    Leave { id: String },
+    Leave {
+        #[arg(allow_hyphen_values = true)]
+        id: String,
+    },
 }
 
 fn standing_text(s: &Standing) -> String {
@@ -100,6 +119,7 @@ fn standing_text(s: &Standing) -> String {
 pub enum ChannelCommand {
     /// Name a channel so it shows for both writers, or describe it again.
     Add {
+        #[arg(allow_hyphen_values = true)]
         id: String,
         /// Lowercase letters, digits and hyphens; at most 32.
         name: String,
@@ -405,5 +425,48 @@ pub async fn session(ctx: &Ctx, cmd: SessionCommand) -> Result<()> {
             sessions::leave(&ctx.store, &client, &id).await?;
             ctx.done("left: the session has ended")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+
+    #[derive(Parser)]
+    struct Cli {
+        #[command(subcommand)]
+        command: SessionCommand,
+    }
+
+    fn parse(args: &[&str]) -> SessionCommand {
+        let argv = std::iter::once("session").chain(args.iter().copied());
+        Cli::try_parse_from(argv)
+            .unwrap_or_else(|e| panic!("{args:?}: {e}"))
+            .command
+    }
+
+    // Session ids are base64url, so about one in 64 starts with a hyphen.
+    #[test]
+    fn session_ids_may_start_with_a_hyphen() {
+        let SessionCommand::Write { id, text, .. } = parse(&["write", "-Lx9", "--text", "hi"])
+        else {
+            panic!("not write");
+        };
+        assert_eq!((id.as_str(), text.as_deref()), ("-Lx9", Some("hi")));
+        let SessionCommand::Read { id, follow, .. } = parse(&["read", "--follow", "-Lx9"]) else {
+            panic!("not read");
+        };
+        assert_eq!((id.as_str(), follow), ("-Lx9", true));
+        let SessionCommand::Delete { id, message } = parse(&["delete", "--", "--x9", "3"]) else {
+            panic!("not delete");
+        };
+        assert_eq!((id.as_str(), message), ("--x9", 3));
+        let SessionCommand::Read { id, channel, .. } = parse(&["read", "abc", "--channel", "ooc"])
+        else {
+            panic!("not read");
+        };
+        assert_eq!((id.as_str(), channel.as_deref()), ("abc", Some("ooc")));
     }
 }
