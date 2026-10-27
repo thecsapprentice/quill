@@ -16,6 +16,7 @@ mod layout;
 mod moderation;
 mod notices;
 mod pages;
+mod rules;
 
 use std::rc::Rc;
 
@@ -35,6 +36,7 @@ pub use announcements::*;
 pub use moderation::*;
 pub use notices::notices_page;
 pub use pages::*;
+pub use rules::*;
 
 /// The board's stylesheet, served at [`STYLESHEET_PATH`].
 pub const STYLESHEET: &str = include_str!("board.css");
@@ -57,6 +59,8 @@ pub enum Nav {
     Admin,
     /// Server settings (administrators only).
     ServerSettings,
+    /// The server rules page.
+    Rules,
     SignIn,
     Other,
 }
@@ -72,6 +76,9 @@ pub struct Viewer {
     pub pending_tags: u64,
     /// The account's unread notices.
     pub unread_notices: u64,
+    /// The server rules changed and the account must accept them before
+    /// writing again.
+    pub must_accept_rules: bool,
 }
 
 /// What every page needs: site identity, the visitor and navigation.
@@ -85,6 +92,8 @@ pub struct Chrome {
     /// One-line message shown at the top of the page, such as "Prompt posted."
     pub notice: Option<String>,
     pub current: Nav,
+    /// Whether the server has rules, to link them in the footer.
+    pub has_rules: bool,
 }
 
 /// Board search filters, as typed into the filter form.
@@ -180,6 +189,9 @@ pub struct AuthView {
     pub username: String,
     pub error: Option<String>,
     pub registration_open: bool,
+    /// The rules version a new account accepts, when the server asks for
+    /// that on joining. The form then has an "I accept" checkbox.
+    pub accept_rules: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -442,6 +454,11 @@ fn document(doc: Doc) -> Element {
                 main { class: "wrap",
                     if let Some(notice) = &chrome.notice {
                         p { class: "notice", role: "status", "{notice}" }
+                    }
+                    if chrome.viewer.as_ref().is_some_and(|v| v.must_accept_rules)
+                        && chrome.current != Nav::Rules
+                    {
+                        {rules::banner()}
                     }
                     {body()}
                 }

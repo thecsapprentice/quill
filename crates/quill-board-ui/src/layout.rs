@@ -70,6 +70,9 @@ pub(crate) fn footer(chrome: &Chrome) -> Element {
     rsx! {
         footer { class: "site-footer",
             div { class: "wrap",
+                if chrome.has_rules {
+                    p { a { href: crate::RULES_PATH, "Server rules" } }
+                }
                 p {
                     "Quill {chrome.version}, free software under the GNU AGPL. "
                     a { href: "{chrome.source_url}", "Source code" }

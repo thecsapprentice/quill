@@ -9,6 +9,7 @@ mod comments;
 mod handlers;
 mod moderation;
 mod picker;
+mod rules;
 pub mod session;
 mod settings;
 
@@ -48,6 +49,8 @@ pub fn router() -> Router<AppState> {
             "/p/{id}/report",
             get(handlers::report_form).post(handlers::report_submit),
         )
+        .route(quill_board_ui::RULES_PATH, get(rules::page))
+        .route(quill_board_ui::ACCEPT_RULES_PATH, post(rules::accept))
         .route("/announcements", get(announcements::list))
         .route(quill_board_ui::DISMISS_PATH, post(announcements::dismiss))
         .route("/announcements/{id}", get(announcements::show))
@@ -168,6 +171,14 @@ pub fn router() -> Router<AppState> {
         .route(
             "/admin/settings/comment-visibility",
             post(announcements::admin_comment_visibility),
+        )
+        .route(
+            quill_board_ui::ADMIN_RULES_PATH,
+            get(rules::admin_page).post(rules::admin_save),
+        )
+        .route(
+            "/admin/settings/rules-acceptance",
+            post(rules::admin_acceptance),
         )
         .route("/admin/settings/tag-requests", get(settings::tag_requests))
         .route(
@@ -366,11 +377,15 @@ pub(crate) fn chrome(
             maturity_max: s.maturity_max,
             pending_tags: s.pending_tags,
             unread_notices: s.unread_notices,
+            must_accept_rules: s.must_accept_rules,
         }),
         source_url: state.config.source_url.clone(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
         notice: notice.and_then(notice_text).map(str::to_owned),
         current,
+        has_rules: state
+            .rules_published
+            .load(std::sync::atomic::Ordering::Relaxed),
     }
 }
 
@@ -422,6 +437,9 @@ fn notice_text(key: &str) -> Option<&'static str> {
         "data-saved" => "Saved as a new version.",
         "data-restored" => "Saved the old version again, as a new version.",
         "data-deleted" => "Entry deleted.",
+        "rules-accepted" => "Thank you for accepting the server rules.",
+        "rules-saved" => "Rules saved as a new version.",
+        "rules-acceptance-saved" => "Setting saved.",
         _ => return None,
     })
 }
@@ -465,6 +483,20 @@ pub(crate) fn error_page(chrome: &Chrome, err: ApiError) -> Response {
         ),
         ApiError::Unauthorized => redirect("/login"),
         ApiError::Forbidden(text) => message(chrome, StatusCode::FORBIDDEN, "Not allowed", &text),
+        ApiError::RulesNotAccepted(text) => html(
+            StatusCode::FORBIDDEN,
+            quill_board_ui::message_page(
+                chrome,
+                MessageView {
+                    title: "Accept the server rules first".to_owned(),
+                    text,
+                    link: Some((
+                        rules::READ_RULES.0.to_owned(),
+                        rules::READ_RULES.1.to_owned(),
+                    )),
+                },
+            ),
+        ),
         ApiError::TooManyRequests => message(
             chrome,
             StatusCode::TOO_MANY_REQUESTS,

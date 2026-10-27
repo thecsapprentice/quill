@@ -29,6 +29,8 @@ pub struct Session {
     pub pending_tags: u64,
     /// Account notices not yet read.
     pub unread_notices: u64,
+    /// The server rules changed and the account must accept them.
+    pub must_accept_rules: bool,
 }
 
 impl Session {
@@ -108,21 +110,25 @@ impl FromRequestParts<AppState> for MaybeSession {
             return Ok(Self(None));
         };
         let hash = token_hash(&token);
-        let row: Option<(Uuid, String, bool, String, i64, i64)> = sqlx::query_as(
-            "SELECT s.account_id, s.csrf_token, a.is_admin, a.maturity_max::text,
-                    CASE WHEN a.is_admin
-                         THEN (SELECT count(*) FROM tags WHERE status = 'pending')
-                         ELSE 0 END,
-                    (SELECT count(*) FROM account_notices n
-                     WHERE n.account_id = a.id AND n.read_at IS NULL)
-             FROM web_sessions s JOIN accounts a ON a.id = s.account_id
-             WHERE s.token_hash = $1 AND s.expires_at > now()",
-        )
-        .bind(&hash)
-        .fetch_optional(&state.pool)
-        .await?;
+        // Safe: built only from compile-time constants; the token is bound.
+        let row: Option<(Uuid, String, bool, String, i64, i64, bool)> =
+            sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT s.account_id, s.csrf_token, a.is_admin, a.maturity_max::text,
+                        CASE WHEN a.is_admin
+                             THEN (SELECT count(*) FROM tags WHERE status = 'pending')
+                             ELSE 0 END,
+                        (SELECT count(*) FROM account_notices n
+                         WHERE n.account_id = a.id AND n.read_at IS NULL),
+                        {}
+                 FROM web_sessions s JOIN accounts a ON a.id = s.account_id
+                 WHERE s.token_hash = $1 AND s.expires_at > now()",
+                crate::rules::must_accept_sql("a.id")
+            )))
+            .bind(&hash)
+            .fetch_optional(&state.pool)
+            .await?;
         Ok(Self(row.map(
-            |(account_id, csrf, is_admin, maturity, pending, unread)| Session {
+            |(account_id, csrf, is_admin, maturity, pending, unread, must_accept)| Session {
                 account_id,
                 token_hash: hash,
                 csrf,
@@ -130,6 +136,7 @@ impl FromRequestParts<AppState> for MaybeSession {
                 maturity_max: maturity.parse().unwrap_or(Maturity::DEFAULT_MAX),
                 pending_tags: u64::try_from(pending).unwrap_or(0),
                 unread_notices: u64::try_from(unread).unwrap_or(0),
+                must_accept_rules: must_accept,
             },
         )))
     }
@@ -165,6 +172,7 @@ mod tests {
             maturity_max: Maturity::Teen,
             pending_tags: 0,
             unread_notices: 0,
+            must_accept_rules: false,
         };
         assert!(s.csrf_matches(Some("abc")));
         assert!(!s.csrf_matches(Some("abd")));

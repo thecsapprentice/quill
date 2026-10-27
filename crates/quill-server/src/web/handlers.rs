@@ -16,7 +16,7 @@ use quill_board_ui::{
     Nav, PersonasView, PromptFormView, PromptView, ReportView, SettingsView,
 };
 use quill_proto::{
-    api::{CreatePersona, Credentials},
+    api::{CreatePersona, Credentials, Registration},
     board::{
         CreatePrompt, CreateReport, Maturity, PromptQuery, PromptState, ReportReason, Resolution,
         TagQuery, UpdateAccountSettings, UpdatePrompt,
@@ -52,7 +52,8 @@ pub(super) fn form_error(err: &ApiError) -> Option<String> {
         ApiError::BadRequest(m)
         | ApiError::Conflict(m)
         | ApiError::Forbidden(m)
-        | ApiError::ContentRejected(m) => Some(m.clone()),
+        | ApiError::ContentRejected(m)
+        | ApiError::RulesNotAccepted(m) => Some(m.clone()),
         _ => None,
     }
 }
@@ -842,14 +843,19 @@ pub struct AuthForm {
     username: Option<String>,
     password: Option<String>,
     confirm: Option<String>,
+    /// The "I accept the server rules" checkbox, and the version it was for.
+    accept_rules: Option<String>,
+    rules_version: Option<String>,
 }
 
+/// `accept_rules` is the rules version a sign-up form asks to accept.
 fn auth_page(
     state: &AppState,
     mode: AuthMode,
     username: &str,
     status: StatusCode,
     error: Option<String>,
+    accept_rules: Option<u32>,
 ) -> Response {
     let c = chrome(state, None, Nav::SignIn, None);
     html(
@@ -861,6 +867,7 @@ fn auth_page(
                 username: username.to_owned(),
                 error,
                 registration_open: state.config.registration_open,
+                accept_rules,
             },
         ),
     )
@@ -873,7 +880,7 @@ pub async fn login_form(
     if session.is_some() {
         return redirect("/");
     }
-    auth_page(&state, AuthMode::SignIn, "", StatusCode::OK, None)
+    auth_page(&state, AuthMode::SignIn, "", StatusCode::OK, None, None)
 }
 
 pub async fn login_submit(State(state): State<AppState>, Form(form): Form<AuthForm>) -> Response {
@@ -893,6 +900,7 @@ pub async fn login_submit(State(state): State<AppState>, Form(form): Form<AuthFo
             &username,
             StatusCode::UNAUTHORIZED,
             Some("That login name and password don't match an account.".into()),
+            None,
         ),
         Err(e) => error_page(&chrome(&state, None, Nav::SignIn, None), e),
     }
@@ -905,7 +913,10 @@ pub async fn register_form(
     if session.is_some() {
         return redirect("/");
     }
-    auth_page(&state, AuthMode::Register, "", StatusCode::OK, None)
+    match super::rules::version_to_accept_on_join(&state).await {
+        Ok(accept) => auth_page(&state, AuthMode::Register, "", StatusCode::OK, None, accept),
+        Err(e) => error_page(&chrome(&state, None, Nav::SignIn, None), e),
+    }
 }
 
 pub async fn register_submit(
@@ -914,6 +925,11 @@ pub async fn register_submit(
 ) -> Response {
     let username = form.username.clone().unwrap_or_default();
     let password = form.password.clone().unwrap_or_default();
+    // Asked again with the rules as they are now, should they have changed.
+    let accept = match super::rules::version_to_accept_on_join(&state).await {
+        Ok(v) => v,
+        Err(e) => return error_page(&chrome(&state, None, Nav::SignIn, None), e),
+    };
     let fail = |m: &str| {
         auth_page(
             &state,
@@ -921,6 +937,7 @@ pub async fn register_submit(
             &username,
             StatusCode::BAD_REQUEST,
             Some(m.to_owned()),
+            accept,
         )
     };
     if validate::username(&username).is_err() {
@@ -932,17 +949,23 @@ pub async fn register_submit(
     if form.confirm.as_deref() != Some(password.as_str()) {
         return fail("The two passwords don't match.");
     }
-    let creds = Credentials {
+    let registration = Registration {
         username: username.clone(),
         password,
+        accept_rules: form
+            .accept_rules
+            .is_some()
+            .then(|| opt(&form.rules_version).and_then(|v| v.parse().ok()))
+            .flatten(),
     };
-    match routes::create_account(&state, creds.into()).await {
+    match routes::create_account(&state, registration).await {
         Ok(account) => match session::start(&state, account).await {
             Ok(cookie) => with_cookie(cookie, "/personas?notice=registered"),
             Err(e) => error_page(&chrome(&state, None, Nav::SignIn, None), e),
         },
         Err(ApiError::Conflict(_)) => fail("That login name is taken. Try another."),
         Err(ApiError::Forbidden(_)) => fail("This server isn't accepting new accounts right now."),
+        Err(ApiError::RulesNotAccepted(m)) => fail(&m),
         Err(e) => error_page(&chrome(&state, None, Nav::SignIn, None), e),
     }
 }
