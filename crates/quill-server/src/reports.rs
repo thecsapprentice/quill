@@ -121,26 +121,61 @@ pub async fn file_report(
     let details = quill_proto::validate::report_details(body.details.as_deref())?;
     allow_report(state, reporter)?;
 
-    let row: Option<(String, String)> =
-        sqlx::query_as("SELECT title, body_md FROM prompts WHERE id = $1 AND removed_at IS NULL")
-            .bind(body.prompt)
-            .fetch_optional(&state.pool)
-            .await?;
-    let (title, text) = row.ok_or(ApiError::NotFound)?;
+    let row: Option<(String, String, Uuid, Uuid, String, Vec<i64>)> = sqlx::query_as(
+        "SELECT p.title, p.body_md, p.actor_id, a.account_id, p.maturity::text, p.tag_ids
+         FROM prompts p JOIN actors a ON a.id = p.actor_id
+         WHERE p.id = $1 AND p.removed_at IS NULL",
+    )
+    .bind(body.prompt)
+    .fetch_optional(&state.pool)
+    .await?;
+    let (title, text, persona, author, maturity, tag_ids) = row.ok_or(ApiError::NotFound)?;
     let hash = prompt_hash(&title, &text);
+
+    // Moderation scripts see the report before it's filed. They may refuse
+    // it, close it straight away, or add a flag of their own.
+    let tags = crate::prompts::load_tags(&state.pool, &tag_ids).await?;
+    let reported = crate::moderation::hooks::Reported {
+        prompt: body.prompt,
+        persona,
+        author,
+        title: &title,
+        body: &text,
+        tags: tag_ids
+            .iter()
+            .filter_map(|t| tags.get(t))
+            .map(|t| t.key())
+            .collect(),
+        maturity: crate::prompts::parse_enum(&maturity)?,
+    };
+    let verdict = crate::moderation::hooks::before_report(
+        state,
+        reporter,
+        reported,
+        body.reason.as_str(),
+        details.as_deref().unwrap_or_default(),
+    )
+    .await?;
+    let dismissed = match &verdict {
+        crate::moderation::Verdict::Dismiss(d) => Some(d),
+        _ => None,
+    };
 
     let mut tx = state.pool.begin().await?;
     let report_id = Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO reports (id, prompt_id, reporter_account, reason, details, prompt_hash)
-         VALUES ($1, $2, $3, $4::report_reason, $5, $6)",
+        "INSERT INTO reports (id, prompt_id, reporter_account, reason, details, prompt_hash,
+                              resolved_at, resolution)
+         VALUES ($1, $2, $3, $4::report_reason, $5, $6,
+                 CASE WHEN $7 THEN now() END, CASE WHEN $7 THEN 'discard' END)",
     )
     .bind(report_id)
     .bind(body.prompt)
     .bind(reporter)
     .bind(body.reason.as_str())
-    .bind(details)
+    .bind(&details)
     .bind(&hash)
+    .bind(dismissed.is_some())
     .execute(&mut *tx)
     .await?;
     let log_id: i64 = sqlx::query_scalar(
@@ -153,9 +188,34 @@ pub async fn file_report(
     .bind(body.reason.as_str())
     .fetch_one(&mut *tx)
     .await?;
-    let author = notices::affected_by_prompt(&mut tx, body.prompt).await?;
-    log_targets(&mut tx, log_id, &author).await?;
+    let affected = notices::affected_by_prompt(&mut tx, body.prompt).await?;
+    log_targets(&mut tx, log_id, &affected).await?;
+    if let Some(d) = dismissed {
+        let log_id: i64 = sqlx::query_scalar(
+            "INSERT INTO admin_log (action, report_id, prompt_id, prompt_hash, reason, detail,
+                                    actor, script_name)
+             VALUES ('automod_dismiss', $1, $2, $3, $4::report_reason, $5, 'automod', $6)
+             RETURNING id",
+        )
+        .bind(report_id)
+        .bind(body.prompt)
+        .bind(&hash)
+        .bind(body.reason.as_str())
+        .bind(&d.reason)
+        .bind(&d.script_name)
+        .fetch_one(&mut *tx)
+        .await?;
+        log_targets(&mut tx, log_id, &affected).await?;
+    }
     tx.commit().await?;
+    if let crate::moderation::Verdict::Flag(flag) = &verdict {
+        let target = crate::moderation::FlagTarget::Prompt {
+            id: body.prompt,
+            title: &title,
+            body: &text,
+        };
+        crate::moderation::file_flag(state, flag, target, author).await;
+    }
     Ok(())
 }
 
@@ -223,10 +283,11 @@ type ReportRow = (
     OffsetDateTime,
     Option<OffsetDateTime>,
     Option<String>,
+    Option<String>,
 );
 
 const REPORT_SELECT: &str = "SELECT id, kind, prompt_id, comment_id, reason::text, details, \
-     prompt_hash, created_at, resolved_at, resolution FROM reports";
+     prompt_hash, created_at, resolved_at, resolution, script_name FROM reports";
 
 async fn to_report(state: &AppState, row: ReportRow) -> Result<Report, ApiError> {
     let (
@@ -240,6 +301,7 @@ async fn to_report(state: &AppState, row: ReportRow) -> Result<Report, ApiError>
         created_at,
         resolved_at,
         resolution,
+        script_name,
     ) = row;
     let prompt = match prompt_id {
         Some(pid) => load_prompt(&state.pool, pid, None, true).await?,
@@ -263,6 +325,7 @@ async fn to_report(state: &AppState, row: ReportRow) -> Result<Report, ApiError>
             .map(|r| r.parse::<Resolution>())
             .transpose()
             .map_err(|e| ApiError::Internal(e.into()))?,
+        script: script_name,
     })
 }
 

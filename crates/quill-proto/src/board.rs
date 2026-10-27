@@ -636,6 +636,10 @@ pub struct Report {
     pub resolved_at: Option<OffsetDateTime>,
     #[serde(default)]
     pub resolution: Option<Resolution>,
+    /// The moderation script that filed it, as named then; `None` for a
+    /// writer's report. `details` holds the script's reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script: Option<String>,
 }
 
 /// `GET /admin/reports` query.

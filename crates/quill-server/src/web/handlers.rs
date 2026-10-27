@@ -49,7 +49,10 @@ fn parse_opt<T: FromStr>(value: &Option<String>) -> Option<T> {
 /// Errors the visitor can fix by changing the form.
 pub(super) fn form_error(err: &ApiError) -> Option<String> {
     match err {
-        ApiError::BadRequest(m) | ApiError::Conflict(m) | ApiError::Forbidden(m) => Some(m.clone()),
+        ApiError::BadRequest(m)
+        | ApiError::Conflict(m)
+        | ApiError::Forbidden(m)
+        | ApiError::ContentRejected(m) => Some(m.clone()),
         _ => None,
     }
 }
@@ -614,6 +617,7 @@ pub async fn report_submit(
     match reports::file_report(&state, session.as_ref().map(|s| s.account_id), &report).await {
         Ok(()) => redirect(&format!("/p/{}?notice=reported", prompt.id)),
         Err(ApiError::BadRequest(m)) => rerender(format!("Details {m}.")),
+        Err(ApiError::ContentRejected(m)) => rerender(m),
         Err(e) => error_page(&c, e),
     }
 }

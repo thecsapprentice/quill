@@ -281,6 +281,10 @@ pub async fn post(
     {
         return Err(ApiError::TooManyRequests);
     }
+    // Moderation scripts check it before it's saved. Administrators'
+    // voices aren't checked.
+    let flag = crate::moderation::hooks::before_comment(state, account, who.actor, &a.title, &text)
+        .await?;
     let id = Uuid::now_v7();
     // Closing comments while this is posted wins: the insert checks again.
     let inserted = sqlx::query(
@@ -304,6 +308,7 @@ pub async fn post(
             "Comments are closed on this announcement.".into(),
         ));
     }
+    crate::moderation::hooks::after_comment(state, flag, account, id, &text).await;
     load(&state.pool, id).await?.ok_or(ApiError::NotFound)
 }
 

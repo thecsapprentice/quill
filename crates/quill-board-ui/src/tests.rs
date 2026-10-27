@@ -339,6 +339,7 @@ fn other_pages_render() {
                 created_at: datetime!(2026-10-22 12:00 UTC),
                 resolved_at: None,
                 resolution: None,
+                script: None,
             }],
             all: false,
         },
@@ -1013,6 +1014,7 @@ fn comment_reports_and_notices_render() {
         created_at: datetime!(2026-10-22 12:00 UTC),
         resolved_at: None,
         resolution: None,
+        script: None,
     };
     let html = admin_reports_page(
         &chrome(true, true),

@@ -9883,6 +9883,13 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "script": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The moderation script that filed it, as named then; `None` for a\nwriter's report. `details` holds the script's reason."
           }
         }
       },

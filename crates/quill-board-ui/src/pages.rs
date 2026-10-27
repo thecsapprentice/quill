@@ -691,6 +691,9 @@ pub fn admin_reports_page(chrome: &Chrome, view: AdminReportsView) -> String {
                     }
                     p { class: "card-meta",
                         span { "{reason_label(r.reason)}" }
+                        if let Some(script) = &r.script {
+                            span { class: "automated", "Automated: {script}" }
+                        }
                         span { "Received {short_date(r.created_at)}" }
                         match (r.resolution, r.kind) {
                             (Some(Resolution::Discard), _) => rsx! { span { "Discarded" } },

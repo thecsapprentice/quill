@@ -37,17 +37,18 @@ pub struct Post {
     pub tags: Vec<String>,
     /// `general`, `teen`, `mature` or `explicit`; empty for a comment.
     pub maturity: String,
-    /// For an edit, the prompt as it was; `()` otherwise.
-    pub previous: Option<Previous>,
-    /// For a tag request, the tag; `()` otherwise.
-    pub tag: Option<TagInfo>,
-    /// For a report, what the reporter chose and wrote; `()` otherwise.
-    pub report: Option<ReportInfo>,
+    /// For an edit, the prompt as it was; empty fields otherwise. Always
+    /// there, so a script reading it works in any chain.
+    pub previous: Previous,
+    /// For a tag request, the tag; empty fields otherwise.
+    pub tag: TagInfo,
+    /// For a report, what the reporter chose and wrote; empty otherwise.
+    pub report: ReportInfo,
     pub author: Author,
     pub history: History,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct Previous {
     pub title: String,
     pub body: String,
@@ -55,14 +56,14 @@ pub struct Previous {
     pub maturity: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct TagInfo {
     pub namespace: String,
     pub slug: String,
     pub display: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ReportInfo {
     pub reason: String,
     pub details: String,
@@ -200,9 +201,9 @@ pub async fn build(pool: &PgPool, subject: Subject) -> Result<Post, ApiError> {
         body: subject.body,
         tags: subject.tags,
         maturity: subject.maturity,
-        previous: subject.previous,
-        tag: subject.tag,
-        report: subject.report,
+        previous: subject.previous.unwrap_or_default(),
+        tag: subject.tag.unwrap_or_default(),
+        report: subject.report.unwrap_or_default(),
         author: Author {
             handle: handle.unwrap_or_default(),
             account_age_days: (now - created_at).as_seconds_f64() / 86_400.0,
@@ -325,21 +326,33 @@ pub fn sample(hook: Hook) -> Post {
         body: body.to_owned(),
         tags,
         maturity: maturity.to_owned(),
-        previous: (hook == Hook::PromptEdited).then(|| Previous {
-            title: title.to_owned(),
-            body: "Looking for someone to write a quiet story.".to_owned(),
-            tags: vec!["genre:literary".to_owned()],
-            maturity: maturity.to_owned(),
-        }),
-        tag: (hook == Hook::TagRequested).then(|| TagInfo {
-            namespace: "theme".to_owned(),
-            slug: "found-family".to_owned(),
-            display: "Found family".to_owned(),
-        }),
-        report: (hook == Hook::PromptReported).then(|| ReportInfo {
-            reason: "spam".to_owned(),
-            details: "Posted the same thing three times.".to_owned(),
-        }),
+        previous: if hook == Hook::PromptEdited {
+            Previous {
+                title: title.to_owned(),
+                body: "Looking for someone to write a quiet story.".to_owned(),
+                tags: vec!["genre:literary".to_owned()],
+                maturity: maturity.to_owned(),
+            }
+        } else {
+            Previous::default()
+        },
+        tag: if hook == Hook::TagRequested {
+            TagInfo {
+                namespace: "theme".to_owned(),
+                slug: "found-family".to_owned(),
+                display: "Found family".to_owned(),
+            }
+        } else {
+            TagInfo::default()
+        },
+        report: if hook == Hook::PromptReported {
+            ReportInfo {
+                reason: "spam".to_owned(),
+                details: "Posted the same thing three times.".to_owned(),
+            }
+        } else {
+            ReportInfo::default()
+        },
         author: Author {
             handle: "sample_writer".to_owned(),
             account_age_days: 120.0,

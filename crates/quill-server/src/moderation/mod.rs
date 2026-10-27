@@ -6,6 +6,7 @@ pub mod chains;
 pub mod context;
 pub mod data;
 pub mod engine;
+pub(crate) mod hooks;
 mod run;
 pub mod scripts;
 pub mod text;
