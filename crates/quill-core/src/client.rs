@@ -7,7 +7,7 @@ use quill_proto::{
     },
     api::{
         CreatePersona, Credentials, InstanceInfo, PROBLEM_CONTENT_TYPE, Persona, Problem,
-        TokenResponse, UpdatePersona,
+        Registration, TokenResponse, UpdatePersona,
     },
     automod::{
         DryRun, DryRunResult, Hook, ModerationChain, ModerationData, ModerationDataContent,
@@ -20,6 +20,7 @@ use quill_proto::{
         Resolution, ResolveReport, ServerSettings, Tag, TagNamespace, TagQuery,
         UpdateAccountSettings, UpdateNamespace, UpdatePrompt, UpdateServerSettings, UpdateTag,
     },
+    rules::{AcceptRules, Rules, UpdateRules},
 };
 use reqwest::{Method, RequestBuilder, Response, StatusCode, header};
 use serde::{Serialize, de::DeserializeOwned};
@@ -208,8 +209,13 @@ impl Client {
     // ---- Auth -----------------------------------------------------------
 
     pub async fn register(&self, creds: &Credentials) -> Result<TokenResponse, CoreError> {
+        self.register_with(&creds.clone().into()).await
+    }
+
+    /// Registers, also naming the server rules version accepted.
+    pub async fn register_with(&self, body: &Registration) -> Result<TokenResponse, CoreError> {
         let builder = self.request(Method::POST, "/auth/register")?;
-        Self::json(Self::with_json(builder, creds)).await
+        Self::json(Self::with_json(builder, body)).await
     }
 
     pub async fn login(&self, creds: &Credentials) -> Result<TokenResponse, CoreError> {
@@ -340,6 +346,24 @@ impl Client {
 
     pub async fn admin_delete_announcement(&self, id: Uuid) -> Result<(), CoreError> {
         Self::empty(self.authed(Method::DELETE, &format!("/admin/announcements/{id}"))?).await
+    }
+
+    // ---- Server rules ---------------------------------------------------
+
+    /// The server rules. Signed in, also whether this login must accept them.
+    pub async fn rules(&self) -> Result<Rules, CoreError> {
+        Self::json(self.maybe_authed(Method::GET, "/rules")?).await
+    }
+
+    /// Accepts the server rules, naming the version that was read.
+    pub async fn accept_rules(&self, version: u32) -> Result<(), CoreError> {
+        let builder = self.authed(Method::POST, "/rules/accept")?;
+        Self::empty(Self::with_json(builder, &AcceptRules { version })).await
+    }
+
+    pub async fn admin_update_rules(&self, body: &UpdateRules) -> Result<Rules, CoreError> {
+        let builder = self.authed(Method::PUT, "/admin/rules")?;
+        Self::json(Self::with_json(builder, body)).await
     }
 
     pub async fn comments(

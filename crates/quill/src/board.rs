@@ -160,6 +160,14 @@ pub enum AdminCommand {
     /// Post, edit and delete announcements.
     #[command(subcommand)]
     Announce(crate::announce_cmd::AnnounceCommand),
+    /// Write the server rules: saves the next version.
+    RulesSet {
+        #[command(flatten)]
+        body: BodyArgs,
+        /// A typo or wording fix: accounts aren't asked to accept it again.
+        #[arg(long)]
+        minor: bool,
+    },
     /// Moderation scripts, their chains, common data, templates and dry
     /// runs.
     #[command(subcommand)]
@@ -243,6 +251,10 @@ pub enum AdminCommand {
         /// (signed-in writers only).
         #[arg(long)]
         comments: Option<quill_proto::announcements::CommentVisibility>,
+        /// When accounts accept the server rules: none, on-join, on-change
+        /// or both.
+        #[arg(long)]
+        rules_acceptance: Option<quill_proto::rules::RulesAcceptance>,
     },
     /// List tags with how many prompts use them, aliases included.
     Tags {
@@ -573,6 +585,7 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
     let client = ctx.client()?;
     match cmd {
         AdminCommand::Announce(cmd) => crate::announce_cmd::announce(ctx, cmd).await,
+        AdminCommand::RulesSet { body, minor } => crate::rules_cmd::set(ctx, &body, minor).await,
         AdminCommand::Automod(cmd) => crate::automod_cmd::automod(ctx, cmd).await,
         AdminCommand::Reports { all } => {
             let reports = client.admin_reports(all).await?;
@@ -798,14 +811,19 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
             new_tags,
             attachments,
             comments,
+            rules_acceptance,
         } => {
-            let settings = if new_tags.is_some() || attachments.is_some() || comments.is_some() {
+            let settings = if new_tags.is_some()
+                || attachments.is_some()
+                || comments.is_some()
+                || rules_acceptance.is_some()
+            {
                 client
                     .admin_update_settings(&UpdateServerSettings {
                         new_tags,
                         attachments,
                         comment_visibility: comments,
-                        rules_acceptance: None,
+                        rules_acceptance,
                     })
                     .await?
             } else {
@@ -822,6 +840,7 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     }
                 );
                 println!("who can read comments: {}", s.comment_visibility);
+                println!("accounts accept the rules: {}", s.rules_acceptance);
             })
         }
         AdminCommand::Reserved { search } => {
