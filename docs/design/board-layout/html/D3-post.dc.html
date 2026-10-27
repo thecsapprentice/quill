@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 2 post a prompt</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#eef1f3}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.card{background:#fff;border:1px solid #c9d3dc;border-top:3px solid #c2413b;border-radius:4px;padding:12px 14px}
+.ruled{background-image:repeating-linear-gradient(transparent 0 23px,#dbe6ef 23px 24px);line-height:24px;margin:6px 0}
+.chip{display:inline-flex;gap:4px;align-items:center;font-size:12px;padding:2px 9px;border-radius:999px;background:#eef2f6;color:#1e2b3a;text-decoration:none;margin:0 4px 4px 0}
+.chip.g{background:#e3e6f7}.chip.w{background:#fbeae8}.chip.f{background:#e3f2ef}
+.chip.slot{background:transparent;border:1px dashed #8d99a6;color:#5b6878}
+.chip.new{border:1px solid #d9b45a;background:#fff4d6}
+.chip.pick{background:#fff;border:1px solid #c9d3dc}
+.ns{color:#5b6878}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border-radius:4px;background:#1c6b63;color:#fff;border:0;font:600 14px system-ui,sans-serif;text-decoration:none}
+.btn-q{background:#fff;color:#1e2b3a;border:1px solid #c9d3dc}
+.count{display:inline-block;background:#c2413b;color:#fff;font-size:11px;line-height:16px;border-radius:999px;padding:0 6px;font-weight:700}
+.top a.nav{color:#5b6878;text-decoration:none}
+.inp{border:1px solid #c9d3dc;border-radius:4px;padding:8px 10px;font:14px system-ui,sans-serif;background:#fff;color:#1e2b3a;width:100%;box-sizing:border-box}
+.field{display:flex;flex-direction:column;gap:5px;margin-bottom:16px}
+.field label{font-weight:600;font-size:13px}
+.hint{font-weight:400;color:#5b6878;font-size:12px}
+.panel{background:#fff;border:1px solid #c9d3dc;border-radius:4px;padding:14px 16px;margin-bottom:14px}
+.panel h2{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#5b6878}
+.need{border:1px dashed #8d99a6;border-radius:4px;padding:8px 10px;margin-bottom:10px}
+.tt{font-size:12px;font-weight:700;margin:2px 0 5px}
+.q{font-size:12px;font-weight:600;color:#5b6878}
+.q.ok{color:#1c6b63}.q.full{color:#8a6200}.q.need0{color:#a3302b}
+.chip.off{background:#f6f8f9;color:#a3adb8;border:1px solid #e3e8ee}
+details.ty{border-top:1px solid #e3e8ee}
+details.ty summary{display:flex;justify-content:space-between;padding:7px 0;font-weight:600;font-size:13px;cursor:pointer;list-style:none}
+details.ty summary .muted{font-weight:400}
+</style>
+</helmet>
+<div class="r" style="width: 1440px; height: 900px; display: flex; flex-direction: column; overflow: hidden">
+  <header class="top" style="background: #fff; border-bottom: 1px solid #c9d3dc; padding: 10px 20px; display: flex; align-items: center; gap: 22px">
+    <a class="serif" href="#" style="font-size: 20px; font-weight: 700; color: #1e2b3a; text-decoration: none">Inkwell</a>
+    <a class="nav" href="D1-board.dc.html">Board</a><a class="nav" href="#">Announcements</a><a class="nav" href="#">My prompts</a><a class="nav" href="#">Notices <span class="count">2</span></a><a class="nav" href="#">Admin <span class="count">4</span></a>
+    <a class="nav" href="#" style="margin-left: auto">wren ▾</a>
+  </header>
+  <div style="flex: 1; padding: 20px 28px; display: grid; grid-template-columns: minmax(0, 1fr) 460px; gap: 28px; min-height: 0">
+    <form>
+      <h1 class="serif" style="margin: 0 0 14px; font-size: 28px">Post a prompt</h1>
+      <div style="display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px">
+        <div class="field"><label for="d3t">Title</label><input class="inp serif" id="d3t" type="text" value="The lighthouse keeper's last letter" style="font-size: 16px"></div>
+        <div class="field"><label for="d3p">Post as</label><select class="inp" id="d3p"><option>Wren (@wren)</option></select></div>
+      </div>
+      <div class="field"><label for="d3b">Prompt <span class="hint">Markdown: *italic*, **bold**, lists, links</span></label>
+        <textarea class="inp serif" id="d3b" rows="8" style="font-size: 16px; line-height: 1.6">A letter arrives forty years late, addressed to a keeper who never left the rock. The envelope is dry. The ink is still wet.
+
+I'd like to write the village's side: the postmistress who found it, the families who remember the wreck. You'd write the keeper, answering in letters that keep arriving out of order.
+
+Slow pace, a few hundred words a turn.</textarea></div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+        <div class="field"><label for="d3m">Maturity rating</label><select class="inp" id="d3m"><option>Teen</option></select></div>
+        <div class="field"><label for="d3s">Status</label><select class="inp" id="d3s"><option>Open</option></select></div>
+      </div>
+      <div class="field"><label>Tags on this prompt</label>
+        <div style="background: #fff; border: 1px solid #c9d3dc; border-radius: 4px; padding: 10px 10px 6px">
+          <span class="chip g"><span class="ns">genre:</span> horror ×</span>
+          <span class="chip f"><span class="ns">theme:</span> memory ×</span><span class="chip f"><span class="ns">theme:</span> isolation ×</span><span class="chip f"><span class="ns">theme:</span> the sea ×</span>
+          <span class="chip f"><span class="ns">form:</span> epistolary ×</span>
+          <span class="chip new"><span class="ns">setting:</span> lighthouse keeper's cottage <em>new, needs approval</em> ×</span>
+          <span class="chip slot">Length: pick 1</span>
+        </div>
+      </div>
+      <label style="display: flex; gap: 8px; align-items: flex-start; margin: -4px 0 16px; font-size: 13px"><input type="checkbox" style="margin-top: 3px"><span><strong>List this in "Looking for a first partner" until a session starts</strong><br><span class="hint">Everyone can see when it stops looking.</span></span></label>
+      <div style="display: flex; gap: 10px; align-items: center"><button class="btn" type="button">Post prompt</button><button class="btn btn-q" type="button">Preview</button><a href="#">Cancel</a><span class="muted" style="font-size: 13px; margin-left: auto">Needs a length tag before posting.</span></div>
+    </form>
+    <div style="overflow: hidden">
+      <div class="panel">
+        <h2>Preview</h2>
+        <div class="card">
+          <div class="serif" style="font-size: 17px; font-weight: 700">The lighthouse keeper's last letter</div>
+          <div class="muted" style="font-size: 12px">@wren · Teen · Open</div>
+          <div class="ruled">A letter arrives forty years late, addressed to a keeper who never left the rock…</div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Add tags</h2>
+        <div style="display: flex; gap: 6px; margin-bottom: 10px"><input class="inp" type="search" aria-label="Find a tag" placeholder="Find any of 612 tags, or type a new one"><button class="btn btn-q" type="button">Add</button></div>
+        <div class="need">
+          <div class="tt" style="display: flex; justify-content: space-between">Length <span class="q need0">0 of exactly 1</span></div>
+          <span class="chip pick">short</span><span class="chip pick">long</span><span class="chip pick">open-ended</span>
+        </div>
+        <div class="tt">You often use</div>
+        <div style="margin-bottom: 6px"><span class="chip pick">setting: coast</span><span class="chip pick">length: long</span><span class="chip off">theme: grief</span></div>
+        <details class="ty" open><summary>Genre <span class="q ok">1 of 1–2 ✓</span></summary>
+          <div><span class="chip g">horror ✓</span><span class="chip pick">fantasy</span><span class="chip pick">romance</span><span class="chip pick">sci-fi</span><span class="chip pick">mystery</span><span class="chip pick">cosy</span><span class="chip pick">literary</span><span class="chip pick">thriller</span></div>
+        </details>
+        <details class="ty" open><summary>Theme <span class="q full">3 of up to 3 · full</span></summary>
+          <div><span class="chip f">memory ✓</span><span class="chip f">isolation ✓</span><span class="chip f">the sea ✓</span><span class="chip off">grief</span><span class="chip off">family</span><span class="chip off">revenge</span></div>
+          <div class="hint" style="margin-bottom: 6px">Remove a theme to pick a different one.</div>
+        </details>
+        <details class="ty"><summary>Setting <span class="q">1 · no limit ›</span></summary></details>
+        <details class="ty"><summary>Warning <span class="q">0 · optional ›</span></summary></details>
+        <details class="ty"><summary>Form <span class="q ok">1 of up to 2 ›</span></summary></details>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

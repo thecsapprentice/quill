@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 3 mobile board order</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#eef1f3}
+.muted{color:#5b6878}
+.grp{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5b6878;margin:14px 4px 6px}
+.list{background:#fff;border:1px solid #c9d3dc;border-radius:6px;overflow:hidden}
+.opt{display:grid;grid-template-columns:28px minmax(0,1fr);gap:6px;padding:12px 14px;border-bottom:1px solid #eef1f3;color:#1e2b3a;text-decoration:none}
+.opt:last-child{border-bottom:0}
+.opt .d{font-size:13px;color:#5b6878}
+.radio{width:20px;height:20px;border-radius:50%;border:2px solid #8d99a6;box-sizing:border-box;margin-top:2px}
+.radio.on{border:6px solid #1c6b63}
+.sv{display:flex;justify-content:space-between;align-items:center;min-height:48px;padding:0 14px;border-bottom:1px solid #eef1f3;color:#1e2b3a;text-decoration:none}
+.sv:last-child{border-bottom:0}
+.sv.cur{font-weight:700}
+</style>
+</helmet>
+<div class="r" style="width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column">
+  <header style="background: #fff; padding: 8px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #c9d3dc">
+    <a href="N1-board.dc.html" style="min-height: 44px; display: flex; align-items: center">‹ Board</a>
+    <span style="font-weight: 700">Order and searches</span>
+    <span style="width: 56px"></span>
+  </header>
+  <div style="flex: 1; overflow: hidden; padding: 0 16px">
+    <div class="grp">Order</div>
+    <div class="list">
+      <a class="opt" href="N1-board.dc.html"><span class="radio on"></span><span><strong>Newest</strong><div class="d">Newest first. No persona appears twice in any run of 20.</div></span></a>
+      <a class="opt" href="#"><span class="radio"></span><span><strong>Waiting longest</strong><div class="d">Open prompts that have been waiting longest come first.</div></span></a>
+      <a class="opt" href="#"><span class="radio"></span><span><strong>Shuffle</strong><div class="d">A random order that changes daily. Every open prompt has the same chance.</div></span></a>
+      <a class="opt" href="#"><span class="radio"></span><span><strong>Quiet tags</strong><div class="d">Prompts with tags few people have used lately.</div></span></a>
+    </div>
+    <div class="grp">Saved searches</div>
+    <div class="list">
+      <a class="sv" href="#">All prompts <span class="muted">›</span></a>
+      <a class="sv cur" href="#">Slow horror <span class="muted">current ›</span></a>
+      <a class="sv" href="#">Short &amp; open <span class="muted">›</span></a>
+      <a class="sv" href="#">Sci-fi, no gore <span class="muted">›</span></a>
+      <a class="sv" href="#" style="color: #1c6b63">Manage saved searches</a>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

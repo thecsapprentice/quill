@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mobile 2 more</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#eef1f3}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.grp{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5b6878;margin:14px 4px 6px}
+.grp.adm{color:#b03a32}
+.list{background:#fff;border:1px solid #c9d3dc;border-radius:6px;overflow:hidden}
+.it{display:flex;justify-content:space-between;align-items:center;min-height:46px;padding:0 14px;color:#1e2b3a;text-decoration:none;border-bottom:1px solid #eef1f3}
+.it:last-child{border-bottom:0}
+.it .sub{font-size:12px;color:#5b6878}
+.chev{color:#8d99a6}
+.count{display:inline-block;background:#c2413b;color:#fff;font-size:12px;line-height:18px;border-radius:999px;padding:0 7px;font-weight:700}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:56px;font-size:11px;color:#5b6878;text-decoration:none;position:relative}
+.tab.cur{color:#1c6b63;font-weight:700}
+.badge{position:absolute;top:6px;left:54%;background:#c2413b;color:#fff;font-size:10px;line-height:15px;border-radius:999px;padding:0 5px;font-weight:700}
+</style>
+</helmet>
+<div class="r" style="width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column">
+  <header style="background: #fff; border-bottom: 1px solid #c9d3dc; padding: 14px 16px; display: flex; align-items: center; gap: 12px">
+    <span style="width: 40px; height: 40px; border-radius: 50%; background: #dbe6ef; display: inline-flex; align-items: center; justify-content: center; font-weight: 700">W</span>
+    <div><div style="font-weight: 700">wren</div><div class="muted" style="font-size: 13px">Inkwell · admin</div></div>
+  </header>
+  <div style="flex: 1; overflow: hidden; padding: 0 16px">
+    <div class="grp">You</div>
+    <div class="list">
+      <a class="it" href="#"><span>Personas <span class="sub">· 3</span></span><span class="chev">›</span></a>
+      <a class="it" href="#"><span>Settings <span class="sub">· rating, password</span></span><span class="chev">›</span></a>
+      <a class="it" href="#"><span>Announcements</span><span class="chev">›</span></a>
+    </div>
+    <div class="grp adm">Server admin</div>
+    <div class="list">
+      <a class="it" href="#"><span>Reports</span><span><span class="count">3</span> <span class="chev">›</span></span></a>
+      <a class="it" href="#"><span>Tag requests</span><span><span class="count">1</span> <span class="chev">›</span></span></a>
+      <a class="it" href="#"><span>Admin log</span><span class="chev">›</span></a>
+      <a class="it" href="#"><span>Tags and tag types</span><span class="chev">›</span></a>
+      <a class="it" href="#"><span>Automated moderation</span><span class="chev">›</span></a>
+      <a class="it" href="#"><span>Announcements <span class="sub">· write, pin</span></span><span class="chev">›</span></a>
+      <a class="it" href="#"><span>Handles</span><span class="chev">›</span></a>
+      <a class="it" href="#"><span>Sessions and storage</span><span class="chev">›</span></a>
+    </div>
+    <div class="list" style="margin-top: 14px">
+      <button type="button" class="it" style="width: 100%; background: #fff; border: 0; font: inherit; color: #a3302b">Sign out</button>
+    </div>
+  </div>
+  <nav aria-label="Main" style="background: #fff; border-top: 1px solid #c9d3dc; display: flex; padding-bottom: 8px">
+    <a class="tab" href="M2a-board.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>Board</a>
+    <a class="tab" href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Post</a>
+    <a class="tab" href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></svg>Mine</a>
+    <a class="tab" href="M2b-notices.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>Notices<span class="badge">2</span></a>
+    <a class="tab cur" href="#" aria-current="page"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>More</a>
+  </nav>
+</div>
+</x-dc>
+</body>
+</html>

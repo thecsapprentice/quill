@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 2 admin tags at scale</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#eef1f3}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.chip{display:inline-block;font-size:12px;padding:2px 9px;border-radius:999px;background:#eef2f6;color:#1e2b3a}
+.chip.s{background:#f3e8d6}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 12px;border-radius:4px;background:#1c6b63;color:#fff;border:0;font:600 13px system-ui,sans-serif;text-decoration:none}
+.btn-q{background:#fff;color:#1e2b3a;border:1px solid #c9d3dc}
+.btn-d{background:#fff;color:#a3302b;border:1px solid #eab3ad}
+.count{display:inline-block;background:#c2413b;color:#fff;font-size:11px;line-height:16px;border-radius:999px;padding:0 6px;font-weight:700}
+.top a.nav{color:#5b6878;text-decoration:none}
+.top a.cur{color:#1e2b3a;font-weight:600}
+.side a.nav{display:flex;justify-content:space-between;align-items:center;padding:4px 10px;border-radius:4px;color:#1e2b3a;text-decoration:none}
+.side a.sub{padding-left:22px;font-size:13px}
+.side a.cur{background:#fbeae8;font-weight:600}
+.side .m{font-size:12px;color:#5b6878;font-weight:400}
+.grp{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5b6878;margin:12px 10px 4px}
+table{border-collapse:collapse;width:100%}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#5b6878;text-align:left;padding:7px 10px;border-bottom:1px solid #c9d3dc}
+td{padding:7px 10px;border-bottom:1px solid #e3e8ee}
+tr.sel td{background:#e3f2ef}
+tr.chk td{background:#f6f8f9}
+.inp{border:1px solid #c9d3dc;border-radius:4px;padding:6px 9px;font:13px system-ui,sans-serif;background:#fff;color:#1e2b3a;box-sizing:border-box}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+.field label{font-weight:600;font-size:13px}
+.sec{border-top:1px solid #e3e8ee;padding-top:12px;margin-top:4px}
+.sec h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#5b6878}
+.sw{width:30px;height:30px;border-radius:4px;border:1px solid #c9d3dc}
+.bulk{display:flex;gap:8px;align-items:center;background:#1e2b3a;color:#fff;border-radius:4px;padding:6px 10px;margin-bottom:8px;font-size:13px}
+.bulk .btn-q{border-color:#5b6878}
+</style>
+</helmet>
+<div class="r" style="width: 1440px; height: 900px; display: flex; flex-direction: column; overflow: hidden">
+  <header class="top" style="background: #fff; border-bottom: 1px solid #c9d3dc; padding: 10px 20px; display: flex; align-items: center; gap: 22px">
+    <a class="serif" href="#" style="font-size: 20px; font-weight: 700; color: #1e2b3a; text-decoration: none">Inkwell</a>
+    <a class="nav" href="D1-board.dc.html">Board</a><a class="nav" href="#">Announcements</a><a class="nav" href="#">My prompts</a><a class="nav" href="#">Notices <span class="count">2</span></a><a class="nav cur" href="#" aria-current="page">Admin <span class="count">4</span></a>
+    <a class="nav" href="#" style="margin-left: auto">wren ▾</a>
+  </header>
+  <div style="flex: 1; display: grid; grid-template-columns: 230px minmax(0, 1fr) 360px; min-height: 0">
+    <aside class="side" aria-label="Admin" style="background: #fff; border-right: 1px solid #c9d3dc; padding: 8px 12px; overflow: hidden">
+      <a class="nav" href="D4-overview.dc.html" style="margin-top: 8px">Overview</a>
+      <a class="nav" href="#">Reports <span class="count">3</span></a>
+      <a class="nav" href="#">Admin log</a>
+      <a class="nav" href="#">Announcements</a>
+      <div class="grp">Tags</div>
+      <a class="nav sub" href="#">Tag requests <span class="count">1</span></a>
+      <a class="nav sub" href="#">Genre <span class="m">9</span></a>
+      <a class="nav sub" href="#">Length <span class="m">3</span></a>
+      <a class="nav sub" href="#">Form <span class="m">6</span></a>
+      <a class="nav sub" href="#">Warning <span class="m">14</span></a>
+      <a class="nav sub cur" href="#" aria-current="page">Setting <span class="m">214</span></a>
+      <a class="nav sub" href="#">Theme <span class="m">88</span></a>
+      <a class="nav sub" href="#">Untyped <span class="m">31</span></a>
+      <a class="nav sub" href="#" style="color: #1c6b63">+ New tag type</a>
+      <div class="grp">Moderation</div>
+      <a class="nav sub" href="#">Scripts</a>
+      <a class="nav sub" href="#">Chains</a>
+      <a class="nav sub" href="#">Common data</a>
+      <a class="nav sub" href="#">Dry run</a>
+      <div class="grp">Server</div>
+      <a class="nav sub" href="#">Handles</a>
+      <a class="nav sub" href="#">Sessions</a>
+    </aside>
+    <section style="padding: 18px 22px; overflow: hidden; background: #fff; min-width: 0">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px">
+        <h1 class="serif" style="margin: 0; font-size: 26px">Setting</h1>
+        <a href="#" style="font-size: 13px">Type settings: writers can add, need approval</a>
+      </div>
+      <div style="display: flex; gap: 8px; margin: 10px 0">
+        <input class="inp" type="search" aria-label="Search tags" placeholder="Search 214 settings" style="flex: 1">
+        <select class="inp" aria-label="Status"><option>All statuses</option><option>Visible</option><option>Hidden</option><option>Aliases</option><option>Unused</option></select>
+        <select class="inp" aria-label="Sort"><option>Most used</option><option>A to Z</option><option>Newest</option></select>
+      </div>
+      <div class="bulk"><strong>3 selected</strong><span style="margin-left: auto"></span><button class="btn btn-q" type="button">Merge into…</button><button class="btn btn-q" type="button">Move to type…</button><button class="btn btn-q" type="button">Hide</button><button class="btn btn-q" type="button">Clear</button></div>
+      <table>
+        <thead><tr><th style="width: 24px"><input type="checkbox" aria-label="Select all on this page"></th><th>Tag</th><th>Uses</th><th>Status</th><th>Added</th></tr></thead>
+        <tbody>
+          <tr><td><input type="checkbox" aria-label="Select"></td><td><span class="chip s">city</span></td><td>61</td><td>Visible</td><td class="muted">Jun 2</td></tr>
+          <tr><td><input type="checkbox" aria-label="Select"></td><td><span class="chip s">small town</span></td><td>48</td><td>Visible</td><td class="muted">Jun 2</td></tr>
+          <tr class="sel"><td><input type="checkbox" aria-label="Select"></td><td><span class="chip s">space station</span></td><td>40</td><td>Visible</td><td class="muted">Jun 9</td></tr>
+          <tr><td><input type="checkbox" aria-label="Select"></td><td><span class="chip s">boarding school</span></td><td>33</td><td>Visible</td><td class="muted">Jul 1</td></tr>
+          <tr class="chk"><td><input type="checkbox" checked aria-label="Select"></td><td><span class="chip s">space-station</span></td><td>6</td><td>Visible</td><td class="muted">Oct 2</td></tr>
+          <tr class="chk"><td><input type="checkbox" checked aria-label="Select"></td><td><span class="chip s">orbital station</span></td><td>4</td><td>Visible</td><td class="muted">Oct 11</td></tr>
+          <tr class="chk"><td><input type="checkbox" checked aria-label="Select"></td><td><span class="chip s">station (space)</span></td><td>1</td><td>Visible</td><td class="muted">Oct 20</td></tr>
+          <tr><td><input type="checkbox" aria-label="Select"></td><td><span class="chip s">desert</span></td><td>29</td><td>Visible</td><td class="muted">Jun 2</td></tr>
+          <tr><td><input type="checkbox" aria-label="Select"></td><td><span class="chip s">court intrigue</span></td><td>27</td><td>Visible</td><td class="muted">Aug 14</td></tr>
+          <tr><td><input type="checkbox" aria-label="Select"></td><td><span class="chip s">spaceship</span> <span class="muted">→ ship in space</span></td><td>0</td><td>Alias</td><td class="muted">Sep 3</td></tr>
+          <tr><td><input type="checkbox" aria-label="Select"></td><td><span class="chip">haunted mall</span></td><td>2</td><td>Hidden</td><td class="muted">Oct 19</td></tr>
+        </tbody>
+      </table>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 13px"><span class="muted">1–50 of 214 · <a href="#">Show similar names together</a></span><span style="display: flex; gap: 6px"><a class="btn btn-q" href="#">Previous</a><a class="btn btn-q" href="#">Next</a></span></div>
+    </section>
+    <aside style="border-left: 1px solid #c9d3dc; padding: 18px 20px; background: #f6f8f9; overflow: hidden">
+      <div class="muted" style="font-size: 12px">setting: space-station · 40 prompts</div>
+      <h2 class="serif" style="margin: 2px 0 12px; font-size: 22px">space station</h2>
+      <div class="field"><label for="d5n">Display name</label><div style="display: flex; gap: 6px"><input class="inp" id="d5n" type="text" value="space station" style="flex: 1"><button class="btn btn-q" type="button">Rename</button></div></div>
+      <div class="sec">
+        <h3>Colour</h3>
+        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 6px">
+          <label style="display: flex; gap: 6px; align-items: center; font-size: 13px"><span class="sw" style="background: #f3e8d6"></span>Background</label>
+          <span class="muted" style="font-size: 13px">Text: automatic · 11.8:1</span>
+        </div>
+        <label style="display: flex; gap: 6px; font-size: 13px"><input type="checkbox" checked>Use the Setting type's colour</label>
+      </div>
+      <div class="sec" style="margin-top: 12px">
+        <h3>Similar tags</h3>
+        <p style="margin: 0 0 6px; font-size: 13px"><span class="chip s">space-station</span> <span class="chip s">orbital station</span> <span class="chip s">station (space)</span></p>
+        <button class="btn btn-q" type="button">Merge these into space station</button>
+      </div>
+      <div class="sec" style="margin-top: 12px">
+        <h3>Visibility</h3>
+        <button class="btn btn-q" type="button">Hide from writers</button>
+      </div>
+      <div class="sec" style="margin-top: 12px">
+        <h3>Alias or delete</h3>
+        <div style="display: flex; gap: 6px; margin-bottom: 8px"><input class="inp" type="text" aria-label="Alias to" placeholder="Alias to type:name" style="flex: 1"><button class="btn btn-q" type="button">Alias</button></div>
+        <button class="btn btn-d" type="button">Delete tag…</button>
+      </div>
+    </aside>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

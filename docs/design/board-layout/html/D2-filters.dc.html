@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 2 filter builder</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#eef1f3}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.chip{display:inline-block;font-size:12px;padding:2px 9px;border-radius:999px;background:#eef2f6;color:#1e2b3a;text-decoration:none;margin:0 4px 4px 0}
+.chip.g{background:#e3e6f7}.chip.w{background:#fbeae8}
+.ns{color:#5b6878}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border-radius:4px;background:#1c6b63;color:#fff;border:0;font:600 14px system-ui,sans-serif;text-decoration:none}
+.btn-q{background:#fff;color:#1e2b3a;border:1px solid #c9d3dc}
+.count{display:inline-block;background:#c2413b;color:#fff;font-size:11px;line-height:16px;border-radius:999px;padding:0 6px;font-weight:700}
+.n{display:inline-block;background:#1e2b3a;color:#fff;font-size:11px;line-height:16px;border-radius:999px;padding:0 6px;font-weight:700}
+.top a.nav{color:#5b6878;text-decoration:none}
+.top a.cur{color:#1e2b3a;font-weight:600}
+.inp{border:1px solid #c9d3dc;border-radius:4px;padding:7px 9px;font:14px system-ui,sans-serif;background:#fff;color:#1e2b3a;box-sizing:border-box}
+.ty{display:flex;justify-content:space-between;align-items:center;padding:9px 16px;border-bottom:1px solid #e3e8ee;text-decoration:none;color:#1e2b3a}
+.ty.sel{background:#fff;border-left:3px solid #c2413b;padding-left:13px;font-weight:600}
+.ty .m{font-size:12px;color:#5b6878;font-weight:400}
+.az{display:flex;gap:2px;flex-wrap:wrap;font-size:12px}
+.az a{min-width:20px;text-align:center;text-decoration:none;padding:2px 0;border-radius:3px}
+.az a.cur{background:#1e2b3a;color:#fff}
+.az span{min-width:20px;text-align:center;color:#c9d3dc}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 70px 220px;align-items:center;padding:7px 4px;border-bottom:1px solid #e3e8ee}
+.tri{display:flex;border:1px solid #c9d3dc;border-radius:4px;overflow:hidden;font-size:12px}
+.tri label{flex:1;text-align:center;padding:4px 0;border-right:1px solid #c9d3dc;cursor:pointer}
+.tri label:last-child{border-right:0}
+.tri .on{background:#e3e6f7;font-weight:600}
+.tri .hide{background:#fbeae8;font-weight:600}
+.lh{font-size:12px;font-weight:700;color:#5b6878;padding:10px 4px 2px;border-bottom:1px solid #c9d3dc}
+.box{background:#fff;border:1px solid #c9d3dc;border-radius:4px;padding:14px 16px;margin-bottom:14px}
+.box h2{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#5b6878}
+.grp{font-size:12px;font-weight:600;margin:8px 0 2px}
+.idea{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;background:#fff4d6;color:#6b4c00;border-radius:3px;padding:0 5px;margin-left:4px;vertical-align:middle}
+</style>
+</helmet>
+<div class="r" style="width: 1440px; height: 900px; display: flex; flex-direction: column; overflow: hidden">
+  <header class="top" style="background: #fff; border-bottom: 1px solid #c9d3dc; padding: 10px 20px; display: flex; align-items: center; gap: 22px">
+    <a class="serif" href="#" style="font-size: 20px; font-weight: 700; color: #1e2b3a; text-decoration: none">Inkwell</a>
+    <a class="nav cur" href="D1-board.dc.html" aria-current="page">Board</a><a class="nav" href="#">Announcements</a><a class="nav" href="#">My prompts</a><a class="nav" href="#">Notices <span class="count">2</span></a><a class="nav" href="#">Admin <span class="count">4</span></a>
+    <a class="btn" href="#" style="margin-left: auto">Post a prompt</a>
+    <a class="nav" href="#">wren ▾</a>
+  </header>
+  <div style="padding: 14px 20px 0; display: flex; align-items: baseline; gap: 14px">
+    <a href="D1-board.dc.html">‹ Back to the board</a>
+    <h1 class="serif" style="margin: 0; font-size: 26px">Filter prompts</h1>
+    <span class="muted">Pick a tag type on the left. Each tag can be ignored, required or hidden.</span>
+  </div>
+  <div style="flex: 1; display: grid; grid-template-columns: 250px minmax(0, 1fr) 360px; gap: 0; min-height: 0; margin-top: 12px; border-top: 1px solid #c9d3dc">
+    <nav aria-label="Tag types" style="background: #f6f8f9; border-right: 1px solid #c9d3dc; overflow: hidden">
+      <a class="ty" href="#">Rating and status <span class="n">3</span></a>
+      <a class="ty" href="#"><span>Genre <span class="m">· 9</span></span><span class="n">1</span></a>
+      <a class="ty" href="#"><span>Length <span class="m">· 3</span></span><span class="n">1</span></a>
+      <a class="ty" href="#"><span>Form <span class="m">· 6</span></span></a>
+      <a class="ty" href="#"><span>Warning <span class="m">· 14</span></span><span class="n">2</span></a>
+      <a class="ty sel" href="#" aria-current="true"><span>Setting <span class="m">· 214</span></span><span class="n">1</span></a>
+      <a class="ty" href="#"><span>Theme <span class="m">· 88</span></span></a>
+      <a class="ty" href="#"><span>Untyped <span class="m">· 31</span></span></a>
+      <div style="padding: 14px 16px">
+        <label class="muted" for="d2all" style="font-size: 12px; font-weight: 600">Or search every tag</label>
+        <input class="inp" id="d2all" type="search" placeholder="e.g. light" style="width: 100%; margin-top: 4px">
+      </div>
+    </nav>
+    <section style="padding: 16px 22px; overflow: hidden; background: #fff">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px">
+        <h2 class="serif" style="margin: 0; font-size: 22px">Setting <span class="muted" style="font-size: 14px; font-family: system-ui, sans-serif">214 tags</span></h2>
+        <div style="display: flex; gap: 8px"><input class="inp" type="search" aria-label="Search settings" placeholder="Search settings" style="width: 220px"><select class="inp" aria-label="Order"><option>Most used</option><option>A to Z</option></select></div>
+      </div>
+      <div class="az" aria-label="Jump to letter"><a class="cur" href="#">Top</a><a href="#">A</a><a href="#">B</a><a href="#">C</a><a href="#">D</a><a href="#">E</a><a href="#">F</a><a href="#">G</a><a href="#">H</a><a href="#">I</a><span>J</span><a href="#">K</a><a href="#">L</a><a href="#">M</a><a href="#">N</a><a href="#">O</a><a href="#">P</a><span>Q</span><a href="#">R</a><a href="#">S</a><a href="#">T</a><a href="#">U</a><a href="#">V</a><a href="#">W</a><span>X</span><span>Y</span><span>Z</span></div>
+      <div class="lh" style="display: grid; grid-template-columns: minmax(0, 1fr) 70px 220px"><span>Most used</span><span>Prompts</span><span>Filter</span></div>
+      <div class="row"><span>city</span><span class="muted">61</span><div class="tri"><label class="on">Any</label><label>Has</label><label>Hide</label></div></div>
+      <div class="row"><span>small town</span><span class="muted">48</span><div class="tri"><label class="on">Any</label><label>Has</label><label>Hide</label></div></div>
+      <div class="row"><span><strong>lighthouse</strong></span><span class="muted">12</span><div class="tri"><label>Any</label><label class="on">Has</label><label>Hide</label></div></div>
+      <div class="row"><span>space station</span><span class="muted">40</span><div class="tri"><label class="on">Any</label><label>Has</label><label>Hide</label></div></div>
+      <div class="row"><span>boarding school</span><span class="muted">33</span><div class="tri"><label class="on">Any</label><label>Has</label><label>Hide</label></div></div>
+      <div class="row"><span>desert</span><span class="muted">29</span><div class="tri"><label class="on">Any</label><label>Has</label><label>Hide</label></div></div>
+      <div class="row"><span>court intrigue</span><span class="muted">27</span><div class="tri"><label class="on">Any</label><label>Has</label><label>Hide</label></div></div>
+      <div class="row"><span>ship at sea</span><span class="muted">25</span><div class="tri"><label class="on">Any</label><label>Has</label><label>Hide</label></div></div>
+      <div class="row"><span>underground</span><span class="muted">21</span><div class="tri"><label class="on">Any</label><label>Has</label><label>Hide</label></div></div>
+      <div class="row"><span>hospital</span><span class="muted">19</span><div class="tri"><label class="on">Any</label><label>Has</label><label>Hide</label></div></div>
+      <div class="row"><span>orchard</span><span class="muted">16</span><div class="tri"><label class="on">Any</label><label>Has</label><label>Hide</label></div></div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 13px"><span class="muted">Showing 1–30 of 214</span><a class="btn btn-q" href="#">Next 30</a></div>
+    </section>
+    <aside style="background: #f6f8f9; border-left: 1px solid #c9d3dc; padding: 16px 20px; overflow: hidden">
+      <div class="box" style="border-top: 3px solid #c2413b">
+        <h2>Your filter</h2>
+        <div class="grp">Rating and status</div>
+        <div><span class="chip">Teen or under ×</span><span class="chip">Open only ×</span><span class="chip">First partner wanted ×</span></div>
+        <div class="grp">Has all of</div>
+        <div><span class="chip g"><span class="ns">genre: </span>horror ×</span><span class="chip"><span class="ns">length: </span>long ×</span><span class="chip"><span class="ns">setting: </span>lighthouse ×</span></div>
+        <div class="grp">Hides</div>
+        <div><span class="chip w"><span class="ns">warning: </span>gore ×</span><span class="chip w"><span class="ns">warning: </span>body horror ×</span></div>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: 12px">
+          <a class="btn" href="D1-board.dc.html" style="flex: 1">Show 12 prompts</a>
+          <a href="#">Clear all</a>
+        </div>
+      </div>
+      <div class="box">
+        <h2>Save this search</h2>
+        <div style="display: flex; gap: 6px"><input class="inp" type="text" aria-label="Search name" placeholder="Name, e.g. Slow horror" style="flex: 1"><button class="btn btn-q" type="button">Save</button></div>
+        <p class="muted" style="font-size: 12px; margin: 6px 0 0">Saved searches show above your board list on every device. Only you see them.</p>
+      </div>
+      <div class="box">
+        <h2>Hide everywhere<span class="idea">idea</span></h2>
+        <p style="margin: 0; font-size: 13px">Tags you never want to see, applied to every view: <span class="chip w">warning: gore</span></p>
+        <a href="#" style="font-size: 13px">Edit in Settings</a>
+      </div>
+    </aside>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

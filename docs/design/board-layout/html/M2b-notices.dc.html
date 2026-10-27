@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mobile 2 notices</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#eef1f3}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.n{background:#fff;border:1px solid #c9d3dc;border-radius:4px;padding:12px 14px;margin-bottom:10px}
+.n.new{border-left:4px solid #c2413b}
+.n .k{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#5b6878}
+.n ul{margin:6px 0 0;padding-left:18px;font-size:14px}
+.chip{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;background:#e3e6f7;color:#1e2b3a}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:56px;font-size:11px;color:#5b6878;text-decoration:none;position:relative}
+.tab.cur{color:#1c6b63;font-weight:700}
+.badge{position:absolute;top:6px;left:54%;background:#c2413b;color:#fff;font-size:10px;line-height:15px;border-radius:999px;padding:0 5px;font-weight:700}
+</style>
+</helmet>
+<div class="r" style="width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column">
+  <header style="background: #fff; border-bottom: 1px solid #c9d3dc; padding: 14px 16px">
+    <h1 class="serif" style="margin: 0; font-size: 24px">Notices</h1>
+    <div class="muted" style="font-size: 13px">What server admins did to your prompts and tags. Only you see these.</div>
+  </header>
+  <div style="flex: 1; overflow: hidden; padding: 12px 16px">
+    <div class="n new">
+      <div class="k">New · Today</div>
+      <div style="font-weight: 600">A tag on your prompts was merged</div>
+      <div style="font-size: 14px"><span class="chip">genre: spooky</span> is now <span class="chip">genre: horror</span></div>
+      <ul><li>Night shift at the observatory <span class="muted">(as @wren)</span></li><li>The hollow choir <span class="muted">(as @wren_writes)</span></li></ul>
+    </div>
+    <div class="n new">
+      <div class="k">New · Yesterday</div>
+      <div style="font-weight: 600">Your tag request was approved</div>
+      <div style="font-size: 14px"><span class="chip">setting: lighthouse</span> is now visible to everyone.</div>
+    </div>
+    <div class="n">
+      <div class="k">Oct 19</div>
+      <div style="font-weight: 600">A prompt was removed after a report</div>
+      <div style="font-size: 14px">Category: <strong>Wrong rating</strong></div>
+      <ul><li>Teeth in the garden <span class="muted">(as @wren)</span></li></ul>
+      <a href="#" style="font-size: 14px; display: inline-block; margin-top: 6px">Read the server rules</a>
+    </div>
+  </div>
+  <nav aria-label="Main" style="background: #fff; border-top: 1px solid #c9d3dc; display: flex; padding-bottom: 8px">
+    <a class="tab" href="M2a-board.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>Board</a>
+    <a class="tab" href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Post</a>
+    <a class="tab" href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></svg>Mine</a>
+    <a class="tab cur" href="#" aria-current="page"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>Notices</a>
+    <a class="tab" href="M2c-more.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>More<span class="badge">4</span></a>
+  </nav>
+</div>
+</x-dc>
+</body>
+</html>

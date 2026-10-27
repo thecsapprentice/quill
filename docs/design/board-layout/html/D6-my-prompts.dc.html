@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 3 my prompts library</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#eef1f3}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 12px;border-radius:4px;background:#1c6b63;color:#fff;border:0;font:600 13px system-ui,sans-serif;text-decoration:none;white-space:nowrap}
+.btn-q{background:#fff;color:#1e2b3a;border:1px solid #c9d3dc}
+.btn[disabled]{background:#eef1f3;color:#8d99a6;border:1px solid #e3e8ee}
+.count{display:inline-block;background:#c2413b;color:#fff;font-size:11px;line-height:16px;border-radius:999px;padding:0 6px;font-weight:700}
+.top a.nav{color:#5b6878;text-decoration:none}
+.top a.cur{color:#1e2b3a;font-weight:600}
+.st{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.open{color:#1c6b63}.busy{color:#8a6200}.closed{color:#6b7480}
+.tabs a{font-size:14px;color:#5b6878;text-decoration:none;padding:8px 2px}
+.tabs a.cur{color:#1e2b3a;font-weight:600;border-bottom:2px solid #c2413b}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 130px 150px 200px;gap:14px;align-items:center;padding:12px 16px;border-bottom:1px solid #e3e8ee;background:#fff}
+.row .t{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;font-weight:700;font-size:16px}
+.row .m{font-size:12px;color:#5b6878}
+.fp{font-size:11px;font-weight:600;color:#1c6b63;border:1px solid #9fcfc8;border-radius:999px;padding:0 6px}
+.box{background:#fff;border:1px solid #c9d3dc;border-radius:4px;padding:14px 16px;margin-bottom:14px}
+.box h2{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#5b6878}
+.slots{display:flex;gap:6px;margin:6px 0}
+.slots span{flex:1;height:10px;border-radius:5px;background:#1c6b63}
+.slots span.free{background:#e3e8ee}
+</style>
+</helmet>
+<div class="r" style="width: 1440px; height: 900px; display: flex; flex-direction: column; overflow: hidden">
+  <header class="top" style="background: #fff; border-bottom: 1px solid #c9d3dc; padding: 10px 20px; display: flex; align-items: center; gap: 22px">
+    <a class="serif" href="#" style="font-size: 20px; font-weight: 700; color: #1e2b3a; text-decoration: none">Inkwell</a>
+    <a class="nav" href="D1-board.dc.html">Board</a><a class="nav" href="#">Announcements</a><a class="nav cur" href="#" aria-current="page">My prompts</a><a class="nav" href="#">Notices <span class="count">2</span></a><a class="nav" href="#">Admin <span class="count">4</span></a>
+    <a class="btn" href="D3-post.dc.html" style="margin-left: auto; min-height: 36px">Post a prompt</a>
+    <a class="nav" href="#">wren ▾</a>
+  </header>
+  <div style="flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; padding: 20px 28px; min-height: 0">
+    <main style="min-width: 0; overflow: hidden">
+      <div style="display: flex; justify-content: space-between; align-items: baseline">
+        <h1 class="serif" style="margin: 0; font-size: 28px">My prompts</h1>
+        <select style="border: 1px solid #c9d3dc; border-radius: 4px; padding: 6px 8px; font: 14px system-ui, sans-serif" aria-label="Persona"><option>All my personas (3)</option></select>
+      </div>
+      <nav class="tabs" aria-label="Show" style="display: flex; gap: 20px; border-bottom: 1px solid #c9d3dc; margin: 10px 0 0"><a class="cur" href="#">On the board (6)</a><a href="#">Closed (4)</a><a href="#">Drafts (2)</a></nav>
+      <div style="border: 1px solid #c9d3dc; border-top: 0">
+        <div class="row" style="background: #f6f8f9; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #5b6878; padding: 8px 16px"><span>Prompt</span><span>As</span><span>On the board since</span><span>Refresh</span></div>
+        <div class="row"><div><div class="t">Night shift at the observatory</div><div class="m"><span class="st open">Open</span> · Teen · <span class="fp">Looking for a first partner</span></div></div><span>@wren</span><span>Oct 24</span><span class="muted" style="font-size: 12px">Can refresh from Oct 31</span></div>
+        <div class="row"><div><div class="t">The hollow choir</div><div class="m"><span class="st open">Open</span> · General</div></div><span>@wren_writes</span><span>Sep 30</span><button class="btn" type="button">Refresh to the top</button></div>
+        <div class="row"><div><div class="t">A recipe for leaving</div><div class="m"><span class="st open">Open</span> · Teen</div></div><span>@wren</span><span>Refreshed Oct 22<br><span class="muted" style="font-size: 12px">first posted Jul 8</span></span><span class="muted" style="font-size: 12px">Can refresh again in 2 days</span></div>
+        <div class="row"><div><div class="t">Teeth in the garden</div><div class="m"><span class="st busy">Busy</span> · Teen</div></div><span>@wren</span><span>Aug 19</span><button class="btn btn-q" type="button">Refresh to the top</button></div>
+        <div class="row"><div><div class="t">Letters to nobody</div><div class="m"><span class="st open">Open</span> · Mature</div></div><span>@wren_writes</span><span>Aug 2</span><button class="btn btn-q" type="button">Refresh to the top</button></div>
+        <div class="row"><div><div class="t">Paper boats</div><div class="m"><span class="st open">Open</span> · General</div></div><span>@pen</span><span>Jun 14</span><button class="btn btn-q" type="button">Refresh to the top</button></div>
+      </div>
+    </main>
+    <aside>
+      <div class="box">
+        <h2>Your refreshes</h2>
+        <p style="margin: 0 0 6px">Bring an open prompt back to the top of Newest when you're interested in it again, instead of posting it twice.</p>
+        <div style="display: flex; justify-content: space-between; align-items: baseline"><strong>1 of 3 left</strong><span class="muted" style="font-size: 12px">3 every 7 days</span></div>
+        <div class="slots" aria-hidden="true"><span></span><span></span><span class="free"></span></div>
+        <ul style="margin: 6px 0 0; padding-left: 18px; font-size: 13px">
+          <li>Used Oct 22 on <em>A recipe for leaving</em> · back <strong>Oct 29</strong></li>
+          <li>Used Oct 25 on a prompt you've since deleted · back <strong>Nov 1</strong></li>
+        </ul>
+        <div style="border-top: 1px solid #e3e8ee; margin-top: 10px; padding-top: 8px; font-size: 12px" class="muted">
+          <p style="margin: 0 0 4px"><strong style="color: #1e2b3a">Two rules:</strong> each prompt can be refreshed once every 7 days, and you have 3 refreshes every 7 days across all your personas.</p>
+          <p style="margin: 0">A refresh comes back 7 days after you use it, even if that prompt is closed or deleted. The board shows "refreshed" next to the original date. Only you see your allowance.</p>
+        </div>
+      </div>
+      <div class="box">
+        <h2>Posting limits</h2>
+        <div style="font-size: 13px">New prompts today: 1 of 5 · this hour: 1 of 2</div>
+      </div>
+    </aside>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
