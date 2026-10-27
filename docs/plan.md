@@ -213,6 +213,18 @@ Each hook has one chain: an ordered list of scripts and an `on_error` setting.
 
 Seven commented scripts ship with the server (`moderation/templates/`): blocked words, links to outside sites, contact details, mixed alphabets, new accounts, shouting, and posting the same prompt again. What an admin is likely to change sits at the top or in common data, so most never edit the logic. Using one copies it into a new script, creating the common data it reads if missing; the copy is the admin's from then on, so a later server version can't change rules under them. Each template is tested against sample posts it should and shouldn't catch.
 
+### Server rules
+
+Administrators keep one Markdown page of server rules (#42), read at `/rules` and `GET /rules` by anyone. The code is `quill-server`'s `rules` module.
+
+- **Storage.** A `server_pages` row named `rules`, kept apart from `server_settings` because it's a document, not a switch, and so an "about" page can follow without a migration. It's rendered with the prompt sanitizer, so the admin's `#` becomes the page's first section heading (`h3`).
+- **Versions, not history.** Every save gets the next version. The admin log records each save with the version and a SHA-256 of the text, which is an accountable record of who changed the rules and when without keeping every version's text (decided 2026-10-26; revisit if admins ask to see old versions).
+- **Accepting is an administrators' setting** (`rules_acceptance`): never (the default, the lowest-friction choice), on joining, after a change, or both (decided 2026-10-26). Accepting always names the version the person read; an older version is refused, because accepting rules you didn't see means nothing.
+- **What counts as a change.** A save is a change unless the admin marks it a minor edit, so fixing a typo doesn't stop everyone. The first save always counts. The version to accept and when it was saved (`accept_version`, `accept_since`) only move on a change.
+- **Who must accept after a change.** An account must accept before posting, editing, commenting or reporting if the setting includes changes, it existed before `accept_since`, and it hasn't accepted `accept_version` or later. Reading, deleting its own prompts and changing a prompt's open/busy/closed status still work. Accounts created after the change joined under those rules, so they aren't stopped. Turning the setting on asks existing accounts that haven't accepted the current version to do so. The admin who saves the rules has accepted them.
+- **How it's refused.** The API returns a `rules-not-accepted` problem (HTTP 403) that clients turn into a prompt to read and accept; the board shows a banner on every page instead of only an error.
+- **The footer link** appears only once rules exist. Pages are rendered without a database round trip for it: the app state keeps a flag, set at startup and whenever rules are read or saved. Rules can't be deleted, so the flag only ever goes from false to true; another server process sees new rules at its next read or restart.
+
 ## Writing session cryptography
 
 Each writing session is one MLS group, created and managed entirely by clients with OpenMLS; the server is the MLS *Delivery Service* and *directory*, nothing more. MLS gives forward secrecy, post-compromise security, authenticated membership, and asynchronous joins via pre-published KeyPackages, which is exactly the shape of "request a session on someone's prompt while they're offline".

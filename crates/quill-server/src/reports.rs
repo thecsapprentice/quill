@@ -119,6 +119,9 @@ pub async fn file_report(
     body: &CreateReport,
 ) -> Result<(), ApiError> {
     let details = quill_proto::validate::report_details(body.details.as_deref())?;
+    if let Some(account) = reporter {
+        crate::rules::require_accepted(state, account).await?;
+    }
     allow_report(state, reporter)?;
 
     let row: Option<(String, String, Uuid, Uuid, String, Vec<i64>)> = sqlx::query_as(
@@ -230,6 +233,9 @@ pub async fn file_comment_report(
     let details = quill_proto::validate::report_details(body.details.as_deref())?;
     // Only those who may read comments can report them.
     crate::comments::check_readable(state, reporter).await?;
+    if let Some(account) = reporter {
+        crate::rules::require_accepted(state, account).await?;
+    }
     allow_report(state, reporter)?;
     let text: Option<String> = sqlx::query_scalar(
         "SELECT c.body_md FROM announcement_comments c

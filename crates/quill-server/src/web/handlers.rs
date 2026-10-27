@@ -936,7 +936,7 @@ pub async fn register_submit(
         username: username.clone(),
         password,
     };
-    match routes::create_account(&state, creds).await {
+    match routes::create_account(&state, creds.into()).await {
         Ok(account) => match session::start(&state, account).await {
             Ok(cookie) => with_cookie(cookie, "/personas?notice=registered"),
             Err(e) => error_page(&chrome(&state, None, Nav::SignIn, None), e),

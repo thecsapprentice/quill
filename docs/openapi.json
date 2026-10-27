@@ -3331,6 +3331,93 @@
         ]
       }
     },
+    "/admin/rules": {
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Write the server rules",
+        "description": "Saves the next version. Unless `minor` is set, accounts accept it again where the rules acceptance setting asks for that.",
+        "operationId": "put_admin_rules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRules"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rules"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/admin/settings": {
       "get": {
         "tags": [
@@ -4810,13 +4897,13 @@
           "auth"
         ],
         "summary": "Create a login and sign in",
-        "description": "Login names are 1-30 of a-z, 0-9 and underscore (folded to lowercase); passwords at least 12 characters and at most 1024 bytes.",
+        "description": "Login names are 1-30 of a-z, 0-9 and underscore (folded to lowercase); passwords at least 12 characters and at most 1024 bytes. When the instance's `rulesAcceptance` includes joining and there are rules, `acceptRules` must name the current rules version.",
         "operationId": "post_auth_register",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Credentials"
+                "$ref": "#/components/schemas/Registration"
               }
             }
           },
@@ -4844,7 +4931,7 @@
             }
           },
           "403": {
-            "description": "Registration is closed",
+            "description": "Registration is closed, or the rules weren't accepted (`rules-not-accepted`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -8464,6 +8551,140 @@
         ]
       }
     },
+    "/rules": {
+      "get": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "The server rules",
+        "description": "Signed-in callers also learn whether they must accept this version before posting, editing, commenting or reporting.",
+        "operationId": "get_rules",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rules"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The administrators haven't written any rules",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/rules/accept": {
+      "post": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Accept the server rules",
+        "operationId": "post_rules_accept",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptRules"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Accepted"
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There are no rules",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The rules changed since that version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/sessions": {
       "get": {
         "tags": [
@@ -9358,6 +9579,21 @@
   },
   "components": {
     "schemas": {
+      "AcceptRules": {
+        "type": "object",
+        "description": "`POST /rules/accept`.",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The version the caller read. Refused if the rules changed since.",
+            "minimum": 0
+          }
+        }
+      },
       "AccountNotice": {
         "type": "object",
         "required": [
@@ -9609,7 +9845,8 @@
           "automod_reject",
           "automod_flag",
           "automod_dismiss",
-          "automod_error"
+          "automod_error",
+          "update_rules"
         ]
       },
       "AdminLogDetail": {
@@ -10822,6 +11059,18 @@
           "registrationOpen": {
             "type": "boolean"
           },
+          "rulesAcceptance": {
+            "$ref": "#/components/schemas/RulesAcceptance",
+            "description": "When accounts must accept the rules, so a sign-up form knows to ask."
+          },
+          "rulesUpdatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the server rules last changed, or `None` if there are none.\nClients compare it with what they showed to know when to fetch again."
+          },
           "software": {
             "type": "string"
           },
@@ -11778,6 +12027,31 @@
           }
         }
       },
+      "Registration": {
+        "type": "object",
+        "description": "`POST /api/v1/auth/register`: credentials, and the version of the\nserver rules the person accepted when the server asks for that on joining.",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "acceptRules": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The rules version shown at sign-up. Required when `InstanceInfo`'s\n`rulesAcceptance` includes joining and the server has rules.",
+            "minimum": 0
+          },
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
       "Rejoin": {
         "type": "object",
         "description": "A restored device's request to be let back into a session (2j).",
@@ -12158,6 +12432,49 @@
           }
         }
       },
+      "Rules": {
+        "type": "object",
+        "description": "`GET /rules`.",
+        "required": [
+          "body",
+          "bodyHtml",
+          "version",
+          "updatedAt"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Markdown source."
+          },
+          "bodyHtml": {
+            "type": "string",
+            "description": "Sanitized HTML rendered by the server from `body`."
+          },
+          "mustAccept": {
+            "type": "boolean",
+            "description": "For a signed-in caller: whether they must accept this version before\nposting, editing, commenting or reporting again. Always false otherwise."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Goes up by one on every save. Accepting names the version read.",
+            "minimum": 0
+          }
+        }
+      },
+      "RulesAcceptance": {
+        "type": "string",
+        "enum": [
+          "none",
+          "on-join",
+          "on-change",
+          "both"
+        ]
+      },
       "SaveModerationData": {
         "type": "object",
         "description": "`PUT /admin/moderation/data/{name}`: creates the entry or saves a new\nversion of it.",
@@ -12288,6 +12605,10 @@
           "newTags": {
             "$ref": "#/components/schemas/TagPolicy",
             "description": "Whether writers may create new tags."
+          },
+          "rulesAcceptance": {
+            "$ref": "#/components/schemas/RulesAcceptance",
+            "description": "When accounts must accept the server rules."
           }
         }
       },
@@ -12837,6 +13158,23 @@
           }
         }
       },
+      "UpdateRules": {
+        "type": "object",
+        "description": "`PUT /admin/rules`.",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Markdown."
+          },
+          "minor": {
+            "type": "boolean",
+            "description": "A minor edit, such as a typo fix: accounts needn't accept it again.\nIgnored for the first version."
+          }
+        }
+      },
       "UpdateServerSettings": {
         "type": "object",
         "description": "`PATCH /admin/settings`. Absent fields are unchanged.",
@@ -12861,6 +13199,16 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/TagPolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rulesAcceptance": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RulesAcceptance"
               },
               {
                 "type": "null"
@@ -13008,6 +13356,10 @@
     {
       "name": "announcements",
       "description": "News from the server's administrators"
+    },
+    {
+      "name": "rules",
+      "description": "The server rules, and accepting them"
     },
     {
       "name": "admin",

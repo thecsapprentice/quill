@@ -266,6 +266,7 @@ pub async fn post(
     announcement: Uuid,
     body: &CreateComment,
 ) -> Result<Comment, ApiError> {
+    crate::rules::require_accepted(state, account).await?;
     let text = validate::comment_body(&body.body)?;
     let a = crate::announcements::get(state, announcement).await?;
     if !a.comments_open {

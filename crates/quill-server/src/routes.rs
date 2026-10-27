@@ -7,7 +7,10 @@ use axum::{
     response::IntoResponse,
 };
 use quill_proto::{
-    api::{CreatePersona, Credentials, InstanceInfo, Persona, TokenResponse, UpdatePersona},
+    api::{
+        CreatePersona, Credentials, InstanceInfo, Persona, Registration, TokenResponse,
+        UpdatePersona,
+    },
     validate,
 };
 use time::{Duration, OffsetDateTime};
@@ -36,6 +39,7 @@ pub fn api() -> OpenApiRouter<AppState> {
         .routes(routes!(update_persona, delete_persona))
         .merge(crate::prompts::router())
         .merge(crate::announcements::router())
+        .merge(crate::rules::router())
         .merge(crate::comments::router())
         .merge(crate::reports::router())
         .merge(crate::tag_admin::router())
@@ -75,7 +79,7 @@ async fn instance(State(state): State<AppState>) -> Result<Json<InstanceInfo>, A
         limits: state.config.limits,
         attachments: settings.attachments,
         comment_visibility: settings.comment_visibility,
-        rules_updated_at: None,
+        rules_updated_at: crate::rules::updated_at(&state).await?,
         rules_acceptance: settings.rules_acceptance,
     }))
 }
@@ -101,28 +105,34 @@ async fn issue_token(state: &AppState, account_id: Uuid) -> Result<TokenResponse
 #[utoipa::path(
     post, path = "/auth/register", tag = "auth", security(()),
     summary = "Create a login and sign in",
-    description = "Login names are 1-30 of a-z, 0-9 and underscore (folded to lowercase); passwords at least 12 characters and at most 1024 bytes.",
-    request_body = Credentials,
+    description = "Login names are 1-30 of a-z, 0-9 and underscore (folded to lowercase); passwords at least 12 characters and at most 1024 bytes. When the instance's `rulesAcceptance` includes joining and there are rules, `acceptRules` must name the current rules version.",
+    request_body = Registration,
     responses(
         (status = 201, description = "Signed in", body = TokenResponse),
-        (status = 403, description = "Registration is closed"),
+        (status = 403, description = "Registration is closed, or the rules weren't accepted (`rules-not-accepted`)"),
         (status = 409, description = "The login name is taken"),
     ),
 )]
 async fn register(
     State(state): State<AppState>,
-    ApiJson(creds): ApiJson<Credentials>,
+    ApiJson(registration): ApiJson<Registration>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let account_id = create_account(&state, creds).await?;
+    let account_id = create_account(&state, registration).await?;
     let token = issue_token(&state, account_id).await?;
     Ok((StatusCode::CREATED, Json(token)))
 }
 
-/// Creates an account and returns its id.
-pub async fn create_account(state: &AppState, creds: Credentials) -> Result<Uuid, ApiError> {
+/// Creates an account and returns its id, recording its acceptance of the
+/// server rules when it gave one.
+pub async fn create_account(state: &AppState, reg: Registration) -> Result<Uuid, ApiError> {
     if !state.config.registration_open {
         return Err(ApiError::Forbidden("registration is closed".into()));
     }
+    let accepted = crate::rules::check_on_join(state, reg.accept_rules).await?;
+    let creds = Credentials {
+        username: reg.username,
+        password: reg.password,
+    };
     let login_name = validate::username(&creds.username)?;
     validate::password(&creds.password)?;
     let password_hash = auth::hash_password(creds.password).await?;
@@ -141,6 +151,9 @@ pub async fn create_account(state: &AppState, creds: Credentials) -> Result<Uuid
             return Err(ApiError::Conflict("username unavailable".into()));
         }
         Err(e) => return Err(e.into()),
+    }
+    if let Some(version) = accepted {
+        crate::rules::record_on_join(state, account_id, version).await?;
     }
     Ok(account_id)
 }

@@ -647,6 +647,7 @@ pub async fn post_prompt(
     account: Uuid,
     body: &CreatePrompt,
 ) -> Result<Prompt, ApiError> {
+    crate::rules::require_accepted(state, account).await?;
     let title = validate::prompt_title(&body.title)?;
     let markdown_body = validate::prompt_body(&body.body)?;
     let specs = validate::tag_specs(&body.tags)?;
@@ -745,6 +746,7 @@ pub async fn edit_prompt(
         || body.maturity.is_some()
         || body.tags.is_some();
     let checks = if edits_content {
+        crate::rules::require_accepted(state, account).await?;
         let before = before_edit_checks(
             state,
             account,
