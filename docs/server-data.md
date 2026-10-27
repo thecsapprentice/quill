@@ -108,9 +108,10 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `admin_id`    | `metadata`   | The administrator who acted.                                                |
 | `subject`     | `moderation` | The tag acted on, e.g. `genre:horror`.                                      |
 | `detail`      | `moderation` | What changed about it.                                                      |
-| `actor`       | `moderation` | Who acted: an administrator, the server, or a reporter (left unnamed).      |
+| `actor`       | `moderation` | Who acted: an administrator, the server, a reporter (left unnamed), or a moderation script. |
 | `admin_login` | `moderation` | The acting administrator's login name, as it was.                          |
 | `comment_id`  | `metadata`   | The comment it concerns.                                                    |
+| `script_name` | `moderation` | The moderation script that acted, or that an administrator changed, as named then. |
 
 ### `admin_log_targets`
 
@@ -248,6 +249,63 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `last_seq`       | `metadata` | The last log position used.                                       |
 | `pruned_through` | `metadata` | How far the log has been deleted.                                 |
 
+### `moderation_chain_steps`
+
+| Column      | Class      | What                                       |
+|-------------|------------|--------------------------------------------|
+| `hook`      | `settings` | The chain it's part of.                    |
+| `position`  | `settings` | Where in the chain the script runs.        |
+| `script_id` | `settings` | The script.                                |
+
+### `moderation_chains`
+
+| Column     | Class      | What                                                        |
+|------------|------------|-------------------------------------------------------------|
+| `hook`     | `settings` | Where in the board the chain runs, e.g. a prompt posted.    |
+| `on_error` | `settings` | What a failing script means: carry on, refuse, or flag.     |
+
+### `moderation_data`
+
+| Column        | Class      | What                                                              |
+|---------------|------------|-------------------------------------------------------------------|
+| `name`        | `settings` | The name scripts read it by.                                      |
+| `description` | `settings` | What it's for, written by an administrator.                       |
+| `content`     | `settings` | The data an administrator keeps for scripts, e.g. a word list.    |
+| `version`     | `metadata` | How many times it has been saved.                                 |
+| `updated_by`  | `metadata` | The administrator who saved it last.                              |
+| `updated_at`  | `metadata` | When.                                                             |
+
+### `moderation_data_versions`
+
+| Column       | Class      | What                                  |
+|--------------|------------|---------------------------------------|
+| `name`       | `settings` | The entry.                            |
+| `version`    | `metadata` | Which save.                           |
+| `content`    | `settings` | The content as saved then.            |
+| `created_by` | `metadata` | The administrator who saved it.       |
+| `created_at` | `metadata` | When.                                 |
+
+### `moderation_script_data`
+
+| Column      | Class      | What                                          |
+|-------------|------------|-----------------------------------------------|
+| `script_id` | `settings` | A script.                                     |
+| `data_name` | `settings` | A common data entry it reads.                 |
+
+### `moderation_scripts`
+
+| Column        | Class      | What                                                       |
+|---------------|------------|------------------------------------------------------------|
+| `id`          | `metadata` | Script id.                                                 |
+| `name`        | `settings` | Its name, shown to administrators only.                    |
+| `source`      | `settings` | The script, written by an administrator.                   |
+| `source_hash` | `digest`   | SHA-256 of the source, so the log can say which version acted. |
+| `enabled`     | `settings` | Whether it runs.                                           |
+| `log_only`    | `settings` | Whether its results are only logged.                       |
+| `uploaded_by` | `metadata` | The administrator who uploaded it.                         |
+| `created_at`  | `metadata` | When.                                                      |
+| `updated_at`  | `metadata` | When it was last replaced.                                 |
+
 ### `prompts`
 
 | Column       | Class      | What                                                    |
@@ -281,6 +339,8 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `resolved_at`      | `metadata`   | When it was dealt with.                                                  |
 | `resolution`       | `moderation` | Discarded, or the prompt or comment removed.                             |
 | `resolved_by`      | `metadata`   | The administrator who dealt with it.                                     |
+| `script_id`        | `metadata`   | The moderation script that filed it, if a script did.                    |
+| `script_name`      | `moderation` | That script's name, as it was.                                           |
 
 ### `reserved_handles`
 
@@ -394,6 +454,8 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `status`       | `public` | Visible, hidden, or pending approval.             |
 | `chip_bg`      | `public` | Its chip colours.                                 |
 | `chip_fg`      | `public` | The same.                                         |
+| `flag_script`  | `moderation` | The moderation script that flagged a pending tag. |
+| `flag_reason`  | `moderation` | The reason it gave, for administrators.       |
 
 ### `web_sessions`
 
