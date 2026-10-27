@@ -37,6 +37,11 @@ ignore = [
   # Client-only. The fix (0.7.6) needs elliptic-curve 0.14, which
   # openmls_rust_crypto 0.6 doesn't use yet; remove when it does.
   { id = "RUSTSEC-2026-0387", reason = "crypto-bigint, used only by NIST curves Quill's one ciphersuite never uses; client-only" },
+  # smartstring: archived, so marked unmaintained; not a vulnerability. Rhai
+  # (moderation scripts, #43) uses it for its strings and has no feature to
+  # drop it. It runs on the server, but only holds text that scripts build,
+  # under Rhai's string-size limit. Remove when Rhai moves off it.
+  { id = "RUSTSEC-2026-0249", reason = "smartstring, Rhai's string type; unmaintained, no known vulnerability" },
 ]
 
 [licenses]

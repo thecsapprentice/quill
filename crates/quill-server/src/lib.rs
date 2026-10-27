@@ -46,6 +46,8 @@ pub struct AppState {
     limiter: Arc<ratelimit::RateLimiter>,
     /// Live notices for `GET /events`.
     pub events: events::Events,
+    /// Common data as moderation scripts read it, parsed once per version.
+    pub(crate) automod_data: Arc<moderation::data::DataCache>,
 }
 
 impl AppState {
@@ -70,6 +72,7 @@ impl AppState {
             dummy_hash: Arc::new(dummy),
             limiter: Arc::default(),
             events: events::Events::default(),
+            automod_data: Arc::default(),
         })
     }
 }
