@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 3 mobile my prompts</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#fff}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:11px 16px;border-bottom:1px solid #e3e8ee}
+.row .t{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;font-weight:700;font-size:17px;line-height:1.25}
+.row .m{font-size:12px;color:#5b6878;margin-top:2px}
+.st{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.open{color:#1c6b63}.busy{color:#8a6200}
+.rb{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 12px;border-radius:999px;border:1px solid #1c6b63;color:#1c6b63;background:#fff;font:600 13px system-ui,sans-serif}
+.wait{font-size:12px;color:#5b6878;text-align:right;max-width:90px}
+.seg{display:flex;border:1px solid #c9d3dc;border-radius:6px;overflow:hidden}
+.seg a{flex:1;text-align:center;min-height:36px;display:flex;align-items:center;justify-content:center;color:#1e2b3a;text-decoration:none;font-size:14px;border-right:1px solid #c9d3dc}
+.seg a:last-child{border-right:0}.seg a.on{background:#1e2b3a;color:#fff}
+.slots{display:flex;gap:4px;width:80px}
+.slots span{flex:1;height:8px;border-radius:4px;background:#1c6b63}
+.slots span.free{background:#e3e8ee}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:56px;font-size:11px;color:#5b6878;text-decoration:none;position:relative}
+.tab.cur{color:#1c6b63;font-weight:700}
+.badge{position:absolute;top:6px;left:54%;background:#c2413b;color:#fff;font-size:10px;line-height:15px;border-radius:999px;padding:0 5px;font-weight:700}
+</style>
+</helmet>
+<div class="r" style="width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column">
+  <header style="padding: 12px 16px 10px; border-bottom: 1px solid #c9d3dc">
+    <h1 class="serif" style="margin: 0 0 8px; font-size: 24px">My prompts</h1>
+    <div class="seg" role="group" aria-label="Show"><a class="on" href="#">On the board</a><a href="#">Closed</a><a href="#">Drafts</a></div>
+    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-top: 8px" class="muted"><span><strong style="color: #1e2b3a">1 of 3 refreshes left</strong> · next back Oct 29</span><span class="slots" aria-hidden="true"><span></span><span></span><span class="free"></span></span></div>
+    <details style="font-size: 12px; margin-top: 4px"><summary class="muted" style="min-height: 28px; display: flex; align-items: center">How refreshing works</summary><p class="muted" style="margin: 0 0 4px">Each prompt: once every 7 days. You: 3 refreshes every 7 days, across all your personas. A refresh comes back 7 days after you use it.</p></details>
+  </header>
+  <div style="flex: 1; overflow: hidden">
+    <div class="row"><div><div class="t">Night shift at the observatory</div><div class="m"><span class="st open">Open</span> · @wren · Oct 24 · first partner wanted</div></div><span class="wait">From Oct 31</span></div>
+    <div class="row"><div><div class="t">The hollow choir</div><div class="m"><span class="st open">Open</span> · @wren_writes · Sep 30</div></div><button class="rb" type="button">Refresh</button></div>
+    <div class="row"><div><div class="t">A recipe for leaving</div><div class="m"><span class="st open">Open</span> · @wren · refreshed Oct 22</div></div><span class="wait">In 2 days</span></div>
+    <div class="row"><div><div class="t">Teeth in the garden</div><div class="m"><span class="st busy">Busy</span> · @wren · Aug 19</div></div><button class="rb" type="button">Refresh</button></div>
+    <div class="row"><div><div class="t">Letters to nobody</div><div class="m"><span class="st open">Open</span> · @wren_writes · Aug 2</div></div><button class="rb" type="button">Refresh</button></div>
+    <div class="row"><div><div class="t">Paper boats</div><div class="m"><span class="st open">Open</span> · @pen · Jun 14</div></div><button class="rb" type="button">Refresh</button></div>
+  </div>
+  <nav aria-label="Main" style="background: #fff; border-top: 1px solid #c9d3dc; display: flex; padding-bottom: 8px">
+    <a class="tab" href="N1-board.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>Board</a>
+    <a class="tab" href="N5-post-tags.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Post</a>
+    <a class="tab cur" href="#" aria-current="page"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></svg>Mine</a>
+    <a class="tab" href="M2b-notices.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>Notices<span class="badge">2</span></a>
+    <a class="tab" href="M2c-more.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>More<span class="badge">4</span></a>
+  </nav>
+</div>
+</x-dc>
+</body>
+</html>

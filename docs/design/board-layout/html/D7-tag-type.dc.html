@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 3 admin tag type limits</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#eef1f3}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.chip{display:inline-block;font-size:12px;padding:2px 9px;border-radius:999px;background:#eef2f6;color:#1e2b3a;margin:0 4px 4px 0}
+.chip.f{background:#e3f2ef}
+.chip.slot{background:transparent;border:1px dashed #8d99a6;color:#5b6878}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 12px;border-radius:4px;background:#1c6b63;color:#fff;border:0;font:600 13px system-ui,sans-serif;text-decoration:none}
+.btn-q{background:#fff;color:#1e2b3a;border:1px solid #c9d3dc}
+.count{display:inline-block;background:#c2413b;color:#fff;font-size:11px;line-height:16px;border-radius:999px;padding:0 6px;font-weight:700}
+.top a.nav{color:#5b6878;text-decoration:none}
+.top a.cur{color:#1e2b3a;font-weight:600}
+.side a.nav{display:flex;justify-content:space-between;align-items:center;padding:4px 10px;border-radius:4px;color:#1e2b3a;text-decoration:none}
+.side a.sub{padding-left:22px;font-size:13px}
+.side a.cur{background:#fbeae8;font-weight:600}
+.side .m{font-size:12px;color:#5b6878;font-weight:400}
+.grp{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5b6878;margin:12px 10px 4px}
+.inp{border:1px solid #c9d3dc;border-radius:4px;padding:7px 9px;font:14px system-ui,sans-serif;background:#fff;color:#1e2b3a;box-sizing:border-box}
+.box{background:#fff;border:1px solid #c9d3dc;border-radius:4px;padding:16px 18px;margin-bottom:14px}
+.box h2{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#5b6878}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-weight:600;font-size:13px}
+.pre{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.pre a{font-size:13px;padding:4px 10px;border:1px solid #c9d3dc;border-radius:999px;text-decoration:none;color:#1e2b3a}
+.pre a.cur{background:#1e2b3a;color:#fff;border-color:#1e2b3a}
+.say{background:#e3f2ef;border-radius:4px;padding:8px 12px;font-size:14px}
+.warn{background:#fff4d6;border:1px solid #d9b45a;border-radius:4px;padding:10px 12px;font-size:13px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#5b6878;text-align:left;padding:6px 8px;border-bottom:1px solid #c9d3dc}
+td{padding:7px 8px;border-bottom:1px solid #e3e8ee}
+tr.sel td{background:#fbeae8;font-weight:600}
+</style>
+</helmet>
+<div class="r" style="width: 1440px; height: 900px; display: flex; flex-direction: column; overflow: hidden">
+  <header class="top" style="background: #fff; border-bottom: 1px solid #c9d3dc; padding: 10px 20px; display: flex; align-items: center; gap: 22px">
+    <a class="serif" href="#" style="font-size: 20px; font-weight: 700; color: #1e2b3a; text-decoration: none">Inkwell</a>
+    <a class="nav" href="D1-board.dc.html">Board</a><a class="nav" href="#">Announcements</a><a class="nav" href="#">My prompts</a><a class="nav" href="#">Notices <span class="count">2</span></a><a class="nav cur" href="#" aria-current="page">Admin <span class="count">4</span></a>
+    <a class="nav" href="#" style="margin-left: auto">wren ▾</a>
+  </header>
+  <div style="flex: 1; display: grid; grid-template-columns: 230px minmax(0, 1fr) 420px; min-height: 0">
+    <aside class="side" aria-label="Admin" style="background: #fff; border-right: 1px solid #c9d3dc; padding: 8px 12px; overflow: hidden">
+      <a class="nav" href="D4-overview.dc.html" style="margin-top: 8px">Overview</a>
+      <a class="nav" href="#">Reports <span class="count">3</span></a>
+      <a class="nav" href="#">Admin log</a>
+      <a class="nav" href="#">Announcements</a>
+      <a class="nav" href="D8-board-settings.dc.html">Board settings</a>
+      <div class="grp">Tags</div>
+      <a class="nav sub" href="#">Tag requests <span class="count">1</span></a>
+      <a class="nav sub" href="#">Genre <span class="m">1–2</span></a>
+      <a class="nav sub" href="#">Length <span class="m">exactly 1</span></a>
+      <a class="nav sub" href="#">Form <span class="m">0–2</span></a>
+      <a class="nav sub" href="#">Warning <span class="m">any</span></a>
+      <a class="nav sub" href="D5-tags.dc.html">Setting <span class="m">any</span></a>
+      <a class="nav sub cur" href="#" aria-current="page">Theme <span class="m">0–3</span></a>
+      <a class="nav sub" href="#">Untyped <span class="m">any</span></a>
+      <a class="nav sub" href="#" style="color: #1c6b63">+ New tag type</a>
+      <div class="grp">Moderation</div>
+      <a class="nav sub" href="#">Scripts</a>
+      <a class="nav sub" href="#">Chains</a>
+      <div class="grp">Server</div>
+      <a class="nav sub" href="#">Handles</a>
+      <a class="nav sub" href="#">Sessions</a>
+    </aside>
+    <main style="padding: 18px 24px; overflow: hidden; min-width: 0">
+      <div class="muted" style="font-size: 13px"><a href="#">Tags</a> › Theme</div>
+      <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px">
+        <h1 class="serif" style="margin: 0; font-size: 28px">Theme: type settings</h1>
+        <a href="#">88 tags in this type ›</a>
+      </div>
+      <div class="box">
+        <h2>How many per prompt</h2>
+        <div class="pre" aria-label="Common choices">
+          <a href="#">Optional, any number</a><a href="#">Exactly one</a><a href="#">At least one</a><a class="cur" href="#">Up to a limit</a><a href="#">Custom</a>
+        </div>
+        <div style="display: flex; gap: 16px; align-items: flex-end; margin-bottom: 12px">
+          <div class="field"><label for="d7min">Minimum</label><input class="inp" id="d7min" type="number" value="0" style="width: 90px"></div>
+          <div class="field"><label for="d7max">Maximum</label><input class="inp" id="d7max" type="number" value="3" style="width: 90px"></div>
+          <label style="display: flex; gap: 6px; font-size: 13px; padding-bottom: 8px"><input type="checkbox">No maximum</label>
+        </div>
+        <div class="say">Writers can add <strong>up to 3</strong> themes. Themes are optional.</div>
+        <div style="margin-top: 12px; font-size: 13px">On the post form: <span class="chip f">theme: memory</span><span class="chip f">theme: the sea</span> <span class="muted">· 2 of up to 3</span></div>
+      </div>
+      <div class="box">
+        <h2>Writers and new tags</h2>
+        <select class="inp" aria-label="New tags from writers"><option>Writers can suggest new themes; they need approval</option></select>
+      </div>
+      <div class="box">
+        <h2>Name and colour</h2>
+        <div style="display: flex; gap: 12px; align-items: center"><input class="inp" type="text" value="Theme" aria-label="Display name"><span class="muted">Identifier <code>theme</code> (fixed)</span><span style="width: 28px; height: 28px; border-radius: 4px; background: #e3f2ef; border: 1px solid #c9d3dc"></span></div>
+      </div>
+      <div style="display: flex; gap: 8px"><button class="btn" type="button">Save type settings</button><a class="btn btn-q" href="#">Cancel</a></div>
+    </main>
+    <aside style="background: #f6f8f9; border-left: 1px solid #c9d3dc; padding: 18px 20px; overflow: hidden">
+      <div class="warn">
+        <strong>41 prompts already have more than 3 themes.</strong>
+        <p style="margin: 6px 0 0">They keep their tags. Their authors must trim them the next time they edit, and the form tells them why. Nothing is removed automatically.</p>
+        <a href="#">See the 41 prompts</a>
+      </div>
+      <div class="box" style="margin-top: 14px">
+        <h2>All tag types at a glance</h2>
+        <table>
+          <thead><tr><th>Type</th><th>Per prompt</th><th>Tags</th></tr></thead>
+          <tbody>
+            <tr><td>Genre</td><td>1 to 2</td><td>9</td></tr>
+            <tr><td>Length</td><td>Exactly 1</td><td>3</td></tr>
+            <tr><td>Form</td><td>Up to 2</td><td>6</td></tr>
+            <tr><td>Warning</td><td>Any number</td><td>14</td></tr>
+            <tr><td>Setting</td><td>Any number</td><td>214</td></tr>
+            <tr class="sel"><td>Theme</td><td>Up to 3</td><td>88</td></tr>
+            <tr><td>Untyped</td><td>Any number</td><td>31</td></tr>
+          </tbody>
+        </table>
+        <p class="muted" style="font-size: 12px; margin: 8px 0 0">Every prompt needs at least 2 tags: one Genre and one Length.</p>
+      </div>
+    </aside>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

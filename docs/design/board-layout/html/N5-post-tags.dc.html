@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 2 mobile tag picker</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#fff}
+.muted{color:#5b6878}
+.inp{border:1px solid #c9d3dc;border-radius:6px;padding:9px 10px;font:15px system-ui,sans-serif;background:#f6f8f9;color:#1e2b3a;box-sizing:border-box;width:100%;min-height:44px}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:13px;min-height:32px;padding:0 10px;border-radius:999px;background:#eef2f6;color:#1e2b3a;margin:0 4px 6px 0;text-decoration:none}
+.chip.g{background:#e3e6f7}.chip.f{background:#e3f2ef}
+.chip.slot{background:transparent;border:1px dashed #8d99a6;color:#5b6878}
+.chip.pick{background:#fff;border:1px solid #c9d3dc}
+.ns{color:#5b6878}
+.sec{padding:10px 16px;border-bottom:1px solid #eef1f3}
+.h{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5b6878;margin-bottom:6px}
+.need{border:1px dashed #8d99a6;border-radius:6px;padding:8px 10px}
+.ty{display:flex;justify-content:space-between;align-items:center;min-height:50px;padding:0 16px;border-bottom:1px solid #eef1f3;color:#1e2b3a;text-decoration:none}
+.ty .v{font-size:13px;color:#5b6878}
+.chev{color:#8d99a6}
+.q{font-size:13px;font-weight:600;color:#5b6878}
+.q.ok{color:#1c6b63}.q.full{color:#8a6200}.q.need0{color:#a3302b}
+.chip.off{background:#f6f8f9;color:#a3adb8;border:1px solid #e3e8ee}
+.btn{display:flex;align-items:center;justify-content:center;min-height:48px;padding:0 14px;border-radius:6px;background:#1c6b63;color:#fff;border:0;font:600 16px system-ui,sans-serif;text-decoration:none}
+</style>
+</helmet>
+<div class="r" style="width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column">
+  <header style="padding: 8px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #c9d3dc">
+    <a href="M3b-post.dc.html" style="min-height: 44px; display: flex; align-items: center">‹ Prompt</a>
+    <span style="font-weight: 700">Tags</span>
+    <a href="M3b-post.dc.html" style="min-height: 44px; display: flex; align-items: center; font-weight: 600">Done</a>
+  </header>
+  <div class="sec">
+    <div><span class="chip g"><span class="ns">genre:</span> horror ×</span><span class="chip f">memory ×</span><span class="chip f">isolation ×</span><span class="chip f">the sea ×</span><span class="chip f"><span class="ns">form:</span> epistolary ×</span><span class="chip slot">Length: pick 1</span></div>
+    <input class="inp" type="search" aria-label="Find a tag" placeholder="Find any of 612 tags">
+  </div>
+  <div style="flex: 1; overflow: hidden">
+    <div class="sec">
+      <div class="need">
+        <div style="font-weight: 600; font-size: 14px; margin-bottom: 6px; display: flex; justify-content: space-between">Length <span class="q need0">0 of exactly 1</span></div>
+        <span class="chip pick">short</span><span class="chip pick">long</span><span class="chip pick">open-ended</span>
+      </div>
+    </div>
+    <div class="sec">
+      <div class="h">You often use</div>
+      <span class="chip pick">setting: coast</span><span class="chip pick">form: letters</span><span class="chip off">theme: grief</span>
+    </div>
+    <div class="sec">
+      <div class="h">Browse by type</div>
+    </div>
+    <a class="ty" href="#"><span>Genre</span><span><span class="q ok">1 of 1–2 ✓</span> <span class="chev">›</span></span></a>
+    <a class="ty" href="#"><span>Theme</span><span><span class="q full">3 of 3 · full</span> <span class="chev">›</span></span></a>
+    <a class="ty" href="#"><span>Form</span><span><span class="q ok">1 of up to 2</span> <span class="chev">›</span></span></a>
+    <a class="ty" href="#"><span>Setting <span class="v">214</span></span><span><span class="q">0 · no limit</span> <span class="chev">›</span></span></a>
+    <a class="ty" href="#"><span>Warning <span class="v">14</span></span><span><span class="q">0 · optional</span> <span class="chev">›</span></span></a>
+    <a class="ty" href="#"><span>Other tags</span><span><span class="q">0 · optional</span> <span class="chev">›</span></span></a>
+  </div>
+  <div style="border-top: 1px solid #c9d3dc; padding: 10px 16px 16px">
+    <a class="btn" href="M3b-post.dc.html">Done · 5 tags, length needed</a>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

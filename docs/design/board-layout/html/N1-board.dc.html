@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 2 mobile board</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#fff}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.row{display:block;padding:11px 16px;border-bottom:1px solid #e3e8ee;text-decoration:none;color:#1e2b3a}
+.row .t{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;font-weight:700;font-size:17px;line-height:1.25}
+.row .m{display:flex;gap:8px;font-size:12px;color:#5b6878;margin-top:2px;align-items:baseline;flex-wrap:wrap}
+.tg{color:#3c4a8a}
+.st{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.open{color:#1c6b63}
+.fb{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:999px;border:1px solid #c9d3dc;background:#fff;color:#1e2b3a;text-decoration:none;font-size:14px;white-space:nowrap}
+.fb.on{border-color:#1e2b3a}
+.n{display:inline-block;background:#1e2b3a;color:#fff;font-size:11px;line-height:16px;border-radius:999px;padding:0 6px;font-weight:700}
+.icon{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;color:#1e2b3a}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:56px;font-size:11px;color:#5b6878;text-decoration:none;position:relative}
+.tab.cur{color:#1c6b63;font-weight:700}
+.badge{position:absolute;top:6px;left:54%;background:#c2413b;color:#fff;font-size:10px;line-height:15px;border-radius:999px;padding:0 5px;font-weight:700}
+</style>
+</helmet>
+<div class="r" style="width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column">
+  <header style="padding: 4px 8px 8px 16px; border-bottom: 1px solid #c9d3dc">
+    <div style="display: flex; justify-content: space-between; align-items: center">
+      <span class="serif" style="font-size: 20px; font-weight: 700">Inkwell</span>
+      <a class="icon" href="#" aria-label="Search"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></a>
+    </div>
+    <div style="display: flex; gap: 6px; padding-right: 8px">
+      <a class="fb on" href="N2-filters.dc.html">Filters <span class="n">5</span></a>
+      <a class="fb" href="#">Slow horror ▾</a>
+      <a class="fb" href="N6-sort.dc.html" style="margin-left: auto">Newest ▾</a>
+    </div>
+    <a href="N2-filters.dc.html" class="muted" style="display: block; font-size: 12px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none">Has horror, long · Hides gore +2 · Teen · Open · 38</a>
+  </header>
+  <div style="flex: 1; overflow: hidden">
+    <a class="row" href="N4-prompt.dc.html"><div class="t">The lighthouse keeper's last letter</div><div class="m"><span class="st open">Open</span><span>@marrow</span><span>Teen</span><span class="tg">horror · epistolary</span></div></a>
+    <a class="row" href="#"><div class="t">Every door in the house opens inward</div><div class="m"><span class="st open">Open</span><span>@quietfox</span><span>Teen</span><span class="tg">horror</span></div></a>
+    <a class="row" href="#"><div class="t">Wells that answer back</div><div class="m"><span class="st open">Open</span><span>@ashfall</span><span>Teen</span><span class="tg">horror · folk</span></div></a>
+    <a class="row" href="#"><div class="t">The hollow choir</div><div class="m"><span class="st open">Open</span><span>@wren_writes</span><span>General</span><span class="tg">horror</span></div></a>
+    <a class="row" href="#"><div class="t">Ferryman's apprentice</div><div class="m"><span class="st open">Open</span><span>@quietfox</span><span>Teen</span><span class="tg">horror · fantasy</span></div></a>
+    <a class="row" href="#"><div class="t">The night porter</div><div class="m"><span class="st open">Open</span><span>@juniper</span><span>Teen</span><span class="tg">horror</span></div></a>
+    <a class="row" href="#"><div class="t">Teeth in the garden</div><div class="m"><span class="st open">Open</span><span>@pilot</span><span>Teen</span><span class="tg">horror · cosy</span></div></a>
+    <a class="row" href="#"><div class="t">A house with no north wall</div><div class="m"><span class="st open">Open</span><span>@marrow</span><span>General</span><span class="tg">horror</span></div></a>
+  </div>
+  <nav aria-label="Main" style="background: #fff; border-top: 1px solid #c9d3dc; display: flex; padding-bottom: 8px">
+    <a class="tab cur" href="#" aria-current="page"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>Board</a>
+    <a class="tab" href="N5-post-tags.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Post</a>
+    <a class="tab" href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></svg>Mine</a>
+    <a class="tab" href="M2b-notices.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>Notices<span class="badge">2</span></a>
+    <a class="tab" href="M2c-more.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>More<span class="badge">4</span></a>
+  </nav>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 2 mobile filter one tag type</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#fff}
+.muted{color:#5b6878}
+.inp{border:1px solid #c9d3dc;border-radius:6px;padding:9px 10px;font:15px system-ui,sans-serif;background:#f6f8f9;color:#1e2b3a;box-sizing:border-box;width:100%;min-height:44px}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:13px;min-height:30px;padding:0 10px;border-radius:999px;margin:0 4px 6px 0}
+.chip.has{background:#e3e6f7}.chip.hide{background:#fbeae8}
+.lh{font-size:12px;font-weight:700;color:#5b6878;padding:12px 16px 4px;background:#f6f8f9;border-bottom:1px solid #e3e8ee}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:52px;padding:0 16px;border-bottom:1px solid #eef1f3}
+.row .c{font-size:12px;color:#5b6878}
+.tg{display:flex;border:1px solid #c9d3dc;border-radius:6px;overflow:hidden;font-size:13px}
+.tg span{min-width:52px;min-height:34px;display:flex;align-items:center;justify-content:center;border-right:1px solid #c9d3dc}
+.tg span:last-child{border-right:0}
+.tg .has{background:#e3e6f7;font-weight:600}
+.tg .hide{background:#fbeae8;font-weight:600}
+.btn{display:flex;align-items:center;justify-content:center;min-height:48px;padding:0 14px;border-radius:6px;background:#1c6b63;color:#fff;border:0;font:600 16px system-ui,sans-serif;text-decoration:none}
+.az{position:absolute;right:2px;top:200px;display:flex;flex-direction:column;font-size:10px;font-weight:700;color:#1c6b63;line-height:15px;text-align:center}
+</style>
+</helmet>
+<div class="r" style="width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column; position: relative">
+  <header style="padding: 8px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #c9d3dc">
+    <a href="N2-filters.dc.html" style="min-height: 44px; display: flex; align-items: center">‹ Filters</a>
+    <span style="font-weight: 700">Setting</span>
+    <span class="muted" style="font-size: 13px; width: 60px; text-align: right">214 tags</span>
+  </header>
+  <div style="padding: 10px 16px 4px">
+    <input class="inp" type="search" aria-label="Search settings" placeholder="Search settings">
+    <div style="margin-top: 8px"><span class="chip has">Has lighthouse ×</span><span class="chip hide">Hides hospital ×</span></div>
+  </div>
+  <div style="flex: 1; overflow: hidden">
+    <div class="lh">MOST USED</div>
+    <div class="row"><span>city <span class="c">61</span></span><span class="tg"><span>Has</span><span>Hide</span></span></div>
+    <div class="row"><span>small town <span class="c">48</span></span><span class="tg"><span>Has</span><span>Hide</span></span></div>
+    <div class="row"><span>space station <span class="c">40</span></span><span class="tg"><span>Has</span><span>Hide</span></span></div>
+    <div class="row"><span>boarding school <span class="c">33</span></span><span class="tg"><span>Has</span><span>Hide</span></span></div>
+    <div class="lh">A–Z</div>
+    <div class="row"><span>abbey <span class="c">3</span></span><span class="tg"><span>Has</span><span>Hide</span></span></div>
+    <div class="row"><span>airship <span class="c">7</span></span><span class="tg"><span>Has</span><span>Hide</span></span></div>
+    <div class="row"><span>arctic base <span class="c">5</span></span><span class="tg"><span>Has</span><span>Hide</span></span></div>
+    <div class="row"><span>asylum <span class="c">2</span></span><span class="tg"><span>Has</span><span>Hide</span></span></div>
+    <div class="row"><span>bakery <span class="c">9</span></span><span class="tg"><span>Has</span><span>Hide</span></span></div>
+    <div class="row"><span>battlefield <span class="c">11</span></span><span class="tg"><span>Has</span><span>Hide</span></span></div>
+  </div>
+  <nav class="az" aria-label="Jump to letter"><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span><span>I</span><span>K</span><span>L</span><span>M</span><span>N</span><span>O</span><span>P</span><span>R</span><span>S</span><span>T</span><span>U</span><span>V</span><span>W</span></nav>
+  <div style="border-top: 1px solid #c9d3dc; padding: 10px 16px 16px">
+    <a class="btn" href="N1-board.dc.html">Show 12 prompts</a>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
