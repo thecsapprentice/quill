@@ -209,21 +209,32 @@ pub enum AdminCommand {
         /// Curated tags only: writers can't create new ones.
         #[arg(long)]
         locked: bool,
-        /// Every prompt saved must have a tag of this type.
+        /// How many tags of this type every prompt needs (0: optional).
+        #[arg(long, default_value_t = 0)]
+        min: u32,
+        /// How many a prompt may have. No limit if left out.
         #[arg(long)]
-        required: bool,
+        max: Option<u32>,
         #[command(flatten)]
         color: ColorArgs,
     },
-    /// Change a tag type's name, or whether it is curated-only or required.
+    /// Change a tag type's name, whether it is curated-only, its limits or
+    /// its colours.
     NamespaceSet {
         name: String,
         #[arg(long)]
         display: Option<String>,
         #[arg(long)]
         locked: Option<bool>,
+        /// How many tags of this type every prompt needs (0: optional).
         #[arg(long)]
-        required: Option<bool>,
+        min: Option<u32>,
+        /// How many a prompt may have.
+        #[arg(long, conflicts_with = "no_max")]
+        max: Option<u32>,
+        /// Remove the maximum.
+        #[arg(long)]
+        no_max: bool,
         #[command(flatten)]
         color: ColorArgs,
         /// Remove the chip colours.
@@ -527,9 +538,10 @@ pub async fn tags(ctx: &Ctx, cmd: TagCommand) -> Result<()> {
             ctx.print(&list, |l| {
                 for n in l {
                     println!(
-                        "{:<20} {}{}",
+                        "{:<20} {}: {} per prompt{}",
                         n.name,
                         n.display,
+                        n.limit_label(),
                         if n.locked { "  (curated only)" } else { "" }
                     );
                 }
@@ -714,7 +726,8 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
             name,
             display,
             locked,
-            required,
+            min,
+            max,
             color,
         } => {
             let ns = client
@@ -722,7 +735,8 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     name,
                     display,
                     locked,
-                    required,
+                    min,
+                    max,
                     color: color.chip(),
                 })
                 .await?;
@@ -755,7 +769,9 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
             name,
             display,
             locked,
-            required,
+            min,
+            max,
+            no_max,
             color,
             clear_color,
         } => {
@@ -765,7 +781,9 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     &UpdateNamespace {
                         display,
                         locked,
-                        required,
+                        min,
+                        max,
+                        clear_max: no_max,
                         color: color.chip(),
                         clear_color,
                     },
@@ -773,8 +791,11 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                 .await?;
             ctx.print(&ns, |n| {
                 println!(
-                    "{} ({}): curated only {}, required {}",
-                    n.name, n.display, n.locked, n.required
+                    "{} ({}): curated only {}, {} per prompt",
+                    n.name,
+                    n.display,
+                    n.locked,
+                    n.limit_label()
                 );
             })
         }

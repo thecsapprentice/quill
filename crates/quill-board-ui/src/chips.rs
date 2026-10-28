@@ -139,7 +139,8 @@ mod tests {
             name: name.into(),
             display: name.into(),
             locked: false,
-            required: false,
+            min: 0,
+            max: None,
             color: Some(ChipColor {
                 background: bg.into(),
                 text: fg.map(str::to_owned),

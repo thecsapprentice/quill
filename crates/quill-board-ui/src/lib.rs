@@ -331,8 +331,20 @@ pub struct NewTagType {
     pub name: String,
     pub display: String,
     pub locked: bool,
-    pub required: bool,
+    pub min: u32,
+    pub max: Option<u32>,
     pub color: Option<ChipColor>,
+}
+
+/// New limits for a tag type that would leave prompts outside them, waiting
+/// for the administrator to confirm.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingLimits {
+    pub namespace: String,
+    pub min: u32,
+    pub max: Option<u32>,
+    /// Prompts on the board whose tags wouldn't meet them.
+    pub outside: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -340,8 +352,20 @@ pub struct AdminTagTypesView {
     /// The "new tags from writers" setting.
     pub new_tags: TagPolicy,
     pub namespaces: Vec<TagNamespace>,
+    /// Per tag type, how many prompts on the board don't meet its limits.
+    pub outside: Vec<(String, u64)>,
     pub new: NewTagType,
+    pub pending: Option<PendingLimits>,
     pub error: Option<String>,
+}
+
+/// The prompts that don't meet a tag type's limits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminOutsideLimitsView {
+    pub namespace: TagNamespace,
+    pub total: u64,
+    /// The newest of them: id and title.
+    pub prompts: Vec<(Uuid, String)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

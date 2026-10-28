@@ -557,7 +557,7 @@ async fn server_settings_manage_tag_types_and_tags() {
         "/admin/settings/tag-types"
     );
 
-    // Make Genre required. Unticked boxes mean "off".
+    // Make Genre required: at least one per prompt.
     let types = admin.get("/admin/settings/tag-types").await;
     assert!(
         types
@@ -566,8 +566,8 @@ async fn server_settings_manage_tag_types_and_tags() {
     );
     let saved = admin
         .post(
-            "/admin/settings/tag-types/genre",
-            &[("csrf", &csrf), ("display", "Genre"), ("required", "yes")],
+            "/admin/settings/tag-types/genre/limits",
+            &[("csrf", &csrf), ("preset", "at-least-one")],
         )
         .await;
     assert_eq!(
@@ -581,7 +581,7 @@ async fn server_settings_manage_tag_types_and_tags() {
 
     // The prompt form says so, and enforces it.
     let form = writer.get("/new").await;
-    assert!(form.body.contains("Genre: required"));
+    assert!(form.body.contains("Genre: pick 1"));
     let start = form.body.find(r#"<option value=""#).unwrap() + 15;
     let persona = form.body[start..start + 36].to_owned();
     let missing = writer
@@ -599,7 +599,7 @@ async fn server_settings_manage_tag_types_and_tags() {
         )
         .await;
     assert_eq!(missing.status, StatusCode::BAD_REQUEST);
-    assert!(missing.body.contains("Add: Genre."));
+    assert!(missing.body.contains("Pick at least 1 Genre tag."));
     assert!(missing.body.contains("No genre"));
 
     // Adding a tag type that exists re-shows the form with the input kept.
@@ -672,7 +672,11 @@ async fn server_settings_manage_tag_types_and_tags() {
 
     let confirm = admin.get("/admin/settings/tags/genre/horror/delete").await;
     assert!(confirm.body.contains("It&#39;s on 1 prompt."));
-    assert!(confirm.body.contains("Genre is a required type."));
+    assert!(
+        confirm
+            .body
+            .contains("Every prompt needs at least 1 Genre tag.")
+    );
     let unconfirmed = admin
         .post(
             "/admin/settings/tags/genre/horror/delete",
