@@ -12,11 +12,14 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use quill_proto::{
     board::{
-        AccountSettings, ChipColor, CreatePrompt, CreateTag, Maturity, Prompt, PromptAuthor,
-        PromptPage, PromptQuery, PromptState, Tag, TagNamespace, TagOrigin, TagPolicy, TagQuery,
-        TagStatus, UpdateAccountSettings, UpdatePrompt,
+        AccountSettings, ChipColor, CreatePrompt, CreateTag, FrequentTagsQuery, Maturity, Prompt,
+        PromptAuthor, PromptPage, PromptQuery, PromptState, Tag, TagNamespace, TagOrigin,
+        TagPolicy, TagQuery, TagStatus, UpdateAccountSettings, UpdatePrompt,
     },
-    limits::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, SEARCH_QUERY_MAX_CHARS},
+    limits::{
+        DEFAULT_PAGE_SIZE, FREQUENT_TAGS, FREQUENT_TAGS_FROM_PROMPTS, MAX_PAGE_SIZE,
+        SEARCH_QUERY_MAX_CHARS,
+    },
     validate::{self, TagSpec},
 };
 use sqlx::{AssertSqlSafe, PgConnection, PgPool, QueryBuilder};
@@ -40,6 +43,7 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_prompt, update_prompt, delete_prompt))
         .routes(routes!(list_namespaces))
         .routes(routes!(list_tags, create_user_tag))
+        .routes(routes!(api_frequent_tags))
 }
 
 pub(crate) fn parse_enum<T: std::str::FromStr>(value: &str) -> Result<T, ApiError> {
@@ -84,19 +88,22 @@ pub async fn account_settings(
     state: &AppState,
     account: Uuid,
 ) -> Result<AccountSettings, ApiError> {
-    let row: Option<(String, bool, Option<String>)> = sqlx::query_as(
-        "SELECT maturity_max::text, is_admin, staff_name FROM accounts WHERE id = $1",
+    let row: Option<(String, bool, Option<String>, bool)> = sqlx::query_as(
+        "SELECT maturity_max::text, is_admin, staff_name, suggest_all_personas
+         FROM accounts WHERE id = $1",
     )
     .bind(account)
     .fetch_optional(&state.pool)
     .await?;
-    let (maturity, is_admin, staff_name) = row.ok_or(ApiError::Unauthorized)?;
+    let (maturity, is_admin, staff_name, suggest_all_personas) =
+        row.ok_or(ApiError::Unauthorized)?;
     Ok(AccountSettings {
         maturity_max: parse_enum(&maturity)?,
         is_admin,
         unread_notices: crate::notices::unread_count(state, account).await?,
         // Kept if admin rights are taken away, but only shown to admins.
         staff_name: staff_name.filter(|_| is_admin),
+        suggest_all_personas,
     })
 }
 
@@ -121,6 +128,13 @@ pub async fn update_account_settings(
         sqlx::query("UPDATE accounts SET maturity_max = $2::maturity WHERE id = $1")
             .bind(account)
             .bind(m.as_str())
+            .execute(&mut *tx)
+            .await?;
+    }
+    if let Some(all) = body.suggest_all_personas {
+        sqlx::query("UPDATE accounts SET suggest_all_personas = $2 WHERE id = $1")
+            .bind(account)
+            .bind(all)
             .execute(&mut *tx)
             .await?;
     }
@@ -1069,6 +1083,77 @@ async fn list_tags(
     Query(q): Query<TagQuery>,
 ) -> Result<Json<Vec<Tag>>, ApiError> {
     search_tags(&state, &q).await.map(Json)
+}
+
+#[utoipa::path(
+    get, path = "/tags/frequent", tag = "tags", security(("bearer" = [])),
+    summary = "The tags the caller uses most",
+    description = "Up to 8 visible tags from the caller's 50 newest prompts on the board, most used first, ties to the most recently used. Only the given persona's prompts count, unless the account suggests tags from all its personas or no persona is given. Only the caller sees these.",
+    params(FrequentTagsQuery),
+    responses(
+        (status = 200, body = Vec<Tag>),
+        (status = 400, description = "The persona isn't one of the caller's"),
+    ),
+)]
+async fn api_frequent_tags(
+    State(state): State<AppState>,
+    authed: Authed,
+    Query(q): Query<FrequentTagsQuery>,
+) -> Result<Json<Vec<Tag>>, ApiError> {
+    frequent_tags(&state, authed.account_id, q.persona, FREQUENT_TAGS)
+        .await
+        .map(Json)
+}
+
+/// The tags `account` puts on its prompts most: counted over its newest
+/// prompts on the board, most used first and ties to the most recently
+/// used. Only `persona`'s prompts count unless the account suggests from
+/// all its personas or no persona is given. Aliases count as their target;
+/// hidden and pending tags are never suggested. Nothing is stored.
+pub async fn frequent_tags(
+    state: &AppState,
+    account: Uuid,
+    persona: Option<Uuid>,
+    limit: usize,
+) -> Result<Vec<Tag>, ApiError> {
+    let (owns, all): (Option<bool>, bool) = sqlx::query_as(
+        "SELECT (SELECT true FROM actors WHERE id = $2 AND account_id = $1),
+                suggest_all_personas
+         FROM accounts WHERE id = $1",
+    )
+    .bind(account)
+    .bind(persona)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(ApiError::Unauthorized)?;
+    if persona.is_some() && owns.is_none() {
+        return Err(ApiError::BadRequest("unknown persona".into()));
+    }
+    let persona = persona.filter(|_| !all);
+    // Safe: built only from compile-time constants; values are bound.
+    let rows: Vec<TagRow> = sqlx::query_as(AssertSqlSafe(format!(
+        "WITH recent AS (
+             SELECT p.tag_ids, p.created_at FROM prompts p JOIN actors a ON a.id = p.actor_id
+             WHERE a.account_id = $1 AND ($2::uuid IS NULL OR p.actor_id = $2)
+               AND p.removed_at IS NULL
+             ORDER BY p.created_at DESC LIMIT $4),
+         used AS (
+             SELECT COALESCE(t.canonical_id, t.id) AS tag_id, count(*) AS n,
+                    max(r.created_at) AS last
+             FROM recent r CROSS JOIN LATERAL unnest(r.tag_ids) AS u(id)
+             JOIN tags t ON t.id = u.id
+             GROUP BY 1)
+         {TAG_SELECT} JOIN used ON used.tag_id = t.id
+         WHERE t.instance = '' AND t.canonical_id IS NULL AND t.status = 'visible'
+         ORDER BY used.n DESC, used.last DESC, t.id LIMIT $3"
+    )))
+    .bind(account)
+    .bind(persona)
+    .bind(i64::try_from(limit).unwrap_or(i64::MAX))
+    .bind(FREQUENT_TAGS_FROM_PROMPTS)
+    .fetch_all(&state.pool)
+    .await?;
+    rows.into_iter().map(TagRow::into_tag).collect()
 }
 
 /// Canonical local tags, optionally filtered by namespace and prefix.

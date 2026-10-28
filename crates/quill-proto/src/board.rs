@@ -324,6 +324,21 @@ pub struct TagQuery {
     pub limit: Option<u32>,
 }
 
+/// `GET /tags/frequent`: the tags the caller uses most.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
+#[serde(rename_all = "camelCase")]
+pub struct FrequentTagsQuery {
+    /// The persona posting, one of the caller's. Its own prompts are used
+    /// unless the account suggests from all its personas, or it's left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<Uuid>,
+}
+
 /// `POST /tags`: a user creates a tag in an unlocked namespace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -621,6 +636,10 @@ pub struct AccountSettings {
     /// their staff comments; the login name never is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub staff_name: Option<String>,
+    /// Suggest tags on the post form from all the login's personas, rather
+    /// than only the one posting.
+    #[serde(default)]
+    pub suggest_all_personas: bool,
 }
 
 /// `PATCH /account`.
@@ -633,6 +652,8 @@ pub struct UpdateAccountSettings {
     /// Administrators only. An empty string clears it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub staff_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggest_all_personas: Option<bool>,
 }
 
 // ---- Reports and the admin inbox -----------------------------------------

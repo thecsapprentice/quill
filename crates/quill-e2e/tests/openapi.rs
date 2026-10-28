@@ -103,6 +103,7 @@ async fn story(server: &TestServer) {
         .update_account(&UpdateAccountSettings {
             maturity_max: Some(Maturity::General),
             staff_name: None,
+            suggest_all_personas: Some(true),
         })
         .await
         .unwrap();
@@ -355,6 +356,9 @@ async fn story(server: &TestServer) {
     anon.announcement(news.id).await.unwrap_err();
     alice_c.notices(None).await.unwrap();
     alice_c.mark_notices_read().await.unwrap();
+
+    // Frequent tags (#55).
+    alice_c.frequent_tags(None).await.unwrap();
 
     // The server rules (#42).
     anon.rules().await.unwrap_err();

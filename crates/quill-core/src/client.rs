@@ -412,6 +412,12 @@ impl Client {
         Self::json(self.request(Method::GET, "/tags")?.query(query)).await
     }
 
+    /// The tags this login uses most, for `persona` (see `GET /tags/frequent`).
+    pub async fn frequent_tags(&self, persona: Option<Uuid>) -> Result<Vec<Tag>, CoreError> {
+        let query = quill_proto::board::FrequentTagsQuery { persona };
+        Self::json(self.authed(Method::GET, "/tags/frequent")?.query(&query)).await
+    }
+
     pub async fn create_tag(&self, body: &CreateTag) -> Result<Tag, CoreError> {
         let builder = self.authed(Method::POST, "/tags")?;
         Self::json(Self::with_json(builder, body)).await

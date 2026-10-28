@@ -182,6 +182,15 @@ fn forms_render_with_values_and_errors() {
         &chrome(true, false),
         PromptFormView {
             preview_html: None,
+            frequent: vec![Tag {
+                namespace: "format".into(),
+                slug: "letters".into(),
+                display: "Letters".into(),
+                origin: TagOrigin::Server,
+                status: TagStatus::Visible,
+                color: None,
+            }],
+            frequent_for: Some("ink_fox".into()),
             editing: None,
             personas: vec![persona.clone()],
             persona: Some(persona.id),
@@ -278,6 +287,10 @@ fn forms_render_with_values_and_errors() {
     assert!(html.contains(r#"value="theme:Sea &#60;b&#62;""#));
     assert!(html.contains("(new, needs approval)"));
     assert!(html.contains("chip tcn-genre tc-genre__horror chip-choice"));
+    // The writer's own frequent tags, for the persona posting.
+    assert!(html.contains("You often use"));
+    assert!(html.contains(" for @ink_fox"));
+    assert!(html.contains(r#"name="pick" value="format:letters""#));
     // Genre is chosen; Format needs one and has none, so it gets a slot.
     assert!(html.contains("Format: pick 1"));
     assert!(!html.contains("Genre: pick"));
@@ -309,6 +322,8 @@ fn forms_render_with_values_and_errors() {
         &chrome(true, false),
         PromptFormView {
             preview_html: None,
+            frequent: Vec::new(),
+            frequent_for: None,
             editing: None,
             personas: Vec::new(),
             persona: None,
@@ -352,6 +367,7 @@ fn other_pages_render() {
                 is_admin: true,
                 unread_notices: 0,
                 staff_name: None,
+                suggest_all_personas: false,
             },
             staff_name: "Nat <admin>".into(),
             error: Some("a staff name must be".into()),

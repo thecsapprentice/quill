@@ -578,6 +578,7 @@ fn tag_picker(v: &PromptFormView, action: &str) -> Element {
                     }
                 }
             }
+            {frequent_row(v, &back_to_tags, &count)}
             div { class: "add-tags",
                 label { r#for: "add-tags", "Add tags"
                     span { class: "hint", "Type as type:name, like genre:horror or theme:found family. Separate several with commas." }
@@ -624,6 +625,36 @@ fn tag_picker(v: &PromptFormView, action: &str) -> Element {
                                 p { class: "hint", "Remove a {n.display} tag to pick a different one." }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// "You often use": the writer's own most used tags, one click each, greyed
+/// like the browser's when their type is full. Only the writer sees it.
+fn frequent_row(
+    v: &PromptFormView,
+    back_to_tags: &str,
+    count: &dyn Fn(&TagNamespace) -> u32,
+) -> Element {
+    if v.frequent.is_empty() {
+        return rsx! {};
+    }
+    rsx! {
+        div { class: "frequent",
+            p { class: "label",
+                "You often use"
+                if let Some(handle) = &v.frequent_for {
+                    span { class: "hint", " for @{handle}" }
+                }
+            }
+            div { class: "chips",
+                for tag in v.frequent.iter() {
+                    match v.namespaces.iter().find(|n| n.name == tag.namespace) {
+                        Some(n) => rsx! { {browse_chip(n, tag, back_to_tags, n.full(count(n)))} },
+                        None => rsx! {},
                     }
                 }
             }
@@ -948,6 +979,16 @@ pub fn settings_page(chrome: &Chrome, view: SettingsView) -> String {
                         span { class: "hint", "Applies to the board and searches. Your own prompts always show." }
                     }
                     select { id: "maturity_max", name: "maturity_max", {maturity_options(Some(s.maturity_max))} }
+                }
+                div { class: "field",
+                    label { class: "inline-check",
+                        input { r#type: "checkbox", name: "suggest_all_personas", value: "on",
+                            checked: s.suggest_all_personas }
+                        span {
+                            "Suggest tags from all my personas"
+                            span { class: "hint", "The post form's “You often use” row draws on the persona you're posting as. Tick this to use all of them. Only you see the suggestions." }
+                        }
+                    }
                 }
                 if s.is_admin {
                     div { class: "field",

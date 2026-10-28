@@ -275,6 +275,10 @@ pub struct PromptFormView {
     pub namespaces: Vec<TagNamespace>,
     /// The body as the board would show it, after Preview.
     pub preview_html: Option<String>,
+    /// "You often use": the writer's most used tags not already chosen.
+    pub frequent: Vec<Tag>,
+    /// The persona those came from, or `None` when from all of them.
+    pub frequent_for: Option<String>,
 }
 
 /// A chosen tag on the prompt form.

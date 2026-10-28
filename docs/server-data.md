@@ -80,6 +80,7 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `created_at`    | `metadata` | When the login was made.                                             |
 | `maturity_max`  | `login`    | The highest maturity the login chose to see on the board.            |
 | `staff_name`    | `public`   | An administrator's chosen name for commenting as staff; shown on their staff comments, never the login name. |
+| `suggest_all_personas` | `login` | Whether the post form suggests tags from all the login's personas, not only the one posting. |
 
 ### `actors`
 
