@@ -3,7 +3,7 @@
 use dioxus::prelude::*;
 use quill_proto::{
     board::{
-        AdminAction, AdminLogEntry, LogActor, Maturity, Prompt, PromptState, ReportKind,
+        AdminAction, AdminLogEntry, LogActor, Maturity, Prompt, PromptState, Report, ReportKind,
         ReportReason, Resolution, Tag, TagNamespace, TagPolicy, TagStatus,
     },
     limits::{
@@ -973,10 +973,52 @@ pub fn settings_page(chrome: &Chrome, view: SettingsView) -> String {
 
 // ---- Administration ------------------------------------------------------
 
+/// What a report is about, in a few words, linked where possible.
+fn report_subject(r: &Report) -> Element {
+    match (r.kind, &r.prompt, &r.comment) {
+        (ReportKind::Prompt, Some(p), _) => {
+            rsx! { a { href: "{prompt_url(p.id)}?show=1", "{p.title}" } }
+        }
+        (ReportKind::Prompt, None, _) => rsx! { "Prompt deleted by its author" },
+        (ReportKind::Comment, _, Some(c)) => rsx! {
+            a { href: "{crate::comment_url(c.id)}", "Comment by {c.speaker()}" }
+        },
+        (ReportKind::Comment, _, None) => rsx! { "Comment deleted by its author" },
+    }
+}
+
+fn report_status(r: &Report) -> Element {
+    match (r.resolution, r.kind) {
+        (Some(Resolution::Discard), _) => rsx! { span { "Discarded" } },
+        (Some(Resolution::Delete), ReportKind::Prompt) => {
+            rsx! { span { class: "removed", "Prompt removed" } }
+        }
+        (Some(Resolution::Delete), ReportKind::Comment) => {
+            rsx! { span { class: "removed", "Comment removed" } }
+        }
+        (None, _) => rsx! { span { "Open" } },
+    }
+}
+
+/// The reports page's address with report `id` open beside the table.
+fn report_url(all: bool, id: Uuid) -> String {
+    if all {
+        format!("/admin/reports?all=1&open={id}")
+    } else {
+        format!("/admin/reports?open={id}")
+    }
+}
+
 pub fn admin_reports_page(chrome: &Chrome, view: AdminReportsView) -> String {
     let chrome_for_body = chrome.clone();
     render_admin(Tab::Reports, "Reports", chrome, move || {
         let v = &view;
+        // The report shown beside the table: the one asked for, else the
+        // first, so the next report to decide is always one click away.
+        let open = v
+            .open
+            .and_then(|id| v.reports.iter().find(|r| r.id == id))
+            .or(v.reports.first());
         rsx! {
             h1 { "Reports" }
             p { class: "lede",
@@ -992,63 +1034,102 @@ pub fn admin_reports_page(chrome: &Chrome, view: AdminReportsView) -> String {
             }
             if v.reports.is_empty() {
                 div { class: "empty", if v.all { "No reports yet." } else { "No open reports." } }
-            }
-            for r in v.reports.iter() {
-                div { key: "{r.id}", class: if r.resolved_at.is_some() { "report resolved" } else { "report" },
-                    h2 {
-                        match (r.kind, &r.prompt, &r.comment) {
-                            (ReportKind::Prompt, Some(p), _) => rsx! { a { href: "{prompt_url(p.id)}?show=1", "{p.title}" } },
-                            (ReportKind::Prompt, None, _) => rsx! { "Prompt deleted by its author" },
-                            (ReportKind::Comment, _, Some(c)) => rsx! {
-                                a { href: "{crate::comment_url(c.id)}", "Comment by {c.speaker()}" }
-                            },
-                            (ReportKind::Comment, _, None) => rsx! { "Comment deleted by its author" },
-                        }
-                    }
-                    p { class: "card-meta",
-                        span { "{reason_label(r.reason)}" }
-                        if let Some(script) = &r.script {
-                            span { class: "automated", "Automated: {script}" }
-                        }
-                        span { "Received {short_date(r.created_at)}" }
-                        match (r.resolution, r.kind) {
-                            (Some(Resolution::Discard), _) => rsx! { span { "Discarded" } },
-                            (Some(Resolution::Delete), ReportKind::Prompt) => rsx! { span { class: "removed", "Prompt removed" } },
-                            (Some(Resolution::Delete), ReportKind::Comment) => rsx! { span { class: "removed", "Comment removed" } },
-                            (None, _) => rsx! { span { "Open" } },
-                        }
-                    }
-                    if let Some(c) = &r.comment {
-                        div { class: "comment-body", dangerous_inner_html: "{c.body_html}" }
-                    }
-                    if let Some(d) = &r.details {
-                        blockquote { "{d}" }
-                    }
-                    if r.resolved_at.is_none() {
-                        form { method: "post", action: "/admin/reports/{r.id}/resolve",
-                            {csrf(&chrome_for_body)}
-                            input { r#type: "hidden", name: "action", value: "discard" }
-                            button { class: "btn btn-quiet", r#type: "submit", "Discard report" }
-                        }
-                        if r.prompt.as_ref().is_some_and(|p| !p.removed) {
-                            form { method: "post", action: "/admin/reports/{r.id}/resolve",
-                                {csrf(&chrome_for_body)}
-                                input { r#type: "hidden", name: "action", value: "delete" }
-                                button { class: "btn btn-danger", r#type: "submit", "Remove prompt" }
+            } else {
+                div { class: "master-detail",
+                    div { class: "table-scroll",
+                        table { class: "report-table",
+                            thead {
+                                tr {
+                                    th { "Reported" }
+                                    th { "Reason" }
+                                    th { "Received" }
+                                    th { "Status" }
+                                }
+                            }
+                            tbody {
+                                for r in v.reports.iter() {
+                                    tr { key: "{r.id}",
+                                        class: if open.is_some_and(|o| o.id == r.id) { "selected" } else { "" },
+                                        td {
+                                            a { class: "row-open", href: "{report_url(v.all, r.id)}",
+                                                "aria-current": open.is_some_and(|o| o.id == r.id).then_some("true"),
+                                                match (&r.prompt, &r.comment) {
+                                                    (Some(p), _) => rsx! { "{p.title}" },
+                                                    (None, Some(c)) => rsx! { "Comment by {c.speaker()}" },
+                                                    (None, None) if r.kind == ReportKind::Prompt => rsx! { "Prompt deleted by its author" },
+                                                    (None, None) => rsx! { "Comment deleted by its author" },
+                                                }
+                                            }
+                                        }
+                                        td {
+                                            "{reason_label(r.reason)}"
+                                            if r.script.is_some() {
+                                                " "
+                                                span { class: "automated", "Automated" }
+                                            }
+                                        }
+                                        td { "{short_date(r.created_at)}" }
+                                        td { {report_status(r)} }
+                                    }
+                                }
                             }
                         }
-                        if r.comment.as_ref().is_some_and(|c| !c.removed) {
-                            form { method: "post", action: "/admin/reports/{r.id}/resolve",
-                                {csrf(&chrome_for_body)}
-                                input { r#type: "hidden", name: "action", value: "delete" }
-                                button { class: "btn btn-danger", r#type: "submit", "Remove comment" }
-                            }
-                        }
+                    }
+                    if let Some(r) = open {
+                        {report_detail(&chrome_for_body, r)}
                     }
                 }
             }
         }
     })
+}
+
+/// One report in full, with the decision buttons while it's open.
+fn report_detail(chrome: &Chrome, r: &Report) -> Element {
+    rsx! {
+        aside { class: if r.resolved_at.is_some() { "detail-panel report resolved" } else { "detail-panel report" },
+            "aria-label": "Report",
+            h2 { {report_subject(r)} }
+            p { class: "card-meta",
+                span { "{reason_label(r.reason)}" }
+                if let Some(script) = &r.script {
+                    span { class: "automated", "Automated: {script}" }
+                }
+                span { "Received {short_date(r.created_at)}" }
+                {report_status(r)}
+            }
+            if let Some(c) = &r.comment {
+                div { class: "comment-body", dangerous_inner_html: "{c.body_html}" }
+            }
+            if let Some(d) = &r.details {
+                blockquote { "{d}" }
+            }
+            if r.resolved_at.is_none() {
+                div { class: "decide",
+                    form { method: "post", action: "/admin/reports/{r.id}/resolve",
+                        {csrf(chrome)}
+                        input { r#type: "hidden", name: "action", value: "discard" }
+                        button { class: "btn btn-quiet", r#type: "submit", "Discard report" }
+                    }
+                    if r.prompt.as_ref().is_some_and(|p| !p.removed) {
+                        form { method: "post", action: "/admin/reports/{r.id}/resolve",
+                            {csrf(chrome)}
+                            input { r#type: "hidden", name: "action", value: "delete" }
+                            button { class: "btn btn-danger", r#type: "submit", "Remove prompt" }
+                        }
+                    }
+                    if r.comment.as_ref().is_some_and(|c| !c.removed) {
+                        form { method: "post", action: "/admin/reports/{r.id}/resolve",
+                            {csrf(chrome)}
+                            input { r#type: "hidden", name: "action", value: "delete" }
+                            button { class: "btn btn-danger", r#type: "submit", "Remove comment" }
+                        }
+                    }
+                }
+                p { class: "hint", "Reporters are never shown. Removing tells the author the reason, never who reported it." }
+            }
+        }
+    }
 }
 
 fn action_label(action: AdminAction) -> &'static str {

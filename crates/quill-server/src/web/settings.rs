@@ -535,7 +535,16 @@ pub struct TagsParams {
     namespace: Option<String>,
     search: Option<String>,
     notice: Option<String>,
+    status: Option<String>,
+    /// `az` for A to Z; else most used first.
+    order: Option<String>,
+    page: Option<String>,
+    /// The tag to show beside the table, as `namespace:slug`.
+    open: Option<String>,
 }
+
+/// Tags per page of the admin tags table.
+const TAGS_PAGE_SIZE: u32 = 50;
 
 #[derive(Debug, Default, Deserialize)]
 pub struct NewTagForm {
@@ -554,10 +563,13 @@ async fn render_tags(
     let c = chrome(state, Some(s), Nav::ServerSettings, opt(&params.notice));
     let namespace = opt(&params.namespace).map(str::to_owned);
     let search = opt(&params.search).unwrap_or_default().to_owned();
+    let status = opt(&params.status).and_then(|v| v.parse::<TagStatus>().ok());
+    let by_name = opt(&params.order) == Some("az");
+    let page: u32 = opt(&params.page).and_then(|p| p.parse().ok()).unwrap_or(0);
     let query = AdminTagQuery {
         namespace: namespace.clone(),
         search: Some(search.clone()),
-        status: None,
+        status,
         limit: Some(ADMIN_TAG_LIMIT),
     };
     let result = async {
@@ -572,8 +584,26 @@ async fn render_tags(
     }
     .await;
     match result {
-        Ok((namespaces, tags)) => {
+        Ok((namespaces, mut tags)) => {
             let truncated = tags.len() >= ADMIN_TAG_LIMIT as usize;
+            if by_name {
+                tags.sort_by_key(|t| t.tag.display.to_lowercase());
+            } else {
+                tags.sort_by(|a, b| {
+                    b.uses
+                        .cmp(&a.uses)
+                        .then_with(|| a.tag.display.cmp(&b.tag.display))
+                });
+            }
+            let open = opt(&params.open)
+                .and_then(|key| tags.iter().find(|t| t.tag.key() == key))
+                .cloned();
+            let total = u32::try_from(tags.len()).unwrap_or(u32::MAX);
+            let tags: Vec<_> = tags
+                .into_iter()
+                .skip((page * TAGS_PAGE_SIZE) as usize)
+                .take(TAGS_PAGE_SIZE as usize)
+                .collect();
             let new_namespace = opt(&new.namespace)
                 .or(namespace.as_deref())
                 .unwrap_or_default()
@@ -587,7 +617,13 @@ async fn render_tags(
                         tags,
                         namespace,
                         search,
+                        status,
+                        by_name,
+                        page,
+                        page_size: TAGS_PAGE_SIZE,
+                        total,
                         truncated,
+                        open,
                         new_namespace,
                         new_name: new.name.clone().unwrap_or_default(),
                         error,

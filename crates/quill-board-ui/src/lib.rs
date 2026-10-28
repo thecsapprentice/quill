@@ -26,7 +26,7 @@ use quill_proto::{
     api::Persona,
     board::{
         AccountSettings, AdminLogDetail, AdminLogEntry, AdminTag, ChipColor, Maturity, Prompt,
-        PromptState, Report, ReportReason, Tag, TagNamespace, TagPolicy,
+        PromptState, Report, ReportReason, Tag, TagNamespace, TagPolicy, TagStatus,
     },
 };
 use time::OffsetDateTime;
@@ -326,6 +326,8 @@ pub struct SettingsView {
 pub struct AdminReportsView {
     pub reports: Vec<Report>,
     pub all: bool,
+    /// The report shown in full beside the table (`open=`); else the first.
+    pub open: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -435,8 +437,19 @@ pub struct AdminTagsView {
     pub namespace: Option<String>,
     /// Filter: search text.
     pub search: String,
-    /// More tags matched than are shown.
+    /// Filter: tags with this status.
+    pub status: Option<TagStatus>,
+    /// A to Z rather than most used first.
+    pub by_name: bool,
+    /// This page of the matching tags.
+    pub page: u32,
+    pub page_size: u32,
+    /// How many tags matched (up to the listing's limit).
+    pub total: u32,
+    /// More tags matched than the listing's limit.
     pub truncated: bool,
+    /// The tag shown in the panel beside the table (`open=`).
+    pub open: Option<AdminTag>,
     /// The "add a tag" form's values, kept on error.
     pub new_namespace: String,
     pub new_name: String,

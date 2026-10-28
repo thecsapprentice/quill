@@ -1562,6 +1562,108 @@ main.wrap.wide {
   }
 }
 
+/* ---- Admin lists: a table, and the chosen row in full beside it ---- */
+
+.report-table,
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+  border: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.report-table th,
+.report-table td,
+.admin-table th,
+.admin-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.report-table th,
+.admin-table th {
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.report-table tr.selected td,
+.admin-table tr.selected td {
+  background: var(--staff-bg);
+}
+
+.row-open {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.detail-panel {
+  margin: 0;
+}
+
+.detail-panel .decide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.detail-panel .decide form {
+  margin: 0;
+}
+
+@media (min-width: 75rem) {
+  .master-detail {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .master-detail .detail-panel {
+    position: sticky;
+    top: 1rem;
+  }
+}
+
+/* Search, status and order above the admin tags table, on one line. */
+.tag-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.tag-toolbar select,
+.tag-toolbar input {
+  width: auto;
+}
+
+.tag-toolbar input[type="search"] {
+  flex: 1;
+  min-width: 10rem;
+}
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+/* Narrower: the chosen row in full first, then the table. */
+@media (max-width: 74.99rem) {
+  .master-detail {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 1rem;
+  }
+}
+
 /* The administrators' pages: a sidebar beside the page on wide screens. */
 .admin-side {
   display: flex;

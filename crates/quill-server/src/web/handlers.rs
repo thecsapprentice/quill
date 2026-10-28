@@ -1057,6 +1057,8 @@ pub(super) fn not_admin(state: &AppState, s: &Session) -> Response {
 pub struct AdminReportsParams {
     all: Option<String>,
     notice: Option<String>,
+    /// The report to show in full.
+    open: Option<String>,
 }
 
 pub async fn admin_reports(
@@ -1075,7 +1077,14 @@ pub async fn admin_reports(
     match reports::reports(&state, all).await {
         Ok(reports) => html(
             StatusCode::OK,
-            quill_board_ui::admin_reports_page(&c, AdminReportsView { reports, all }),
+            quill_board_ui::admin_reports_page(
+                &c,
+                AdminReportsView {
+                    reports,
+                    all,
+                    open: parse_opt(&p.open),
+                },
+            ),
         ),
         Err(e) => error_page(&c, e),
     }

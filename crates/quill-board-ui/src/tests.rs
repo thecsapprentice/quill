@@ -366,6 +366,7 @@ fn other_pages_render() {
     let admin = admin_reports_page(
         &c,
         AdminReportsView {
+            open: None,
             reports: vec![Report {
                 id: Uuid::nil(),
                 kind: ReportKind::Prompt,
@@ -517,7 +518,13 @@ fn server_settings_pages() {
             ],
             namespace: Some("genre".into()),
             search: "hor".into(),
+            status: None,
+            by_name: false,
+            page: 0,
+            page_size: 50,
+            total: 2,
             truncated: true,
+            open: Some(admin_tag("horror", 12, None)),
             new_namespace: "genre".into(),
             new_name: String::new(),
             error: None,
@@ -526,8 +533,15 @@ fn server_settings_pages() {
     assert!(tags.contains("&#60;Horror&#62;"));
     assert!(tags.contains("12 prompts"));
     assert!(tags.contains("Other name for genre:horror"));
-    assert!(tags.contains(r#"href="/admin/settings/tags/genre/horror/delete""#));
-    assert!(tags.contains("Showing the first 2 tags"));
+    // Choosing a tag keeps the search; the chosen one opens beside the table.
+    assert!(tags.contains("search=hor"));
+    assert!(tags.contains("open=genre%3Ahorror"));
+    assert!(tags.contains(r#"<tr class="selected">"#));
+    assert!(
+        tags.contains(r#"href="/admin/settings/tags/genre/horror">Colour, merging and deleting"#)
+    );
+    assert!(tags.contains("1–2 of 2+"));
+    assert!(tags.contains("Only the first 2 matching tags are listed."));
 
     let page = admin_tag_page(
         &c,
@@ -1104,6 +1118,7 @@ fn comment_reports_and_notices_render() {
     let html = admin_reports_page(
         &chrome(true, true),
         AdminReportsView {
+            open: None,
             reports: vec![
                 report.clone(),
                 Report {
