@@ -1499,6 +1499,69 @@ main.wrap.wide {
   }
 }
 
+/* ---- My prompts ---- */
+
+.mine-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+}
+
+.persona-pick {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.mine-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+}
+
+.row-actions {
+  display: flex;
+  gap: 1rem;
+  margin: 0;
+}
+
+/* ---- Posting and editing: the form beside its tags and preview ---- */
+
+.post-side .form-card,
+.preview-card {
+  margin-bottom: 1rem;
+}
+
+.preview-card .card-title {
+  margin-top: 0.25rem;
+}
+
+.browse-more summary {
+  margin: 0.25rem 0;
+  color: var(--act);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+@media (min-width: 64rem) {
+  .post-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 28rem);
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .post-form .post-main {
+    margin: 0;
+  }
+
+  .post-form textarea#body {
+    min-height: 22rem;
+  }
+}
+
 /* The administrators' pages: a sidebar beside the page on wide screens. */
 .admin-side {
   display: flex;

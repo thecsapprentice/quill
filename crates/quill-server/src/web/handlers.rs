@@ -256,6 +256,9 @@ async fn prompt_form_view(
         tag_options: tag_options(state).await,
         tag_policy: crate::server_settings::settings(state).await?.new_tags,
         namespaces: prompts::namespaces(state).await?,
+        preview_html: post
+            .previewing()
+            .then(|| crate::markdown::render(post.body.as_deref().unwrap_or_default())),
     })
 }
 
@@ -639,25 +642,52 @@ pub async fn report_submit(
 
 // ---- The visitor's own pages ---------------------------------------------
 
+#[derive(Debug, Default, Deserialize)]
+pub struct MineParams {
+    notice: Option<String>,
+    /// Closed prompts rather than those on the board.
+    closed: Option<String>,
+    /// One persona's prompts.
+    persona: Option<String>,
+}
+
 pub async fn mine(
     State(state): State<AppState>,
     MaybeSession(session): MaybeSession,
-    Query(q): Query<NoticeQuery>,
+    Query(q): Query<MineParams>,
 ) -> Response {
     let Some(s) = session else {
         return redirect("/login");
     };
     let c = chrome(&state, Some(&s), Nav::Mine, opt(&q.notice));
+    let closed = opt(&q.closed).is_some();
+    let persona = parse_opt::<Uuid>(&q.persona);
     let query = PromptQuery {
         author: Some("me".into()),
         limit: Some(MAX_PAGE_SIZE),
         ..PromptQuery::default()
     };
-    match prompts::search_prompts(&state, Some(s.account_id), &query).await {
-        Ok(page) => html(
-            StatusCode::OK,
-            quill_board_ui::my_prompts_page(&c, page.items),
-        ),
+    let loaded = async {
+        let page = prompts::search_prompts(&state, Some(s.account_id), &query).await?;
+        let personas = routes::personas(&state, s.account_id).await?;
+        Ok::<_, ApiError>((page.items, personas))
+    }
+    .await;
+    match loaded {
+        Ok((items, personas)) => {
+            let prompts = items
+                .into_iter()
+                .filter(|p| (p.state == PromptState::Closed) == closed)
+                .filter(|p| persona.is_none_or(|id| p.author.id == id))
+                .collect();
+            let view = quill_board_ui::MyPromptsView {
+                prompts,
+                personas,
+                persona,
+                closed,
+            };
+            html(StatusCode::OK, quill_board_ui::my_prompts_page(&c, view))
+        }
         Err(e) => error_page(&c, e),
     }
 }

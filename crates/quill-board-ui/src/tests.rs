@@ -181,6 +181,7 @@ fn forms_render_with_values_and_errors() {
     let html = prompt_form_page(
         &chrome(true, false),
         PromptFormView {
+            preview_html: None,
             editing: None,
             personas: vec![persona.clone()],
             persona: Some(persona.id),
@@ -307,6 +308,7 @@ fn forms_render_with_values_and_errors() {
     let empty = prompt_form_page(
         &chrome(true, false),
         PromptFormView {
+            preview_html: None,
             editing: None,
             personas: Vec::new(),
             persona: None,

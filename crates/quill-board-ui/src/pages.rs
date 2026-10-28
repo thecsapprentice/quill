@@ -11,16 +11,17 @@ use quill_proto::{
         STAFF_NAME_MAX_CHARS, USERNAME_MAX_CHARS,
     },
 };
+use uuid::Uuid;
 
 use crate::{
     AdminLogEntryView, AdminLogView, AdminReportsView, AuthMode, AuthView, BoardFilters, BoardView,
-    ChipKind, Chrome, Layout, MessageView, PersonasView, PromptFormView, PromptView, ReportView,
-    SettingsView,
+    ChipKind, Chrome, Layout, MessageView, MyPromptsView, PersonasView, PromptFormView, PromptView,
+    ReportView, SettingsView,
     admin::Tab,
     admin_log_entry_url, admin_log_url,
     chips::chip_classes,
     filters_url,
-    layout::{card_list, csrf, error_notice, prompt_meta, tag_datalist, tag_list},
+    layout::{csrf, error_notice, prompt_meta, tag_datalist, tag_list},
     maturity_label, prompt_url, reason_label, render, render_admin, render_with, short_date,
     short_datetime, state_label, tag_url,
 };
@@ -603,13 +604,19 @@ fn tag_picker(v: &PromptFormView, action: &str) -> Element {
                                 }
                             }
                             div { class: "chips",
-                                for tag in tags.iter() {
-                                    button { key: "{tag.key()}", class: "{chip_classes(tag)} chip-add",
-                                        r#type: "submit", name: "pick", value: "{tag.key()}",
-                                        formaction: "{back_to_tags}", formnovalidate: true,
-                                        disabled: n.full(count(n)),
-                                        "aria-label": "Add {n.display}: {tag.display}",
-                                        "+ {tag.display}"
+                                for tag in tags.iter().take(BROWSE_SHOWN) {
+                                    {browse_chip(n, tag, &back_to_tags, n.full(count(n)))}
+                                }
+                            }
+                            // Types with many tags show the first few; the
+                            // rest fold away, so the panel stays short.
+                            if tags.len() > BROWSE_SHOWN {
+                                details { class: "browse-more",
+                                    summary { "All {tags.len()} {n.display} tags" }
+                                    div { class: "chips",
+                                        for tag in tags.iter().skip(BROWSE_SHOWN) {
+                                            {browse_chip(n, tag, &back_to_tags, n.full(count(n)))}
+                                        }
                                     }
                                 }
                             }
@@ -624,6 +631,22 @@ fn tag_picker(v: &PromptFormView, action: &str) -> Element {
     }
 }
 
+/// How many of a type's tags "Browse tags" shows before "All N".
+const BROWSE_SHOWN: usize = 12;
+
+/// A tag to add from "Browse tags": a submit button that reloads the form.
+fn browse_chip(n: &TagNamespace, tag: &Tag, back_to_tags: &str, full: bool) -> Element {
+    rsx! {
+        button { key: "{tag.key()}", class: "{chip_classes(tag)} chip-add",
+            r#type: "submit", name: "pick", value: "{tag.key()}",
+            formaction: "{back_to_tags}", formnovalidate: true,
+            disabled: full,
+            "aria-label": "Add {n.display}: {tag.display}",
+            "+ {tag.display}"
+        }
+    }
+}
+
 pub fn prompt_form_page(chrome: &Chrome, view: PromptFormView) -> String {
     let title = if view.editing.is_some() {
         "Edit prompt"
@@ -631,7 +654,7 @@ pub fn prompt_form_page(chrome: &Chrome, view: PromptFormView) -> String {
         "Post a prompt"
     };
     let chrome_for_body = chrome.clone();
-    render(title, chrome, move || {
+    render_with(Layout::Wide, title, chrome, move || {
         let v = &view;
         let action = v.editing.map_or_else(
             || "/new".to_owned(),
@@ -650,7 +673,13 @@ pub fn prompt_form_page(chrome: &Chrome, view: PromptFormView) -> String {
         rsx! {
             h1 { "{title}" }
             {error_notice(v.error.as_ref())}
-            form { class: "form-card", method: "post", action: "{action}",
+            form { class: "post-form", method: "post", action: "{action}",
+                // The form's first submit button, so Enter in any field adds
+                // tags rather than posting; Add sits in the tag panel.
+                button { class: "visually-hidden", r#type: "submit", name: "op", value: "add",
+                    formaction: "{action}#tags", formnovalidate: true, tabindex: "-1",
+                    "aria-hidden": "true", "Add tags" }
+              div { class: "form-card post-main",
                 {csrf(&chrome_for_body)}
                 if v.editing.is_none() {
                     div { class: "field",
@@ -689,13 +718,27 @@ pub fn prompt_form_page(chrome: &Chrome, view: PromptFormView) -> String {
                         select { id: "state", name: "state", {state_options(Some(v.state))} }
                     }
                 }
-                {tag_picker(v, &action)}
                 div { class: "actions",
                     button { class: "btn", r#type: "submit", name: "op", value: "save",
                         if v.editing.is_some() { "Save changes" } else { "Post prompt" }
                     }
+                    button { class: "btn btn-quiet", r#type: "submit", name: "op", value: "preview",
+                        formaction: "{action}#preview", formnovalidate: true, "Preview" }
                     a { href: "{cancel}", "Cancel" }
                 }
+              }
+              div { class: "post-side",
+                if let Some(html) = &v.preview_html {
+                    section { id: "preview", class: "card prompt-card preview-card", "aria-label": "Preview",
+                        p { class: "banner-label", "Preview" }
+                        h2 { class: "card-title", "{v.title}" }
+                        div { class: "ruled", dangerous_inner_html: "{html}" }
+                    }
+                }
+                div { class: "form-card",
+                    {tag_picker(v, &action)}
+                }
+              }
             }
             {tag_datalist(TAG_OPTIONS, &v.tag_options)}
         }
@@ -750,18 +793,80 @@ pub fn report_page(chrome: &Chrome, view: ReportView) -> String {
 
 // ---- The visitor's own pages ---------------------------------------------
 
-pub fn my_prompts_page(chrome: &Chrome, prompts: Vec<quill_proto::board::Prompt>) -> String {
-    render("My prompts", chrome, move || {
+/// The address of My prompts showing closed prompts or not, for one
+/// persona or all.
+pub fn mine_url(closed: bool, persona: Option<Uuid>) -> String {
+    let mut params = Vec::new();
+    if closed {
+        params.push("closed=1".to_owned());
+    }
+    if let Some(p) = persona {
+        params.push(format!("persona={p}"));
+    }
+    if params.is_empty() {
+        "/mine".to_owned()
+    } else {
+        format!("/mine?{}", params.join("&"))
+    }
+}
+
+pub fn my_prompts_page(chrome: &Chrome, view: MyPromptsView) -> String {
+    render_with(Layout::Wide, "My prompts", chrome, move || {
+        let v = &view;
         rsx! {
-            h1 { "My prompts" }
-            p { class: "lede", "Every prompt posted by any of your personas, at every maturity rating." }
-            if prompts.is_empty() {
-                div { class: "empty",
-                    "You haven't posted any prompts. "
-                    a { href: "/new", "Post one." }
+            div { class: "mine-head",
+                h1 { "My prompts" }
+                if v.personas.len() > 1 {
+                    form { class: "persona-pick", method: "get", action: "/mine",
+                        if v.closed {
+                            input { r#type: "hidden", name: "closed", value: "1" }
+                        }
+                        label { r#for: "persona", class: "visually-hidden", "Persona" }
+                        select { id: "persona", name: "persona",
+                            option { value: "", selected: v.persona.is_none(),
+                                "All my personas ({v.personas.len()})" }
+                            for p in v.personas.iter() {
+                                option { key: "{p.id}", value: "{p.id}", selected: v.persona == Some(p.id),
+                                    "@{p.handle}" }
+                            }
+                        }
+                        button { class: "btn btn-quiet", r#type: "submit", "Show" }
+                    }
                 }
             }
-            {card_list(&prompts)}
+            p { class: "lede", "Every prompt your personas posted, at every maturity rating." }
+            nav { class: "tabs", "aria-label": "Show",
+                a { href: "{mine_url(false, v.persona)}", "aria-current": (!v.closed).then_some("page"),
+                    "On the board" }
+                a { href: "{mine_url(true, v.persona)}", "aria-current": v.closed.then_some("page"),
+                    "Closed" }
+            }
+            if v.prompts.is_empty() {
+                div { class: "empty",
+                    if v.closed {
+                        "No closed prompts."
+                    } else {
+                        "Nothing on the board. "
+                        a { href: "/new", "Post a prompt." }
+                    }
+                }
+            }
+            ul { class: "rows mine-rows",
+                for p in v.prompts.iter() {
+                    li { key: "{p.id}", class: "row mine-row",
+                        div {
+                            a { class: "row-title", href: "{prompt_url(p.id)}", "{p.title}" }
+                            {prompt_meta(p)}
+                        }
+                        // A column of actions, with room for more per prompt.
+                        p { class: "row-actions",
+                            if !p.removed {
+                                a { href: "{prompt_url(p.id)}/edit", "Edit" }
+                            }
+                        }
+                    }
+                }
+            }
         }
     })
 }

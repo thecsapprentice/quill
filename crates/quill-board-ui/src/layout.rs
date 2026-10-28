@@ -4,8 +4,7 @@ use dioxus::prelude::*;
 use quill_proto::board::{Prompt, PromptState, Tag, TagStatus};
 
 use crate::{
-    CSRF_FIELD, Chrome, Nav, chips::chip_classes, maturity_label, prompt_url, short_date,
-    state_label, tag_url,
+    CSRF_FIELD, Chrome, Nav, chips::chip_classes, maturity_label, short_date, state_label, tag_url,
 };
 
 /// The small line icons of the phone's tab bar. Plain SVG markup, so the
@@ -210,27 +209,6 @@ pub(crate) fn prompt_meta(p: &Prompt) -> Element {
 }
 
 /// A prompt as an index card in a list, with a clipped excerpt.
-pub(crate) fn prompt_card(p: &Prompt) -> Element {
-    rsx! {
-        li { class: "card", key: "{p.id}",
-            h2 { class: "card-title", a { href: "{prompt_url(p.id)}", "{p.title}" } }
-            {prompt_meta(p)}
-            div { class: "ruled excerpt", dangerous_inner_html: "{p.body_html}" }
-            {tag_list(&p.tags)}
-        }
-    }
-}
-
-pub(crate) fn card_list(prompts: &[Prompt]) -> Element {
-    rsx! {
-        ul { class: "cards",
-            for p in prompts.iter() {
-                {prompt_card(p)}
-            }
-        }
-    }
-}
-
 /// `<datalist>` of tag suggestions; browsers offer them without JavaScript.
 pub(crate) fn tag_datalist(id: &'static str, tags: &[Tag]) -> Element {
     rsx! {

@@ -214,6 +214,18 @@ pub struct BoardView {
     pub announcement: Option<quill_proto::announcements::Announcement>,
 }
 
+/// My prompts: the signed-in account's prompts, open or closed, for one
+/// persona or all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MyPromptsView {
+    pub prompts: Vec<Prompt>,
+    pub personas: Vec<Persona>,
+    /// Only this persona's, if set.
+    pub persona: Option<Uuid>,
+    /// Closed prompts rather than those on the board (open or busy).
+    pub closed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptView {
     pub prompt: Prompt,
@@ -261,6 +273,8 @@ pub struct PromptFormView {
     pub tag_policy: TagPolicy,
     /// Tag types, to show which are required or curated-only.
     pub namespaces: Vec<TagNamespace>,
+    /// The body as the board would show it, after Preview.
+    pub preview_html: Option<String>,
 }
 
 /// A chosen tag on the prompt form.
