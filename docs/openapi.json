@@ -9575,6 +9575,78 @@
           }
         ]
       }
+    },
+    "/tags/frequent": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "The tags the caller uses most",
+        "description": "Up to 8 visible tags from the caller's 50 newest prompts on the board, most used first, ties to the most recently used. Only the given persona's prompts count, unless the account suggests tags from all its personas or no persona is given. Only the caller sees these.",
+        "operationId": "get_tags_frequent",
+        "parameters": [
+          {
+            "name": "persona",
+            "in": "query",
+            "description": "The persona posting, one of the caller's. Its own prompts are used\nunless the account suggests from all its personas, or it's left out.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Tag"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The persona isn't one of the caller's",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "components": {

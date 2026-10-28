@@ -324,6 +324,21 @@ pub struct TagQuery {
     pub limit: Option<u32>,
 }
 
+/// `GET /tags/frequent`: the tags the caller uses most.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
+#[serde(rename_all = "camelCase")]
+pub struct FrequentTagsQuery {
+    /// The persona posting, one of the caller's. Its own prompts are used
+    /// unless the account suggests from all its personas, or it's left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<Uuid>,
+}
+
 /// `POST /tags`: a user creates a tag in an unlocked namespace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

@@ -154,6 +154,12 @@ pub enum TagCommand {
     },
     /// Create a tag (if the server allows user tags).
     Create { namespace: String, name: String },
+    /// The tags you use most, as the post form suggests them.
+    Frequent {
+        /// The persona posting (handle or id); all of yours if left out.
+        #[arg(long = "as")]
+        persona: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -587,6 +593,21 @@ pub async fn tags(ctx: &Ctx, cmd: TagCommand) -> Result<()> {
                 })
                 .await?;
             ctx.print(&tag, |t| println!("{}  {}", t.key(), t.display))
+        }
+        TagCommand::Frequent { persona } => {
+            let persona = match persona {
+                Some(p) => Some(persona_id(&client, &p).await?),
+                None => None,
+            };
+            let list = client.frequent_tags(persona).await?;
+            ctx.print(&list, |l| {
+                if l.is_empty() {
+                    println!("no tags yet: post a prompt first");
+                }
+                for t in l {
+                    println!("{:<36} {}", t.key(), t.display);
+                }
+            })
         }
     }
 }
