@@ -1102,6 +1102,153 @@ main.wrap.wide {
   margin-left: 0.3em;
 }
 
+/* ---- The board: a list of prompts and a reading pane ---- */
+
+.board-head h1 {
+  margin-bottom: 0.25rem;
+}
+
+.board-head .lede {
+  margin: 0 0 0.75rem;
+}
+
+.board-head .filters {
+  margin-bottom: 0.75rem;
+}
+
+/* The filters in force: two lines at most, however many there are. */
+.filter-summary {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.filter-summary p {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.filter-summary .chip {
+  margin: 0 0.25rem 0 0;
+  padding: 0 0.5rem;
+  font-size: 0.8rem;
+}
+
+.chip.chip-hide {
+  text-decoration: line-through;
+}
+
+.summary-rest {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--muted);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.row {
+  padding: 0.7rem 0.25rem 0.75rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid transparent;
+}
+
+.row.current {
+  background: var(--card);
+  border-left-color: var(--rule);
+}
+
+.row-title {
+  display: block;
+  color: var(--ink);
+  font: 700 1.1rem/1.3 var(--serif);
+  text-decoration: none;
+}
+
+.row-title:hover {
+  text-decoration: underline;
+}
+
+.row .card-meta {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+}
+
+.row-excerpt,
+.row-tags {
+  margin: 0.15rem 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.875rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.row-tags a {
+  color: var(--muted);
+}
+
+.reading-pane .back-link {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+}
+
+.pane-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  margin: 1.25rem 0 0;
+}
+
+.empty-pane {
+  color: var(--muted);
+}
+
+/* Wide: list and pane side by side, each scrolling with the page. */
+@media (min-width: 75rem) {
+  .board-layout {
+    display: grid;
+    grid-template-columns: minmax(22rem, 34rem) minmax(0, 1fr);
+    gap: 2rem;
+    align-items: start;
+  }
+
+  .reading-pane {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+  }
+
+  .reading-pane .back-link {
+    display: none;
+  }
+
+  .empty-pane {
+    padding: 4rem 1rem;
+    text-align: center;
+  }
+}
+
+/* Narrower: the list, or the open prompt in its place. */
+@media (max-width: 74.99rem) {
+  .board-layout.has-open .board-list,
+  .empty-pane {
+    display: none;
+  }
+}
+
 /* The administrators' pages: a sidebar beside the page on wide screens. */
 .admin-side {
   display: flex;
@@ -1304,6 +1451,11 @@ main.wrap.wide {
     margin: 0;
     background: var(--rule);
     color: #ffffff;
+  }
+
+  /* Compact rows: title, details and tags. */
+  .row-excerpt {
+    display: none;
   }
 
   /* Sign out lives on the More page. */

@@ -62,7 +62,9 @@ fn board(prompts: Vec<Prompt>, filters: BoardFilters) -> BoardView {
     BoardView {
         filters,
         prompts,
+        cursor: None,
         next_cursor: Some("abc+/=".into()),
+        open: None,
         cap: Maturity::Teen,
         namespaces: Vec::new(),
         tag_options: Vec::new(),
@@ -74,20 +76,22 @@ fn board(prompts: Vec<Prompt>, filters: BoardFilters) -> BoardView {
 
 #[test]
 fn board_escapes_text_and_keeps_sanitized_html() {
-    let html = board_page(
-        &chrome(false, false),
-        board(
-            vec![prompt("<script>alert(1)</script>", Maturity::General)],
-            BoardFilters::default(),
-        ),
-    );
+    let p = prompt("<script>alert(1)</script>", Maturity::General);
+    let mut view = board(vec![p.clone()], BoardFilters::default());
+    view.open = Some(p.clone());
+    let html = board_page(&chrome(false, false), view);
     assert!(html.starts_with("<!DOCTYPE html><html lang=\"en\">"));
     assert!(html.ends_with("</html>"));
     assert!(!html.contains("<script"));
     assert!(html.contains("&#60;script&#62;"));
     assert!(html.contains("Ink &#60;Fox&#62; (@ink_fox)"));
-    // The server-sanitized body is inserted as HTML.
+    // The list shows plain text; the reading pane the server-sanitized HTML.
+    assert!(html.contains(r#"<p class="row-excerpt">A keeper</p>"#));
     assert!(html.contains("<p>A <em>keeper</em></p>"));
+    assert!(html.contains(r#"class="board-layout has-open""#));
+    assert!(html.contains(&format!(r#"href="/?open={}" aria-current="true""#, p.id)));
+    assert!(html.contains(&format!(r#"href="/p/{}""#, p.id)));
+    assert!(html.contains(r#"href="/">← Back to the list"#));
     // Tag links filter the board; the cursor is URL-encoded.
     assert!(html.contains(r#"href="/?include=genre%3Ahorror""#));
     assert!(html.contains("cursor=abc%2B%2F%3D"));
@@ -111,9 +115,21 @@ fn filter_urls_round_trip_and_open_the_panel() {
         "/?include=genre%3Ahorror%2Ctheme%3Asea&q=light+house&maturity=general"
     );
     assert_eq!(BoardFilters::default().url(None), "/");
-    let html = board_page(&chrome(true, false), board(Vec::new(), f));
-    assert!(html.contains("<details class=\"filters\" open"));
+    let html = board_page(&chrome(true, false), board(Vec::new(), f.clone()));
     assert!(html.contains("No prompts match these filters."));
+    // The filters in force sum up in a box above the list.
+    assert!(html.contains(r#"<span class="chip">genre:horror</span>"#));
+    assert!(html.contains("General or under · “light house”"));
+    assert!(html.contains(r#"<span class="count">4</span>"#));
+    assert!(!html.contains("has-open"));
+    // Opening a prompt keeps the filters and page.
+    assert_eq!(
+        f.open_url(Some("c1"), Uuid::nil()),
+        format!(
+            "/?include=genre%3Ahorror%2Ctheme%3Asea&q=light+house&maturity=general&cursor=c1&open={}",
+            Uuid::nil()
+        )
+    );
 }
 
 #[test]

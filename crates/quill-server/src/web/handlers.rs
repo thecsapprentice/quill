@@ -108,6 +108,8 @@ pub struct BoardParams {
     maturity: Option<String>,
     state: Option<String>,
     cursor: Option<String>,
+    /// A prompt to show in the reading pane beside the list.
+    open: Option<String>,
     notice: Option<String>,
 }
 
@@ -146,13 +148,25 @@ pub async fn board(
             Ok(b) => b,
             Err(e) => return error_page(&c, e),
         };
+    let cap = session
+        .as_ref()
+        .map_or(Maturity::DEFAULT_MAX, |s| s.maturity_max);
+    // A prompt rated above the visitor's cap isn't opened here; its own
+    // page asks first.
+    let open = match parse_opt::<Uuid>(&p.open) {
+        Some(id) => match prompts::load_prompt(&state.pool, id, viewer, false).await {
+            Ok(found) => found.filter(|p| p.maturity <= cap),
+            Err(e) => return error_page(&c, e),
+        },
+        None => None,
+    };
     let view = BoardView {
         filters,
         prompts: items,
+        cursor: opt(&p.cursor).map(str::to_owned),
         next_cursor,
-        cap: session
-            .as_ref()
-            .map_or(Maturity::DEFAULT_MAX, |s| s.maturity_max),
+        open,
+        cap,
         namespaces: prompts::namespaces(&state).await.unwrap_or_default(),
         tag_options: tag_options(&state).await,
         error,

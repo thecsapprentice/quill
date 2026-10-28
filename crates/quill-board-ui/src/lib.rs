@@ -117,8 +117,30 @@ impl BoardFilters {
             || self.state.is_some()
     }
 
+    /// How many filters are set, for the Filters button: each tag, the
+    /// search, the rating and the status.
+    pub fn count(&self) -> usize {
+        let tags = |list: &str| list.split(',').filter(|t| !t.trim().is_empty()).count();
+        tags(&self.include)
+            + tags(&self.exclude)
+            + usize::from(!self.q.is_empty())
+            + usize::from(self.maturity.is_some())
+            + usize::from(self.state.is_some())
+    }
+
     /// The board URL for these filters, optionally continuing from `cursor`.
     pub fn url(&self, cursor: Option<&str>) -> String {
+        self.url_with(cursor, None)
+    }
+
+    /// The board URL for these filters and page with prompt `open` in the
+    /// reading pane. See `docs/plan.md`, "Board layout".
+    pub fn open_url(&self, cursor: Option<&str>, open: Uuid) -> String {
+        self.url_with(cursor, Some(open))
+    }
+
+    fn url_with(&self, cursor: Option<&str>, open: Option<Uuid>) -> String {
+        let open = open.map(|id| id.to_string()).unwrap_or_default();
         let mut s = url::form_urlencoded::Serializer::new(String::new());
         for (key, value) in [
             ("include", self.include.as_str()),
@@ -127,6 +149,7 @@ impl BoardFilters {
             ("maturity", self.maturity.map_or("", Maturity::as_str)),
             ("state", self.state.map_or("", PromptState::as_str)),
             ("cursor", cursor.unwrap_or("")),
+            ("open", open.as_str()),
         ] {
             if !value.is_empty() {
                 s.append_pair(key, value);
@@ -158,7 +181,11 @@ pub fn prompt_url(id: Uuid) -> String {
 pub struct BoardView {
     pub filters: BoardFilters,
     pub prompts: Vec<Prompt>,
+    /// The page shown, so opening a prompt keeps it.
+    pub cursor: Option<String>,
     pub next_cursor: Option<String>,
+    /// The prompt in the reading pane (`open=`), if any.
+    pub open: Option<Prompt>,
     /// The visitor's maturity cap, explained above the results.
     pub cap: Maturity,
     pub namespaces: Vec<TagNamespace>,
@@ -523,7 +550,6 @@ fn document(doc: Doc) -> Element {
                             {admin::sidebar(&chrome, tab)}
                             div { class: "admin-main",
                                 {page_notices(&chrome)}
-                                h1 { "{title}" }
                                 {body()}
                             }
                         }
@@ -543,8 +569,7 @@ pub(crate) fn render(
     render_with(Layout::Narrow, title, chrome, body)
 }
 
-/// Renders an administrators' page beside their sidebar, under the
-/// page's title.
+/// Renders an administrators' page beside their sidebar.
 pub(crate) fn render_admin(
     tab: admin::Tab,
     title: impl Into<String>,

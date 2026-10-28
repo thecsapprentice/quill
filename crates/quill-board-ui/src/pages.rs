@@ -3,8 +3,8 @@
 use dioxus::prelude::*;
 use quill_proto::{
     board::{
-        AdminAction, AdminLogEntry, LogActor, Maturity, PromptState, ReportKind, ReportReason,
-        Resolution, Tag, TagNamespace, TagPolicy, TagStatus,
+        AdminAction, AdminLogEntry, LogActor, Maturity, Prompt, PromptState, ReportKind,
+        ReportReason, Resolution, Tag, TagNamespace, TagPolicy, TagStatus,
     },
     limits::{
         PROMPT_BODY_MAX_CHARS, PROMPT_TITLE_MAX_CHARS, REPORT_DETAILS_MAX_CHARS,
@@ -13,14 +13,15 @@ use quill_proto::{
 };
 
 use crate::{
-    AdminLogEntryView, AdminLogView, AdminReportsView, AuthMode, AuthView, BoardView, ChipKind,
-    Chrome, MessageView, PersonasView, PromptFormView, PromptView, ReportView, SettingsView,
+    AdminLogEntryView, AdminLogView, AdminReportsView, AuthMode, AuthView, BoardFilters, BoardView,
+    ChipKind, Chrome, Layout, MessageView, PersonasView, PromptFormView, PromptView, ReportView,
+    SettingsView,
     admin::Tab,
     admin_log_entry_url, admin_log_url,
     chips::chip_classes,
     layout::{card_list, csrf, error_notice, prompt_meta, tag_datalist, tag_list},
-    maturity_label, prompt_url, reason_label, render, render_admin, short_date, short_datetime,
-    state_label,
+    maturity_label, prompt_url, reason_label, render, render_admin, render_with, short_date,
+    short_datetime, state_label, tag_url,
 };
 
 const TAG_OPTIONS: &str = "tag-options";
@@ -45,10 +46,11 @@ fn state_options(selected: Option<PromptState>) -> Element {
 
 pub fn board_page(chrome: &Chrome, view: BoardView) -> String {
     let signed_in = chrome.viewer.is_some();
-    render("", chrome, move || {
+    render_with(Layout::Wide, "", chrome, move || {
         let v = &view;
         let f = &v.filters;
-        let open = f.is_active() || v.error.is_some();
+        let cursor = v.cursor.as_deref();
+        let open_id = v.open.as_ref().map(|p| p.id);
         rsx! {
             for a in v.sticky_announcements.iter() {
                 {crate::announcements::banner(a, false)}
@@ -56,83 +58,230 @@ pub fn board_page(chrome: &Chrome, view: BoardView) -> String {
             if let Some(a) = &v.announcement {
                 {crate::announcements::banner(a, true)}
             }
-            h1 { "Prompts" }
-            p { class: "lede",
-                "Writing prompts posted on this server, newest first. Showing prompts rated "
-                "{maturity_label(v.cap)} and below. "
-                if signed_in {
-                    a { href: "/settings", "Change this in Settings." }
-                } else {
-                    a { href: "/login", "Sign in" }
-                    " to change this."
-                }
-            }
-            details { class: "filters", open: open,
-                summary { "Search and filter" }
-                form { method: "get", action: "/",
-                    div { class: "field",
-                        label { r#for: "q", "Search" }
-                        input { r#type: "search", id: "q", name: "q", value: "{f.q}" }
+            div { class: if v.open.is_some() { "board-layout has-open" } else { "board-layout" },
+                section { class: "board-list", "aria-label": "Prompts",
+                    div { class: "board-head",
+                        h1 { "Prompts" }
+                        p { class: "lede",
+                            "Newest first, rated {maturity_label(v.cap)} and below. "
+                            if signed_in {
+                                a { href: "/settings", "Change this in Settings." }
+                            } else {
+                                a { href: "/login", "Sign in" }
+                                " to change this."
+                            }
+                        }
+                        {board_search(v)}
+                        {filter_summary(f)}
                     }
-                    div { class: "filter-grid",
-                        div { class: "field",
-                            label { r#for: "include", "Must have tags"
-                                span { class: "hint", "Comma-separated, like genre:horror" }
-                            }
-                            input { r#type: "text", id: "include", name: "include", value: "{f.include}", list: TAG_OPTIONS }
-                        }
-                        div { class: "field",
-                            label { r#for: "exclude", "Hide tags"
-                                span { class: "hint", "Like content-warning:gore" }
-                            }
-                            input { r#type: "text", id: "exclude", name: "exclude", value: "{f.exclude}", list: TAG_OPTIONS }
-                        }
-                        div { class: "field",
-                            label { r#for: "maturity", "Rated up to" }
-                            select { id: "maturity", name: "maturity",
-                                option { value: "", selected: f.maturity.is_none(), "My setting ({maturity_label(v.cap)})" }
-                                {maturity_options(f.maturity)}
-                            }
-                        }
-                        div { class: "field",
-                            label { r#for: "state", "Status" }
-                            select { id: "state", name: "state",
-                                option { value: "", selected: f.state.is_none(), "Any" }
-                                {state_options(f.state)}
+                    {error_notice(v.error.as_ref())}
+                    if v.prompts.is_empty() && v.error.is_none() {
+                        div { class: "empty",
+                            if f.is_active() {
+                                "No prompts match these filters. "
+                                a { href: "/", "Clear filters" }
+                            } else if signed_in {
+                                "No prompts yet. "
+                                a { href: "/new", "Post the first one." }
+                            } else {
+                                "No prompts yet."
                             }
                         }
                     }
-                    div { class: "actions",
-                        button { class: "btn", r#type: "submit", "Apply filters" }
-                        if f.is_active() {
-                            a { href: "/", "Clear filters" }
+                    ul { class: "rows",
+                        for p in v.prompts.iter() {
+                            {prompt_row(p, f.open_url(cursor, p.id), open_id == Some(p.id))}
+                        }
+                    }
+                    if let Some(next) = &v.next_cursor {
+                        p { class: "pager",
+                            a { class: "btn btn-quiet", href: "{f.url(Some(next))}", "Older prompts" }
                         }
                     }
                 }
-            }
-            {error_notice(v.error.as_ref())}
-            if v.prompts.is_empty() && v.error.is_none() {
-                div { class: "empty",
-                    if f.is_active() {
-                        "No prompts match these filters. "
-                        a { href: "/", "Clear filters" }
-                    } else if signed_in {
-                        "No prompts yet. "
-                        a { href: "/new", "Post the first one." }
-                    } else {
-                        "No prompts yet."
-                    }
-                }
-            }
-            {card_list(&v.prompts)}
-            if let Some(cursor) = &v.next_cursor {
-                p { class: "pager",
-                    a { class: "btn btn-quiet", href: "{f.url(Some(cursor))}", "Older prompts" }
+                match &v.open {
+                    Some(p) => rsx! { {reading_pane(p, f.url(cursor))} },
+                    None => rsx! {
+                        aside { class: "reading-pane empty-pane",
+                            p { "Choose a prompt to read it here." }
+                        }
+                    },
                 }
             }
             {tag_datalist(TAG_OPTIONS, &v.tag_options)}
         }
     })
+}
+
+/// The search box, and the full search and filter form folded away.
+fn board_search(v: &BoardView) -> Element {
+    let f = &v.filters;
+    let count = f.count();
+    rsx! {
+        details { class: "filters", open: v.error.is_some(),
+            summary {
+                "Search and filter"
+                if count > 0 {
+                    " "
+                    span { class: "count", "{count}" }
+                }
+            }
+            form { method: "get", action: "/",
+                div { class: "field",
+                    label { r#for: "q", "Search" }
+                    input { r#type: "search", id: "q", name: "q", value: "{f.q}" }
+                }
+                div { class: "filter-grid",
+                    div { class: "field",
+                        label { r#for: "include", "Must have tags"
+                            span { class: "hint", "Comma-separated, like genre:horror" }
+                        }
+                        input { r#type: "text", id: "include", name: "include", value: "{f.include}", list: TAG_OPTIONS }
+                    }
+                    div { class: "field",
+                        label { r#for: "exclude", "Hide tags"
+                            span { class: "hint", "Like content-warning:gore" }
+                        }
+                        input { r#type: "text", id: "exclude", name: "exclude", value: "{f.exclude}", list: TAG_OPTIONS }
+                    }
+                    div { class: "field",
+                        label { r#for: "maturity", "Rated up to" }
+                        select { id: "maturity", name: "maturity",
+                            option { value: "", selected: f.maturity.is_none(), "My setting ({maturity_label(v.cap)})" }
+                            {maturity_options(f.maturity)}
+                        }
+                    }
+                    div { class: "field",
+                        label { r#for: "state", "Status" }
+                        select { id: "state", name: "state",
+                            option { value: "", selected: f.state.is_none(), "Any" }
+                            {state_options(f.state)}
+                        }
+                    }
+                }
+                div { class: "actions",
+                    button { class: "btn", r#type: "submit", "Apply filters" }
+                    if f.is_active() {
+                        a { href: "/", "Clear filters" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The filters in force, in a box that never grows: a few tags of each
+/// kind and "+N" for the rest, then the rating, status and search.
+fn filter_summary(f: &BoardFilters) -> Element {
+    if !f.is_active() {
+        return rsx! {};
+    }
+    const SHOWN: usize = 3;
+    let split = |list: &str| -> Vec<String> {
+        list.split(',')
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    let (has, hides) = (split(&f.include), split(&f.exclude));
+    let mut rest = Vec::new();
+    if let Some(m) = f.maturity {
+        rest.push(format!("{} or under", maturity_label(m)));
+    }
+    if let Some(s) = f.state {
+        rest.push(state_label(s).to_owned());
+    }
+    if !f.q.is_empty() {
+        rest.push(format!("“{}”", f.q));
+    }
+    rsx! {
+        div { class: "filter-summary", role: "status",
+            p { class: "summary-tags",
+                if !has.is_empty() {
+                    b { "Has " }
+                    for t in has.iter().take(SHOWN) {
+                        span { key: "h-{t}", class: "chip", "{t}" }
+                    }
+                    if has.len() > SHOWN {
+                        span { class: "chip", "+{has.len() - SHOWN}" }
+                    }
+                }
+                if !hides.is_empty() {
+                    b { " Hides " }
+                    for t in hides.iter().take(SHOWN) {
+                        span { key: "x-{t}", class: "chip chip-hide", "{t}" }
+                    }
+                    if hides.len() > SHOWN {
+                        span { class: "chip chip-hide", "+{hides.len() - SHOWN}" }
+                    }
+                }
+            }
+            p { class: "summary-rest",
+                span { "{rest.join(\" · \")}" }
+                a { href: "/", "Clear" }
+            }
+        }
+    }
+}
+
+/// One prompt in the board's list: its title opens it in the reading pane.
+fn prompt_row(p: &Prompt, open_url: String, current: bool) -> Element {
+    rsx! {
+        li { key: "{p.id}", class: if current { "row current" } else { "row" },
+            a { class: "row-title", href: "{open_url}",
+                "aria-current": current.then_some("true"),
+                "{p.title}"
+            }
+            {prompt_meta(p)}
+            p { class: "row-excerpt", "{excerpt(&p.body)}" }
+            if !p.tags.is_empty() {
+                p { class: "row-tags",
+                    for (i, t) in p.tags.iter().enumerate() {
+                        span { key: "{t.key()}",
+                            if i > 0 { " · " }
+                            a { href: "{tag_url(t)}", "{t.display}" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The start of a prompt's Markdown as plain text, for one line in the list.
+fn excerpt(markdown: &str) -> String {
+    const CHARS: usize = 160;
+    let plain: String = markdown
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .filter(|c| !matches!(c, '*' | '_' | '#' | '>' | '`' | '[' | ']'))
+        .collect();
+    match plain.char_indices().nth(CHARS) {
+        Some((at, _)) => format!("{}…", plain[..at].trim_end()),
+        None => plain,
+    }
+}
+
+/// The open prompt beside the list. Phones and tablets show it instead of
+/// the list, with a link back.
+fn reading_pane(p: &Prompt, back: String) -> Element {
+    let url = prompt_url(p.id);
+    rsx! {
+        article { class: "reading-pane card prompt-card",
+            a { class: "back-link", href: "{back}", "← Back to the list" }
+            h2 { class: "card-title", "{p.title}" }
+            {prompt_meta(p)}
+            div { class: "ruled", dangerous_inner_html: "{p.body_html}" }
+            {tag_list(&p.tags)}
+            p { class: "pane-actions",
+                a { class: "btn btn-quiet", href: "{url}", "Open full page" }
+                a { href: "{url}/report", "Report this prompt" }
+            }
+        }
+    }
 }
 
 // ---- One prompt ----------------------------------------------------------
