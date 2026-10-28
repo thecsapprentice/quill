@@ -15,9 +15,9 @@ use uuid::Uuid;
 
 use crate::{
     Chrome,
-    admin::{Tab, tabs},
+    admin::Tab,
     layout::{csrf, error_notice},
-    reason_label, render, short_date,
+    reason_label, render, render_admin, short_date,
 };
 
 /// Where readers dismiss the banner (a form post; no JavaScript).
@@ -476,12 +476,11 @@ fn sticky_toggle(chrome: &Chrome, a: &Announcement, from_edit: bool) -> Element 
 
 pub fn admin_announcements_page(chrome: &Chrome, view: AdminAnnouncementsView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Announcements", chrome, move || {
+    render_admin(Tab::Announcements, "Announcements", chrome, move || {
         let v = &view;
         let c = &chrome_for_body;
         rsx! {
-            h1 { "Server settings" }
-            {tabs(c, Tab::Announcements)}
+            h1 { "Announcements" }
             p { class: "lede",
                 "The newest announcement's title shows as a banner at the top of the board, which readers can dismiss. Sticky announcements each keep a banner of their own above it, which readers can't dismiss. Every announcement is listed under Announcements. Readers see them as from “the administrators”; the admin log records who posted each."
             }
@@ -571,7 +570,7 @@ pub fn admin_announcements_page(chrome: &Chrome, view: AdminAnnouncementsView) -
 
 pub fn admin_announcement_page(chrome: &Chrome, view: AdminAnnouncementView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Edit announcement", chrome, move || {
+    render_admin(Tab::Announcements, "Edit announcement", chrome, move || {
         let v = &view;
         let a = &v.announcement;
         let c = &chrome_for_body;

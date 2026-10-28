@@ -1095,6 +1095,73 @@ pub async fn search_tags(state: &AppState, q: &TagQuery) -> Result<Vec<Tag>, Api
     rows.into_iter().map(TagRow::into_tag).collect()
 }
 
+/// A tag with how many prompts on the board carry it, and how many tags
+/// matched the whole query.
+#[derive(sqlx::FromRow)]
+struct CountedTag {
+    #[sqlx(flatten)]
+    row: TagRow,
+    uses: i64,
+    total: i64,
+}
+
+/// How the filter builder orders a tag type's tags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TagOrder {
+    MostUsed,
+    AToZ,
+}
+
+/// One page of a tag type's visible tags, each with how many prompts on
+/// the board carry it, for the board's filter builder. `search` keeps names
+/// containing it; `letter` keeps names starting with it. Returns the page
+/// and how many tags matched.
+pub async fn tag_page(
+    state: &AppState,
+    namespace: &str,
+    search: &str,
+    letter: Option<char>,
+    order: TagOrder,
+    offset: u32,
+    limit: u32,
+) -> Result<(Vec<(Tag, u64)>, u64), ApiError> {
+    let mut qb = QueryBuilder::new(TAG_SELECT.replace(
+        " FROM tags t",
+        ", (SELECT count(*) FROM prompts p
+             WHERE p.tag_ids @> ARRAY[t.id] AND p.removed_at IS NULL) AS uses,
+           count(*) OVER () AS total FROM tags t",
+    ));
+    qb.push(" WHERE t.instance = '' AND t.canonical_id IS NULL AND t.status = 'visible'")
+        .push(" AND t.namespace = ")
+        .push_bind(validate::namespace(namespace)?);
+    let search = search.trim().to_lowercase();
+    if !search.is_empty() {
+        qb.push(" AND lower(t.display) LIKE ")
+            .push_bind(format!("%{}%", escape_like(&search)));
+    }
+    if let Some(l) = letter {
+        qb.push(" AND lower(t.display) LIKE ")
+            .push_bind(format!("{}%", escape_like(&l.to_lowercase().to_string())));
+    }
+    qb.push(match order {
+        TagOrder::MostUsed => " ORDER BY uses DESC, lower(t.display)",
+        TagOrder::AToZ => " ORDER BY lower(t.display)",
+    });
+    qb.push(" LIMIT ")
+        .push_bind(i64::from(limit))
+        .push(" OFFSET ")
+        .push_bind(i64::from(offset));
+    let rows: Vec<CountedTag> = qb.build_query_as().fetch_all(&state.pool).await?;
+    let total = rows
+        .first()
+        .map_or(0, |r| u64::try_from(r.total).unwrap_or(0));
+    let tags = rows
+        .into_iter()
+        .map(|r| Ok((r.row.into_tag()?, u64::try_from(r.uses).unwrap_or(0))))
+        .collect::<Result<_, ApiError>>()?;
+    Ok((tags, total))
+}
+
 pub(crate) async fn load_tag(
     conn: &mut PgConnection,
     namespace: &str,

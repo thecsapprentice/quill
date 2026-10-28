@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 2 mobile filters</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#eef1f3}
+.muted{color:#5b6878}
+.grp{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5b6878;margin:14px 4px 6px}
+.list{background:#fff;border:1px solid #c9d3dc;border-radius:6px;overflow:hidden}
+.it{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:50px;padding:4px 14px;color:#1e2b3a;text-decoration:none;border-bottom:1px solid #eef1f3}
+.it:last-child{border-bottom:0}
+.it .v{font-size:13px;color:#5b6878;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+.it .v.set{color:#1e2b3a;font-weight:600}
+.chev{color:#8d99a6}
+.btn{display:flex;align-items:center;justify-content:center;min-height:48px;padding:0 14px;border-radius:6px;background:#1c6b63;color:#fff;border:0;font:600 16px system-ui,sans-serif;text-decoration:none}
+.inp{border:1px solid #c9d3dc;border-radius:6px;padding:9px 10px;font:15px system-ui,sans-serif;background:#fff;color:#1e2b3a;box-sizing:border-box;min-height:44px}
+</style>
+</helmet>
+<div class="r" style="width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column">
+  <header style="background: #fff; padding: 8px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #c9d3dc">
+    <a href="N1-board.dc.html" style="min-height: 44px; display: flex; align-items: center">Cancel</a>
+    <span style="font-weight: 700">Filters</span>
+    <a href="#" style="min-height: 44px; display: flex; align-items: center">Clear</a>
+  </header>
+  <div style="flex: 1; overflow: hidden; padding: 0 16px">
+    <div class="grp">Basics</div>
+    <div class="list">
+      <a class="it" href="#"><span>Rating</span><span><span class="v set">Teen or under</span> <span class="chev">›</span></span></a>
+      <a class="it" href="#"><span>Status</span><span><span class="v set">Open only</span> <span class="chev">›</span></span></a>
+      <label class="it"><span>First partner wanted<br><span class="muted" style="font-size: 12px">Authors who are looking for their first partner</span></span><input type="checkbox" style="width: 22px; height: 22px"></label>
+    </div>
+    <div class="grp">Tags</div>
+    <div class="list">
+      <a class="it" href="#"><span>Genre</span><span><span class="v set">Has horror</span> <span class="chev">›</span></span></a>
+      <a class="it" href="#"><span>Length</span><span><span class="v set">Has long</span> <span class="chev">›</span></span></a>
+      <a class="it" href="#"><span>Warning</span><span><span class="v set">Hides gore, body horror</span> <span class="chev">›</span></span></a>
+      <a class="it" href="N3-filter-type.dc.html"><span>Setting <span class="muted" style="font-size: 13px">214</span></span><span><span class="v">Any</span> <span class="chev">›</span></span></a>
+      <a class="it" href="#"><span>Theme <span class="muted" style="font-size: 13px">88</span></span><span><span class="v">Any</span> <span class="chev">›</span></span></a>
+      <a class="it" href="#"><span>Form</span><span><span class="v">Any</span> <span class="chev">›</span></span></a>
+      <a class="it" href="#"><span>Other tags</span><span><span class="v">Any</span> <span class="chev">›</span></span></a>
+    </div>
+    <div class="grp">Save this search</div>
+    <div style="display: flex; gap: 8px"><input class="inp" type="text" aria-label="View name" placeholder="Name, e.g. Slow horror" style="flex: 1"><a href="#" style="min-height: 44px; display: flex; align-items: center; font-weight: 600">Save</a></div>
+  </div>
+  <div style="background: #fff; border-top: 1px solid #c9d3dc; padding: 10px 16px 16px">
+    <a class="btn" href="N1-board.dc.html">Show 38 prompts</a>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

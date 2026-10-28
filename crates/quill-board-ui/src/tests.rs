@@ -62,7 +62,9 @@ fn board(prompts: Vec<Prompt>, filters: BoardFilters) -> BoardView {
     BoardView {
         filters,
         prompts,
+        cursor: None,
         next_cursor: Some("abc+/=".into()),
+        open: None,
         cap: Maturity::Teen,
         namespaces: Vec::new(),
         tag_options: Vec::new(),
@@ -74,20 +76,22 @@ fn board(prompts: Vec<Prompt>, filters: BoardFilters) -> BoardView {
 
 #[test]
 fn board_escapes_text_and_keeps_sanitized_html() {
-    let html = board_page(
-        &chrome(false, false),
-        board(
-            vec![prompt("<script>alert(1)</script>", Maturity::General)],
-            BoardFilters::default(),
-        ),
-    );
+    let p = prompt("<script>alert(1)</script>", Maturity::General);
+    let mut view = board(vec![p.clone()], BoardFilters::default());
+    view.open = Some(p.clone());
+    let html = board_page(&chrome(false, false), view);
     assert!(html.starts_with("<!DOCTYPE html><html lang=\"en\">"));
     assert!(html.ends_with("</html>"));
     assert!(!html.contains("<script"));
     assert!(html.contains("&#60;script&#62;"));
     assert!(html.contains("Ink &#60;Fox&#62; (@ink_fox)"));
-    // The server-sanitized body is inserted as HTML.
+    // The list shows plain text; the reading pane the server-sanitized HTML.
+    assert!(html.contains(r#"<p class="row-excerpt">A keeper</p>"#));
     assert!(html.contains("<p>A <em>keeper</em></p>"));
+    assert!(html.contains(r#"class="board-layout has-open""#));
+    assert!(html.contains(&format!(r#"href="/?open={}" aria-current="true""#, p.id)));
+    assert!(html.contains(&format!(r#"href="/p/{}""#, p.id)));
+    assert!(html.contains(r#"href="/">← Back to the list"#));
     // Tag links filter the board; the cursor is URL-encoded.
     assert!(html.contains(r#"href="/?include=genre%3Ahorror""#));
     assert!(html.contains("cursor=abc%2B%2F%3D"));
@@ -111,9 +115,21 @@ fn filter_urls_round_trip_and_open_the_panel() {
         "/?include=genre%3Ahorror%2Ctheme%3Asea&q=light+house&maturity=general"
     );
     assert_eq!(BoardFilters::default().url(None), "/");
-    let html = board_page(&chrome(true, false), board(Vec::new(), f));
-    assert!(html.contains("<details class=\"filters\" open"));
+    let html = board_page(&chrome(true, false), board(Vec::new(), f.clone()));
     assert!(html.contains("No prompts match these filters."));
+    // The filters in force sum up in a box above the list.
+    assert!(html.contains(r#"<span class="chip">genre:horror</span>"#));
+    assert!(html.contains("General or under · “light house”"));
+    assert!(html.contains(r#"<span class="count">4</span>"#));
+    assert!(!html.contains("has-open"));
+    // Opening a prompt keeps the filters and page.
+    assert_eq!(
+        f.open_url(Some("c1"), Uuid::nil()),
+        format!(
+            "/?include=genre%3Ahorror%2Ctheme%3Asea&q=light+house&maturity=general&cursor=c1&open={}",
+            Uuid::nil()
+        )
+    );
 }
 
 #[test]
@@ -165,6 +181,7 @@ fn forms_render_with_values_and_errors() {
     let html = prompt_form_page(
         &chrome(true, false),
         PromptFormView {
+            preview_html: None,
             editing: None,
             personas: vec![persona.clone()],
             persona: Some(persona.id),
@@ -291,6 +308,7 @@ fn forms_render_with_values_and_errors() {
     let empty = prompt_form_page(
         &chrome(true, false),
         PromptFormView {
+            preview_html: None,
             editing: None,
             personas: Vec::new(),
             persona: None,
@@ -348,6 +366,7 @@ fn other_pages_render() {
     let admin = admin_reports_page(
         &c,
         AdminReportsView {
+            open: None,
             reports: vec![Report {
                 id: Uuid::nil(),
                 kind: ReportKind::Prompt,
@@ -499,7 +518,13 @@ fn server_settings_pages() {
             ],
             namespace: Some("genre".into()),
             search: "hor".into(),
+            status: None,
+            by_name: false,
+            page: 0,
+            page_size: 50,
+            total: 2,
             truncated: true,
+            open: Some(admin_tag("horror", 12, None)),
             new_namespace: "genre".into(),
             new_name: String::new(),
             error: None,
@@ -508,8 +533,15 @@ fn server_settings_pages() {
     assert!(tags.contains("&#60;Horror&#62;"));
     assert!(tags.contains("12 prompts"));
     assert!(tags.contains("Other name for genre:horror"));
-    assert!(tags.contains(r#"href="/admin/settings/tags/genre/horror/delete""#));
-    assert!(tags.contains("Showing the first 2 tags"));
+    // Choosing a tag keeps the search; the chosen one opens beside the table.
+    assert!(tags.contains("search=hor"));
+    assert!(tags.contains("open=genre%3Ahorror"));
+    assert!(tags.contains(r#"<tr class="selected">"#));
+    assert!(
+        tags.contains(r#"href="/admin/settings/tags/genre/horror">Colour, merging and deleting"#)
+    );
+    assert!(tags.contains("1–2 of 2+"));
+    assert!(tags.contains("Only the first 2 matching tags are listed."));
 
     let page = admin_tag_page(
         &c,
@@ -1086,6 +1118,7 @@ fn comment_reports_and_notices_render() {
     let html = admin_reports_page(
         &chrome(true, true),
         AdminReportsView {
+            open: None,
             reports: vec![
                 report.clone(),
                 Report {
@@ -1420,7 +1453,7 @@ mod moderation_pages {
     #[test]
     fn scripts_page_lists_modes_chains_and_templates() {
         let html = moderation_scripts_page(&chrome(true, true), scripts_view());
-        assert!(html.contains(r#"aria-current="page">Moderation"#));
+        assert!(html.contains(r#"aria-current="page">Scripts"#));
         assert!(html.contains("Log only") && html.contains("A comment is posted"));
         assert!(html.contains(r#"action="/admin/moderation/templates/shouting""#));
         assert!(html.contains("blob/main/docs/automod.md"));
@@ -1472,7 +1505,20 @@ mod moderation_pages {
         let dir = std::path::PathBuf::from(dir);
         let css = format!("<style>{}</style>", crate::STYLESHEET);
         let c = chrome(true, true);
+        // The layout's pages (#51), to compare by eye with the mockups in
+        // docs/design/board-layout.
+        let p = prompt("The keeper's ledger", Maturity::General);
+        let mut board_view = board(
+            vec![p.clone(), prompt("Night shift", Maturity::Teen)],
+            BoardFilters {
+                include: "genre:horror".into(),
+                ..BoardFilters::default()
+            },
+        );
+        board_view.open = Some(p);
         let pages = [
+            ("board", board_page(&c, board_view)),
+            ("more", more_page(&c)),
             ("scripts", moderation_scripts_page(&c, scripts_view())),
             ("chains", moderation_chains_page(&c, chains_view())),
             ("data", moderation_data_page(&c, data_view())),
@@ -1495,7 +1541,10 @@ mod moderation_pages {
         ];
         for (name, html) in pages {
             let html = html.replace(
-                r#"<link rel="stylesheet" href="/static/board.css?v=0.1.0"/>"#,
+                &format!(
+                    r#"<link rel="stylesheet" href="/static/board.css?v={}"/>"#,
+                    crate::stylesheet_version()
+                ),
                 &css,
             );
             std::fs::write(dir.join(format!("{name}.html")), html).unwrap();
@@ -1646,5 +1695,74 @@ mod rules_pages {
         assert!(editing.contains(r#"aria-label="Preview""#));
         assert!(editing.contains(r#"value="on-change" checked"#));
         assert!(editing.contains(r#"href="/admin/settings/rules" aria-current="page""#));
+    }
+}
+
+mod filter_builder {
+    use super::*;
+
+    fn tag(namespace: &str, slug: &str, display: &str) -> Tag {
+        Tag {
+            namespace: namespace.into(),
+            slug: slug.into(),
+            display: display.into(),
+            origin: TagOrigin::Server,
+            status: TagStatus::Visible,
+            color: None,
+        }
+    }
+
+    #[test]
+    fn one_get_form_carries_the_filter_and_sets_the_tags_on_screen() {
+        let view = FiltersView {
+            filters: BoardFilters {
+                include: "genre:horror,theme:sea".into(),
+                exclude: "genre:gore".into(),
+                ..BoardFilters::default()
+            },
+            cap: Maturity::Teen,
+            namespaces: vec![genre()],
+            current: Some("genre".into()),
+            search: String::new(),
+            letter: Some('H'),
+            by_name: false,
+            page: 1,
+            page_size: 2,
+            tags: vec![
+                (tag("genre", "horror", "Horror"), 3),
+                (tag("genre", "gore", "Gore <b>"), 1),
+            ],
+            total: 5,
+        };
+        let html = filters_page(&chrome(false, false), view);
+        assert!(html.contains(r#"<form class="filter-builder" method="get" action="/filters">"#));
+        // The filter so far, and which tags this page sets.
+        assert!(html.contains(r#"name="include" value="genre:horror,theme:sea""#));
+        assert!(html.contains(r#"name="shown" value="genre:horror,genre:gore""#));
+        assert!(html.contains(r#"name="letter" value="H""#));
+        // Each shown tag's radios reflect the filter.
+        assert!(html.contains(r#"name="tag:genre:horror" value="has" checked=true"#));
+        assert!(html.contains(r#"name="tag:genre:gore" value="hide" checked=true"#));
+        assert!(html.contains("Gore &#60;b&#62;"));
+        assert!(html.contains("1 prompt<"));
+        // Genre has two tags chosen; buttons switch type, letter and page.
+        assert!(html.contains(r#"name="to_type" value="genre" aria-current="true""#));
+        assert!(html.contains(r#"<span class="count">2</span>"#));
+        assert!(html.contains(r#"name="to_letter" value="H" aria-current="true""#));
+        assert!(html.contains("Page 2 of 3"));
+        assert!(html.contains(r#"name="to_page" value="0""#));
+        assert!(html.contains(r#"name="to_page" value="2""#));
+        assert!(html.contains(r#"name="go" value="apply""#));
+        // Back to the board keeps the filter as it was.
+        assert!(html.contains(r#"href="/?include=genre%3Ahorror%2Ctheme%3Asea&"#));
+        assert!(html.contains(r#"exclude=genre%3Agore">"#));
+        assert_eq!(
+            filters_url(&BoardFilters {
+                q: "sea".into(),
+                ..BoardFilters::default()
+            }),
+            "/filters?q=sea"
+        );
+        assert_eq!(filters_url(&BoardFilters::default()), "/filters");
     }
 }

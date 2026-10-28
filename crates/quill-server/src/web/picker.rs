@@ -64,6 +64,11 @@ impl PromptPost {
         self.op.as_deref() == Some("save")
     }
 
+    /// The Preview button: show the text as the board would.
+    pub fn previewing(&self) -> bool {
+        self.op.as_deref() == Some("preview")
+    }
+
     /// Every tag named: kept chips, then typed ones, then a browsed one.
     pub fn tag_values(&self) -> Vec<String> {
         self.tags

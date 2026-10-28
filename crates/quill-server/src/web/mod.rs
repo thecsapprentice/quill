@@ -6,6 +6,7 @@
 
 mod announcements;
 mod comments;
+mod filters;
 mod handlers;
 mod moderation;
 mod picker;
@@ -38,6 +39,7 @@ const CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self'; \
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(handlers::board))
+        .route(quill_board_ui::FILTERS_PATH, get(filters::page))
         .route("/p/{id}", get(handlers::prompt))
         .route(
             "/p/{id}/edit",
@@ -70,6 +72,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/personas/{id}/delete", post(handlers::persona_delete))
         .route("/notices", get(handlers::notices))
+        .route("/more", get(handlers::more))
         .route(
             "/settings",
             get(handlers::settings).post(handlers::settings_save),

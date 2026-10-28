@@ -14,42 +14,65 @@ use crate::{
     AdminTagRequestsView, AdminTagTypesView, AdminTagView, AdminTagsView, Chrome, admin_tag_url,
     chips,
     layout::{csrf, error_notice, tag_datalist},
-    prompt_url, render, tag_url,
+    prompt_url, render_admin, tag_url,
 };
 
 const ALIAS_OPTIONS: &str = "alias-options";
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// Where an administrators' page sits in their sidebar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
+    Reports,
+    Log,
+    Announcements,
+    Rules,
     TagTypes,
     Tags,
     Requests,
+    Scripts,
+    Chains,
+    Data,
+    DryRun,
     Handles,
     Sessions,
-    Announcements,
-    Rules,
-    Moderation,
 }
 
-pub(crate) fn tabs(chrome: &Chrome, current: Tab) -> Element {
-    let mark = |tab: Tab| (tab == current).then_some("page");
+/// The administrators' sidebar: every admin page, grouped. Wide screens
+/// show it beside the page; narrow ones as a strip that scrolls sideways.
+pub(crate) fn sidebar(chrome: &Chrome, current: Tab) -> Element {
     let pending = chrome.viewer.as_ref().map_or(0, |v| v.pending_tags);
+    let link = |tab: Tab, href: &'static str, label: &'static str| {
+        rsx! {
+            a { href: "{href}", "aria-current": (tab == current).then_some("page"), "{label}" }
+        }
+    };
     rsx! {
-        nav { class: "tabs", "aria-label": "Server settings",
-            a { href: "/admin/settings/tag-types", "aria-current": mark(Tab::TagTypes), "Tag types" }
-            a { href: "/admin/settings/tags", "aria-current": mark(Tab::Tags), "Tags" }
-            a { href: "/admin/settings/tag-requests", "aria-current": mark(Tab::Requests),
+        nav { class: "admin-side", "aria-label": "Administration",
+            p { class: "admin-side-title", "Administration" }
+            {link(Tab::Reports, "/admin/reports", "Reports")}
+            {link(Tab::Log, "/admin/log", "Admin log")}
+            p { class: "admin-group", "Content" }
+            {link(Tab::Announcements, "/admin/settings/announcements", "Announcements")}
+            {link(Tab::Rules, crate::ADMIN_RULES_PATH, "Rules")}
+            p { class: "admin-group", "Tags" }
+            {link(Tab::TagTypes, "/admin/settings/tag-types", "Tag types")}
+            {link(Tab::Tags, "/admin/settings/tags", "Tags")}
+            a { href: "/admin/settings/tag-requests",
+                "aria-current": (current == Tab::Requests).then_some("page"),
                 "Tag requests"
                 if pending > 0 {
                     " "
-                    span { class: "count", "{pending}" }
+                    span { class: "count", title: "Tag requests waiting", "{pending}" }
                 }
             }
-            a { href: "/admin/settings/handles", "aria-current": mark(Tab::Handles), "Handles" }
-            a { href: "/admin/settings/sessions", "aria-current": mark(Tab::Sessions), "Sessions" }
-            a { href: "/admin/settings/announcements", "aria-current": mark(Tab::Announcements), "Announcements" }
-            a { href: crate::ADMIN_RULES_PATH, "aria-current": mark(Tab::Rules), "Rules" }
-            a { href: "/admin/moderation/scripts", "aria-current": mark(Tab::Moderation), "Moderation" }
+            p { class: "admin-group", "Moderation" }
+            {link(Tab::Scripts, "/admin/moderation/scripts", "Scripts")}
+            {link(Tab::Chains, "/admin/moderation/chains", "Chains")}
+            {link(Tab::Data, "/admin/moderation/data", "Common data")}
+            {link(Tab::DryRun, "/admin/moderation/dry-run", "Dry run")}
+            p { class: "admin-group", "Server" }
+            {link(Tab::Handles, "/admin/settings/handles", "Handles")}
+            {link(Tab::Sessions, "/admin/settings/sessions", "Sessions")}
         }
     }
 }
@@ -189,11 +212,10 @@ fn prompts_text(n: u64) -> String {
 
 pub fn admin_tag_types_page(chrome: &Chrome, view: AdminTagTypesView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Tag types", chrome, move || {
+    render_admin(Tab::TagTypes, "Tag types", chrome, move || {
         let v = &view;
         rsx! {
-            h1 { "Server settings" }
-            {tabs(&chrome_for_body, Tab::TagTypes)}
+            h1 { "Tag types" }
             p { class: "lede",
                 "Tag types group the tags on prompts, like Genre or Content warning. The identifier appears in filters such as genre:horror and can't be changed."
             }
@@ -307,15 +329,12 @@ pub fn admin_tag_types_page(chrome: &Chrome, view: AdminTagTypesView) -> String 
 
 /// The prompts on the board that don't meet a tag type's limits.
 pub fn admin_outside_limits_page(chrome: &Chrome, view: AdminOutsideLimitsView) -> String {
-    let chrome_for_body = chrome.clone();
     let title = format!("{} limits", view.namespace.display);
-    render(title, chrome, move || {
+    render_admin(Tab::TagTypes, title, chrome, move || {
         let v = &view;
         let ns = &v.namespace;
         rsx! {
-            h1 { "Server settings" }
-            {tabs(&chrome_for_body, Tab::TagTypes)}
-            h2 { "{ns.display}: {ns.limit_label()} per prompt" }
+            h1 { "{ns.display}: {ns.limit_label()} per prompt" }
             p { class: "lede",
                 "{prompts_text(v.total)} on the board don't meet this. They keep their tags until their authors next edit them, when the form asks them to fix it."
             }
@@ -338,9 +357,38 @@ pub fn admin_outside_limits_page(chrome: &Chrome, view: AdminOutsideLimitsView) 
 
 // ---- Tags ----------------------------------------------------------------
 
+/// The tags page's address for its current search, page and chosen tag.
+fn tags_url(v: &AdminTagsView, page: u32, open: Option<&str>) -> String {
+    let mut s = url::form_urlencoded::Serializer::new(String::new());
+    if let Some(ns) = &v.namespace {
+        s.append_pair("namespace", ns);
+    }
+    if !v.search.is_empty() {
+        s.append_pair("search", &v.search);
+    }
+    if let Some(st) = v.status {
+        s.append_pair("status", st.as_str());
+    }
+    if v.by_name {
+        s.append_pair("order", "az");
+    }
+    if page > 0 {
+        s.append_pair("page", &page.to_string());
+    }
+    if let Some(key) = open {
+        s.append_pair("open", key);
+    }
+    let q = s.finish();
+    if q.is_empty() {
+        "/admin/settings/tags".to_owned()
+    } else {
+        format!("/admin/settings/tags?{q}")
+    }
+}
+
 pub fn admin_tags_page(chrome: &Chrome, view: AdminTagsView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Tags", chrome, move || {
+    render_admin(Tab::Tags, "Tags", chrome, move || {
         let v = &view;
         let type_name = |name: &str| {
             v.namespaces
@@ -348,90 +396,146 @@ pub fn admin_tags_page(chrome: &Chrome, view: AdminTagsView) -> String {
                 .find(|n| n.name == name)
                 .map_or_else(|| name.to_owned(), |n| n.display.clone())
         };
+        let open_key = v.open.as_ref().map(|t| t.tag.key());
+        let pages = v.total.div_ceil(v.page_size.max(1));
         rsx! {
-            h1 { "Server settings" }
-            {tabs(&chrome_for_body, Tab::Tags)}
+            h1 { "Tags" }
             p { class: "lede",
                 "Curated tags are added here. Tags writers create while posting appear too, so you can rename, merge or delete them."
             }
             {error_notice(v.error.as_ref())}
-            form { class: "form-card", method: "post", action: "/admin/settings/tags",
-                {csrf(&chrome_for_body)}
-                h2 { class: "form-title", "Add a curated tag" }
-                div { class: "filter-grid",
-                    div { class: "field",
-                        label { r#for: "new-namespace", "Type" }
-                        select { id: "new-namespace", name: "namespace", required: true,
-                            {namespace_options(&v.namespaces, Some(v.new_namespace.as_str()))}
-                        }
-                    }
-                    div { class: "field",
-                        label { r#for: "new-tag", "Name"
-                            span { class: "hint", "Adding a writer's tag here makes it curated." }
-                        }
-                        input { r#type: "text", id: "new-tag", name: "name", value: "{v.new_name}", required: true }
-                    }
+            form { class: "tag-toolbar", method: "get", action: "/admin/settings/tags", role: "search",
+                select { name: "namespace", "aria-label": "Type",
+                    option { value: "", "All types" }
+                    {namespace_options(&v.namespaces, v.namespace.as_deref())}
                 }
-                div { class: "actions",
-                    button { class: "btn", r#type: "submit", "Add tag" }
+                input { r#type: "search", name: "search", value: "{v.search}", "aria-label": "Name contains",
+                    placeholder: "Name contains" }
+                select { name: "status", "aria-label": "Status",
+                    option { value: "", selected: v.status.is_none(), "Any status" }
+                    option { value: "visible", selected: v.status == Some(TagStatus::Visible), "Visible" }
+                    option { value: "hidden", selected: v.status == Some(TagStatus::Hidden), "Hidden" }
+                    option { value: "pending", selected: v.status == Some(TagStatus::Pending), "Awaiting approval" }
                 }
-            }
-            form { class: "form-card", method: "get", action: "/admin/settings/tags", role: "search",
-                h2 { class: "form-title", "Find tags" }
-                div { class: "filter-grid",
-                    div { class: "field",
-                        label { r#for: "filter-namespace", "Type" }
-                        select { id: "filter-namespace", name: "namespace",
-                            option { value: "", "All types" }
-                            {namespace_options(&v.namespaces, v.namespace.as_deref())}
-                        }
-                    }
-                    div { class: "field",
-                        label { r#for: "filter-search", "Name contains" }
-                        input { r#type: "search", id: "filter-search", name: "search", value: "{v.search}" }
-                    }
+                select { name: "order", "aria-label": "Order",
+                    option { value: "used", selected: !v.by_name, "Most used" }
+                    option { value: "az", selected: v.by_name, "A to Z" }
                 }
-                div { class: "actions",
-                    button { class: "btn btn-quiet", r#type: "submit", "Show tags" }
-                }
+                button { class: "btn btn-quiet", r#type: "submit", "Show tags" }
             }
             if v.tags.is_empty() {
                 div { class: "empty", "No tags match." }
             } else {
-                div { class: "table-scroll",
-                    table { class: "log",
-                        thead {
-                            tr { th { "Tag" } th { "Type" } th { "Kind" } th { "Used on" } th { span { class: "visually-hidden", "Actions" } } }
-                        }
-                        tbody {
-                            for t in v.tags.iter() {
-                                tr { key: "{t.tag.key()}",
-                                    td {
-                                        a { href: "{admin_tag_url(&t.tag)}", "{t.tag.display}" }
-                                        br {}
-                                        code { "{t.tag.key()}" }
+                div { class: "master-detail",
+                    div {
+                        div { class: "table-scroll",
+                            table { class: "admin-table",
+                                thead {
+                                    tr { th { "Tag" } th { "Type" } th { "Kind" } th { "Used on" } }
+                                }
+                                tbody {
+                                    for t in v.tags.iter() {
+                                        tr { key: "{t.tag.key()}",
+                                            class: if open_key.as_deref() == Some(t.tag.key().as_str()) { "selected" } else { "" },
+                                            td {
+                                                a { class: "row-open",
+                                                    href: "{tags_url(v, v.page, Some(&t.tag.key()))}",
+                                                    "{t.tag.display}" }
+                                                br {}
+                                                code { "{t.tag.key()}" }
+                                            }
+                                            td { "{type_name(&t.tag.namespace)}" }
+                                            td { "{tag_kind(t)}" }
+                                            td { "{uses_text(t.uses)}" }
+                                        }
                                     }
-                                    td { "{type_name(&t.tag.namespace)}" }
-                                    td { "{tag_kind(t)}" }
-                                    td { "{uses_text(t.uses)}" }
-                                    td { a { href: "{admin_tag_url(&t.tag)}/delete", "Delete" } }
                                 }
                             }
                         }
+                        p { class: "pager",
+                            span { class: "muted",
+                                "{v.page * v.page_size + 1}–{(v.page * v.page_size + v.tags.len() as u32)} of {v.total}"
+                                if v.truncated { "+" }
+                            }
+                            if v.page > 0 {
+                                a { class: "btn btn-quiet", href: "{tags_url(v, v.page - 1, None)}", "Previous" }
+                            }
+                            if v.page + 1 < pages {
+                                a { class: "btn btn-quiet", href: "{tags_url(v, v.page + 1, None)}", "Next" }
+                            }
+                        }
+                        if v.truncated {
+                            p { class: "hint", "Only the first {v.total} matching tags are listed. Choose a type or search to narrow the list." }
+                        }
+                    }
+                    match &v.open {
+                        Some(t) => rsx! { {tag_panel(&chrome_for_body, t, &type_name(&t.tag.namespace))} },
+                        None => rsx! {
+                            aside { class: "detail-panel form-card empty-pane",
+                                p { "Choose a tag to edit it here." }
+                            }
+                        },
                     }
                 }
             }
-            if v.truncated {
-                p { class: "hint", "Showing the first {v.tags.len()} tags. Choose a type or search to narrow the list." }
+            details { class: "form-card",
+                summary { class: "form-title", "Add a curated tag" }
+                form { method: "post", action: "/admin/settings/tags",
+                    {csrf(&chrome_for_body)}
+                    div { class: "filter-grid",
+                        div { class: "field",
+                            label { r#for: "new-namespace", "Type" }
+                            select { id: "new-namespace", name: "namespace", required: true,
+                                {namespace_options(&v.namespaces, Some(v.new_namespace.as_str()))}
+                            }
+                        }
+                        div { class: "field",
+                            label { r#for: "new-tag", "Name"
+                                span { class: "hint", "Adding a writer's tag here makes it curated." }
+                            }
+                            input { r#type: "text", id: "new-tag", name: "name", value: "{v.new_name}", required: true }
+                        }
+                    }
+                    div { class: "actions",
+                        button { class: "btn", r#type: "submit", "Add tag" }
+                    }
+                }
             }
         }
     })
 }
 
+/// The chosen tag beside the table: what it is, renaming, showing or
+/// hiding, and a link to its page for colours, merging and deleting.
+fn tag_panel(chrome: &Chrome, t: &AdminTag, type_display: &str) -> Element {
+    let url = admin_tag_url(&t.tag);
+    rsx! {
+        aside { class: "detail-panel tag-panel", "aria-label": "Tag",
+            p { class: "muted", "{type_display} · {uses_text(t.uses)}" }
+            h2 { "{t.tag.display}" }
+            p { class: "card-meta", code { "{t.tag.key()}" } span { "{tag_kind(t)}" } }
+            form { class: "form-card", method: "post", action: "{url}",
+                {csrf(chrome)}
+                div { class: "field",
+                    label { r#for: "panel-rename", "Name shown on prompts" }
+                    input { r#type: "text", id: "panel-rename", name: "display", value: "{t.tag.display}", required: true }
+                }
+                div { class: "actions",
+                    button { class: "btn", r#type: "submit", "Rename" }
+                }
+            }
+            if t.alias_of.is_none() {
+                {status_card(chrome, t)}
+            }
+            p { a { href: "{url}", "Colour, merging and deleting ›" } }
+        }
+    }
+}
+
 pub fn admin_tag_page(chrome: &Chrome, view: AdminTagView) -> String {
     let title = view.tag.tag.display.clone();
     let chrome_for_body = chrome.clone();
-    render(title, chrome, move || {
+    render_admin(Tab::Tags, title, chrome, move || {
         let v = &view;
         let t = &v.tag;
         let url = admin_tag_url(&t.tag);
@@ -517,7 +621,7 @@ pub fn admin_tag_delete_page(chrome: &Chrome, view: AdminTagDeleteView) -> Strin
     let verb = if rejecting { "Reject" } else { "Delete" };
     let title = format!("{verb} {}", view.tag.tag.display);
     let chrome_for_body = chrome.clone();
-    render(title, chrome, move || {
+    render_admin(Tab::Tags, title, chrome, move || {
         let v = &view;
         let t = &v.tag;
         let url = admin_tag_url(&t.tag);
@@ -618,7 +722,7 @@ fn status_card(chrome: &Chrome, t: &AdminTag) -> Element {
 
 pub fn admin_tag_requests_page(chrome: &Chrome, view: AdminTagRequestsView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Tag requests", chrome, move || {
+    render_admin(Tab::Requests, "Tag requests", chrome, move || {
         let v = &view;
         let type_name = |name: &str| {
             v.namespaces
@@ -627,8 +731,7 @@ pub fn admin_tag_requests_page(chrome: &Chrome, view: AdminTagRequestsView) -> S
                 .map_or_else(|| name.to_owned(), |n| n.display.clone())
         };
         rsx! {
-            h1 { "Server settings" }
-            {tabs(&chrome_for_body, Tab::Requests)}
+            h1 { "Tag requests" }
             p { class: "lede",
                 "New tags writers used while approval is required, by type and name. Until you decide, only the authors of their prompts see them."
             }
@@ -756,12 +859,11 @@ fn source_label(s: ReservedSource) -> &'static str {
 
 pub fn admin_handles_page(chrome: &Chrome, view: AdminHandlesView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Reserved handles", chrome, move || {
+    render_admin(Tab::Handles, "Reserved handles", chrome, move || {
         let v = &view;
         let shown = v.list.entries.len();
         rsx! {
-            h1 { "Server settings" }
-            {tabs(&chrome_for_body, Tab::Handles)}
+            h1 { "Reserved handles" }
             p { class: "lede",
                 "Writers can't create personas with these handles. A word also reserves handles that contain it as a part, like site_admin, or spell it with underscores, like ad_min. An exact handle reserves only itself. Digits count as the letters they resemble, so adm1n matches admin. Existing personas aren't affected."
             }
@@ -908,12 +1010,11 @@ pub fn byte_size(bytes: u64) -> String {
 
 pub fn admin_sessions_page(chrome: &Chrome, view: AdminSessionsView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Sessions", chrome, move || {
+    render_admin(Tab::Sessions, "Sessions", chrome, move || {
         let v = &view;
         let s = &v.storage;
         rsx! {
-            h1 { "Server settings" }
-            {tabs(&chrome_for_body, Tab::Sessions)}
+            h1 { "Sessions" }
             p { class: "lede",
                 "Sessions are encrypted end to end: this server stores them but can't read them. These settings and figures cover only what it can see: whether files are uploaded, and how much space things take."
             }

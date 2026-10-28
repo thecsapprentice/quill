@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 2 admin overview customise</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#eef1f3}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 12px;border-radius:4px;background:#1c6b63;color:#fff;border:0;font:600 13px system-ui,sans-serif;text-decoration:none}
+.btn-q{background:#fff;color:#1e2b3a;border:1px solid #c9d3dc}
+.count{display:inline-block;background:#c2413b;color:#fff;font-size:11px;line-height:16px;border-radius:999px;padding:0 6px;font-weight:700}
+.top a.nav{color:#5b6878;text-decoration:none}
+.top a.cur{color:#1e2b3a;font-weight:600}
+.side a.nav{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;border-radius:4px;color:#1e2b3a;text-decoration:none}
+.side a.sub{padding-left:22px;font-size:13px}
+.side a.cur{background:#fbeae8;font-weight:600}
+.grp{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5b6878;margin:14px 10px 4px}
+.pn{background:#fff;border:1px solid #c9d3dc;border-radius:4px;padding:14px 16px;min-width:0}
+.pn h2{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#5b6878;display:flex;justify-content:space-between}
+.pn h2 a{text-transform:none;letter-spacing:0;font-weight:400}
+.li{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid #eef1f3;font-size:13px}
+.li:last-child{border-bottom:0}
+.pill{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;background:#eef2f6}
+.pill.auto{background:#fff4d6;color:#6b4c00}
+.cz{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #e3e8ee;font-size:13px}
+.cz.off{color:#8d99a6}
+.mv{display:flex;gap:2px}
+.mv button{width:26px;height:26px;border:1px solid #c9d3dc;background:#fff;border-radius:3px;font-size:12px;color:#1e2b3a;padding:0}
+.inp{border:1px solid #c9d3dc;border-radius:4px;padding:4px 6px;font:12px system-ui,sans-serif;background:#fff;color:#1e2b3a}
+.bar{height:8px;border-radius:4px;background:#e3e8ee;overflow:hidden}
+.bar span{display:block;height:100%;background:#1c6b63}
+</style>
+</helmet>
+<div class="r" style="width: 1440px; height: 900px; display: flex; flex-direction: column; overflow: hidden">
+  <header class="top" style="background: #fff; border-bottom: 1px solid #c9d3dc; padding: 10px 20px; display: flex; align-items: center; gap: 22px">
+    <a class="serif" href="#" style="font-size: 20px; font-weight: 700; color: #1e2b3a; text-decoration: none">Inkwell</a>
+    <a class="nav" href="D1-board.dc.html">Board</a><a class="nav" href="#">Announcements</a><a class="nav" href="#">My prompts</a><a class="nav" href="#">Notices <span class="count">2</span></a><a class="nav cur" href="#" aria-current="page">Admin <span class="count">4</span></a>
+    <a class="nav" href="#" style="margin-left: auto">wren ▾</a>
+  </header>
+  <div style="flex: 1; display: grid; grid-template-columns: 230px minmax(0, 1fr) 360px; min-height: 0">
+    <aside class="side" aria-label="Admin" style="background: #fff; border-right: 1px solid #c9d3dc; padding: 8px 12px; overflow: hidden">
+      <a class="nav cur" href="#" aria-current="page" style="margin-top: 8px">Overview</a>
+      <a class="nav" href="#">Reports <span class="count">3</span></a>
+      <a class="nav" href="#">Admin log</a>
+      <a class="nav" href="#">Announcements</a>
+      <div class="grp">Tags</div>
+      <a class="nav sub" href="D5-tags.dc.html">Tags and types</a>
+      <a class="nav sub" href="#">Tag requests <span class="count">1</span></a>
+      <div class="grp">Moderation</div>
+      <a class="nav sub" href="#">Scripts</a>
+      <a class="nav sub" href="#">Chains</a>
+      <a class="nav sub" href="#">Common data</a>
+      <a class="nav sub" href="#">Dry run</a>
+      <div class="grp">Server</div>
+      <a class="nav sub" href="#">Handles</a>
+      <a class="nav sub" href="#">Sessions</a>
+    </aside>
+    <main style="padding: 20px 24px; overflow: hidden; min-width: 0">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px">
+        <h1 class="serif" style="margin: 0; font-size: 28px">Overview</h1>
+        <span class="muted" style="font-size: 13px">Your layout · other admins choose their own</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
+        <div class="pn" style="grid-column: span 2; outline: 2px solid #1c6b63; outline-offset: 2px">
+          <h2>Reports waiting <a href="#">Open reports</a></h2>
+          <div class="li"><span><strong>Free essays, any subject, DM me</strong> <span class="muted">· prompt</span></span><span><span class="pill">Spam ×4</span> <span class="pill auto">link-spam</span></span></div>
+          <div class="li"><span><strong>Re: October flash-fiction swap</strong> <span class="muted">· comment</span></span><span class="pill">Harassment ×1</span></div>
+          <div class="li"><span><strong>Every door in the house opens inward</strong> <span class="muted">· prompt</span></span><span class="pill">Wrong rating ×2</span></div>
+        </div>
+        <div class="pn">
+          <h2>Tag requests <a href="#">Review</a></h2>
+          <div class="li"><span>setting: lighthouse keeper's cottage</span><span class="muted">@wren</span></div>
+          <div class="li"><span class="muted">Usually a type or alias already covers it.</span></div>
+        </div>
+        <div class="pn">
+          <h2>Automod today <a href="#">Chains</a></h2>
+          <div class="li"><span>link-spam</span><span>3 held · 1 flagged</span></div>
+          <div class="li"><span>new-account-slowdown</span><span>5 slowed</span></div>
+          <div class="li"><span>caps-title</span><span class="muted">no hits</span></div>
+        </div>
+        <div class="pn" style="grid-column: span 2">
+          <h2>Recent admin log <a href="#">Full log</a></h2>
+          <div class="li"><span>@juniper merged <strong>genre: spooky</strong> into <strong>genre: horror</strong></span><span class="muted">Today 09:12</span></div>
+          <div class="li"><span>@wren removed a prompt after 3 Spam reports</span><span class="muted">Yesterday</span></div>
+          <div class="li"><span>@wren changed script <strong>link-spam</strong></span><span class="muted">Oct 25</span></div>
+        </div>
+      </div>
+    </main>
+    <aside style="background: #f6f8f9; border-left: 1px solid #c9d3dc; padding: 20px; overflow: hidden">
+      <div style="display: flex; justify-content: space-between; align-items: baseline"><h2 class="serif" style="margin: 0; font-size: 20px">Customise overview</h2><a href="#" style="font-size: 13px">Done</a></div>
+      <p class="muted" style="font-size: 12px; margin: 4px 0 10px">Tick the panels you want, set their order and width. Saved to your account only.</p>
+      <form>
+        <div class="cz"><input type="checkbox" checked aria-label="Show"><span><strong>Reports waiting</strong></span><span class="mv"><select class="inp" aria-label="Width"><option>Wide</option></select><button type="button" aria-label="Move up" disabled>↑</button><button type="button" aria-label="Move down">↓</button></span></div>
+        <div class="cz"><input type="checkbox" checked aria-label="Show"><span>Tag requests</span><span class="mv"><select class="inp" aria-label="Width"><option>Half</option></select><button type="button" aria-label="Move up">↑</button><button type="button" aria-label="Move down">↓</button></span></div>
+        <div class="cz"><input type="checkbox" checked aria-label="Show"><span>Automod today</span><span class="mv"><select class="inp" aria-label="Width"><option>Half</option></select><button type="button" aria-label="Move up">↑</button><button type="button" aria-label="Move down">↓</button></span></div>
+        <div class="cz"><input type="checkbox" checked aria-label="Show"><span>Recent admin log</span><span class="mv"><select class="inp" aria-label="Width"><option>Wide</option></select><button type="button" aria-label="Move up">↑</button><button type="button" aria-label="Move down">↓</button></span></div>
+        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #5b6878; margin: 14px 0 2px">Not shown</div>
+        <div class="cz off"><input type="checkbox" aria-label="Show"><span>Automod chains per hook</span><span></span></div>
+        <div class="cz off"><input type="checkbox" aria-label="Show"><span>Pinned announcements</span><span></span></div>
+        <div class="cz off"><input type="checkbox" aria-label="Show"><span>Handle tester</span><span></span></div>
+        <div class="cz off"><input type="checkbox" aria-label="Show"><span>Sessions and storage</span><span></span></div>
+        <div class="cz off"><input type="checkbox" aria-label="Show"><span>New writers this week</span><span></span></div>
+        <div style="display: flex; gap: 8px; margin-top: 14px"><button class="btn" type="button">Save layout</button><button class="btn btn-q" type="button">Reset to default</button></div>
+      </form>
+    </aside>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

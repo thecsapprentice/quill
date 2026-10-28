@@ -12,6 +12,7 @@
 mod admin;
 mod announcements;
 pub mod chips;
+mod filters;
 mod layout;
 mod moderation;
 mod notices;
@@ -25,7 +26,7 @@ use quill_proto::{
     api::Persona,
     board::{
         AccountSettings, AdminLogDetail, AdminLogEntry, AdminTag, ChipColor, Maturity, Prompt,
-        PromptState, Report, ReportReason, Tag, TagNamespace, TagPolicy,
+        PromptState, Report, ReportReason, Tag, TagNamespace, TagPolicy, TagStatus,
     },
 };
 use time::OffsetDateTime;
@@ -33,6 +34,7 @@ use uuid::Uuid;
 
 pub use admin::*;
 pub use announcements::*;
+pub use filters::*;
 pub use moderation::*;
 pub use notices::notices_page;
 pub use pages::*;
@@ -41,6 +43,20 @@ pub use rules::*;
 /// The board's stylesheet, served at [`STYLESHEET_PATH`].
 pub const STYLESHEET: &str = include_str!("board.css");
 pub const STYLESHEET_PATH: &str = "/static/board.css";
+
+/// A fingerprint of the stylesheet for its URL. It's served to be cached
+/// for a day, so any change to it must change the URL, even within one
+/// release.
+pub fn stylesheet_version() -> &'static str {
+    use std::hash::{Hash, Hasher};
+    static VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        // Fixed keys, so the same stylesheet gives the same fingerprint.
+        let mut h = std::hash::DefaultHasher::new();
+        STYLESHEET.hash(&mut h);
+        format!("{:016x}", h.finish())
+    });
+    &VERSION
+}
 
 /// Form field carrying the per-session CSRF token.
 pub const CSRF_FIELD: &str = "csrf";
@@ -61,6 +77,8 @@ pub enum Nav {
     ServerSettings,
     /// The server rules page.
     Rules,
+    /// The phone's "More" page: links that don't fit the tab bar.
+    More,
     SignIn,
     Other,
 }
@@ -115,8 +133,30 @@ impl BoardFilters {
             || self.state.is_some()
     }
 
+    /// How many filters are set, for the Filters button: each tag, the
+    /// search, the rating and the status.
+    pub fn count(&self) -> usize {
+        let tags = |list: &str| list.split(',').filter(|t| !t.trim().is_empty()).count();
+        tags(&self.include)
+            + tags(&self.exclude)
+            + usize::from(!self.q.is_empty())
+            + usize::from(self.maturity.is_some())
+            + usize::from(self.state.is_some())
+    }
+
     /// The board URL for these filters, optionally continuing from `cursor`.
     pub fn url(&self, cursor: Option<&str>) -> String {
+        self.url_with(cursor, None)
+    }
+
+    /// The board URL for these filters and page with prompt `open` in the
+    /// reading pane. See `docs/plan.md`, "Board layout".
+    pub fn open_url(&self, cursor: Option<&str>, open: Uuid) -> String {
+        self.url_with(cursor, Some(open))
+    }
+
+    fn url_with(&self, cursor: Option<&str>, open: Option<Uuid>) -> String {
+        let open = open.map(|id| id.to_string()).unwrap_or_default();
         let mut s = url::form_urlencoded::Serializer::new(String::new());
         for (key, value) in [
             ("include", self.include.as_str()),
@@ -125,6 +165,7 @@ impl BoardFilters {
             ("maturity", self.maturity.map_or("", Maturity::as_str)),
             ("state", self.state.map_or("", PromptState::as_str)),
             ("cursor", cursor.unwrap_or("")),
+            ("open", open.as_str()),
         ] {
             if !value.is_empty() {
                 s.append_pair(key, value);
@@ -156,7 +197,11 @@ pub fn prompt_url(id: Uuid) -> String {
 pub struct BoardView {
     pub filters: BoardFilters,
     pub prompts: Vec<Prompt>,
+    /// The page shown, so opening a prompt keeps it.
+    pub cursor: Option<String>,
     pub next_cursor: Option<String>,
+    /// The prompt in the reading pane (`open=`), if any.
+    pub open: Option<Prompt>,
     /// The visitor's maturity cap, explained above the results.
     pub cap: Maturity,
     pub namespaces: Vec<TagNamespace>,
@@ -167,6 +212,18 @@ pub struct BoardView {
     pub sticky_announcements: Vec<quill_proto::announcements::Announcement>,
     /// The newest other announcement, unless the visitor dismissed it.
     pub announcement: Option<quill_proto::announcements::Announcement>,
+}
+
+/// My prompts: the signed-in account's prompts, open or closed, for one
+/// persona or all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MyPromptsView {
+    pub prompts: Vec<Prompt>,
+    pub personas: Vec<Persona>,
+    /// Only this persona's, if set.
+    pub persona: Option<Uuid>,
+    /// Closed prompts rather than those on the board (open or busy).
+    pub closed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -216,6 +273,8 @@ pub struct PromptFormView {
     pub tag_policy: TagPolicy,
     /// Tag types, to show which are required or curated-only.
     pub namespaces: Vec<TagNamespace>,
+    /// The body as the board would show it, after Preview.
+    pub preview_html: Option<String>,
 }
 
 /// A chosen tag on the prompt form.
@@ -267,6 +326,8 @@ pub struct SettingsView {
 pub struct AdminReportsView {
     pub reports: Vec<Report>,
     pub all: bool,
+    /// The report shown in full beside the table (`open=`); else the first.
+    pub open: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -376,8 +437,19 @@ pub struct AdminTagsView {
     pub namespace: Option<String>,
     /// Filter: search text.
     pub search: String,
-    /// More tags matched than are shown.
+    /// Filter: tags with this status.
+    pub status: Option<TagStatus>,
+    /// A to Z rather than most used first.
+    pub by_name: bool,
+    /// This page of the matching tags.
+    pub page: u32,
+    pub page_size: u32,
+    /// How many tags matched (up to the listing's limit).
+    pub total: u32,
+    /// More tags matched than the listing's limit.
     pub truncated: bool,
+    /// The tag shown in the panel beside the table (`open=`).
+    pub open: Option<AdminTag>,
     /// The "add a tag" form's values, kept on error.
     pub new_namespace: String,
     pub new_name: String,
@@ -446,17 +518,45 @@ pub struct MessageView {
 
 // ---- Rendering -----------------------------------------------------------
 
+/// How a page uses the width. See `docs/plan.md`, "Board layout".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Layout {
+    /// One reading column: forms, messages, a single prompt.
+    Narrow,
+    /// The full width, for pages with panes of their own (the board).
+    Wide,
+    /// The administrators' sidebar beside the page, `Tab` marked current.
+    Admin(admin::Tab),
+}
+
 #[derive(Clone)]
 struct Doc {
     title: String,
     chrome: Chrome,
+    layout: Layout,
     body: Rc<dyn Fn() -> Element>,
+}
+
+/// The notices every page starts with: a one-off message, and the banner
+/// while the visitor must accept changed server rules.
+fn page_notices(chrome: &Chrome) -> Element {
+    rsx! {
+        if let Some(notice) = &chrome.notice {
+            p { class: "notice", role: "status", "{notice}" }
+        }
+        if chrome.viewer.as_ref().is_some_and(|v| v.must_accept_rules)
+            && chrome.current != Nav::Rules
+        {
+            {rules::banner()}
+        }
+    }
 }
 
 fn document(doc: Doc) -> Element {
     let Doc {
         title,
         chrome,
+        layout,
         body,
     } = doc;
     let page_title = if title.is_empty() {
@@ -470,29 +570,61 @@ fn document(doc: Doc) -> Element {
                 meta { name: "viewport", content: "width=device-width, initial-scale=1" }
                 meta { name: "referrer", content: "same-origin" }
                 title { "{page_title}" }
-                link { rel: "stylesheet", href: "{STYLESHEET_PATH}?v={chrome.version}" }
+                link { rel: "stylesheet", href: "{STYLESHEET_PATH}?v={stylesheet_version()}" }
                 link { rel: "stylesheet", href: "{chips::TAG_COLORS_PATH}" }
             }
             body {
                 {layout::header(&chrome)}
-                main { class: "wrap",
-                    if let Some(notice) = &chrome.notice {
-                        p { class: "notice", role: "status", "{notice}" }
-                    }
-                    if chrome.viewer.as_ref().is_some_and(|v| v.must_accept_rules)
-                        && chrome.current != Nav::Rules
-                    {
-                        {rules::banner()}
-                    }
-                    {body()}
+                match layout {
+                    Layout::Narrow => rsx! {
+                        main { class: "wrap",
+                            {page_notices(&chrome)}
+                            {body()}
+                        }
+                    },
+                    Layout::Wide => rsx! {
+                        main { class: "wrap wide",
+                            {page_notices(&chrome)}
+                            {body()}
+                        }
+                    },
+                    Layout::Admin(tab) => rsx! {
+                        main { class: "wrap wide admin-layout",
+                            {admin::sidebar(&chrome, tab)}
+                            div { class: "admin-main",
+                                {page_notices(&chrome)}
+                                {body()}
+                            }
+                        }
+                    },
                 }
                 {layout::footer(&chrome)}
             }
     }
 }
 
-/// Renders a complete HTML document.
+/// Renders a complete HTML document in one reading column.
 pub(crate) fn render(
+    title: impl Into<String>,
+    chrome: &Chrome,
+    body: impl Fn() -> Element + 'static,
+) -> String {
+    render_with(Layout::Narrow, title, chrome, body)
+}
+
+/// Renders an administrators' page beside their sidebar.
+pub(crate) fn render_admin(
+    tab: admin::Tab,
+    title: impl Into<String>,
+    chrome: &Chrome,
+    body: impl Fn() -> Element + 'static,
+) -> String {
+    render_with(Layout::Admin(tab), title, chrome, body)
+}
+
+/// Renders a complete HTML document with the given layout.
+pub(crate) fn render_with(
+    layout: Layout,
     title: impl Into<String>,
     chrome: &Chrome,
     body: impl Fn() -> Element + 'static,
@@ -502,6 +634,7 @@ pub(crate) fn render(
         Doc {
             title: title.into(),
             chrome: chrome.clone(),
+            layout,
             body: Rc::new(body),
         },
     );
