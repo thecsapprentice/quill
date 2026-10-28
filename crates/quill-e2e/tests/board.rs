@@ -581,7 +581,7 @@ async fn server_settings_manage_tag_types_and_tags() {
 
     // The prompt form says so, and enforces it.
     let form = writer.get("/new").await;
-    assert!(form.body.contains("Genre: required"));
+    assert!(form.body.contains("Genre: pick 1"));
     let start = form.body.find(r#"<option value=""#).unwrap() + 15;
     let persona = form.body[start..start + 36].to_owned();
     let missing = writer
