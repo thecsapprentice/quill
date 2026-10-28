@@ -61,6 +61,8 @@ pub enum Nav {
     ServerSettings,
     /// The server rules page.
     Rules,
+    /// The phone's "More" page: links that don't fit the tab bar.
+    More,
     SignIn,
     Other,
 }
@@ -446,17 +448,45 @@ pub struct MessageView {
 
 // ---- Rendering -----------------------------------------------------------
 
+/// How a page uses the width. See `docs/plan.md`, "Board layout".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Layout {
+    /// One reading column: forms, messages, a single prompt.
+    Narrow,
+    /// The full width, for pages with panes of their own (the board).
+    Wide,
+    /// The administrators' sidebar beside the page, `Tab` marked current.
+    Admin(admin::Tab),
+}
+
 #[derive(Clone)]
 struct Doc {
     title: String,
     chrome: Chrome,
+    layout: Layout,
     body: Rc<dyn Fn() -> Element>,
+}
+
+/// The notices every page starts with: a one-off message, and the banner
+/// while the visitor must accept changed server rules.
+fn page_notices(chrome: &Chrome) -> Element {
+    rsx! {
+        if let Some(notice) = &chrome.notice {
+            p { class: "notice", role: "status", "{notice}" }
+        }
+        if chrome.viewer.as_ref().is_some_and(|v| v.must_accept_rules)
+            && chrome.current != Nav::Rules
+        {
+            {rules::banner()}
+        }
+    }
 }
 
 fn document(doc: Doc) -> Element {
     let Doc {
         title,
         chrome,
+        layout,
         body,
     } = doc;
     let page_title = if title.is_empty() {
@@ -475,24 +505,58 @@ fn document(doc: Doc) -> Element {
             }
             body {
                 {layout::header(&chrome)}
-                main { class: "wrap",
-                    if let Some(notice) = &chrome.notice {
-                        p { class: "notice", role: "status", "{notice}" }
-                    }
-                    if chrome.viewer.as_ref().is_some_and(|v| v.must_accept_rules)
-                        && chrome.current != Nav::Rules
-                    {
-                        {rules::banner()}
-                    }
-                    {body()}
+                match layout {
+                    Layout::Narrow => rsx! {
+                        main { class: "wrap",
+                            {page_notices(&chrome)}
+                            {body()}
+                        }
+                    },
+                    Layout::Wide => rsx! {
+                        main { class: "wrap wide",
+                            {page_notices(&chrome)}
+                            {body()}
+                        }
+                    },
+                    Layout::Admin(tab) => rsx! {
+                        main { class: "wrap wide admin-layout",
+                            {admin::sidebar(&chrome, tab)}
+                            div { class: "admin-main",
+                                {page_notices(&chrome)}
+                                h1 { "{title}" }
+                                {body()}
+                            }
+                        }
+                    },
                 }
                 {layout::footer(&chrome)}
             }
     }
 }
 
-/// Renders a complete HTML document.
+/// Renders a complete HTML document in one reading column.
 pub(crate) fn render(
+    title: impl Into<String>,
+    chrome: &Chrome,
+    body: impl Fn() -> Element + 'static,
+) -> String {
+    render_with(Layout::Narrow, title, chrome, body)
+}
+
+/// Renders an administrators' page beside their sidebar, under the
+/// page's title.
+pub(crate) fn render_admin(
+    tab: admin::Tab,
+    title: impl Into<String>,
+    chrome: &Chrome,
+    body: impl Fn() -> Element + 'static,
+) -> String {
+    render_with(Layout::Admin(tab), title, chrome, body)
+}
+
+/// Renders a complete HTML document with the given layout.
+pub(crate) fn render_with(
+    layout: Layout,
     title: impl Into<String>,
     chrome: &Chrome,
     body: impl Fn() -> Element + 'static,
@@ -502,6 +566,7 @@ pub(crate) fn render(
         Doc {
             title: title.into(),
             chrome: chrome.clone(),
+            layout,
             body: Rc::new(body),
         },
     );

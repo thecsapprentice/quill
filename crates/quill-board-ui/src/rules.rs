@@ -9,9 +9,9 @@ use quill_proto::{
 
 use crate::{
     Chrome,
-    admin::{Tab, tabs},
+    admin::Tab,
     layout::{csrf, error_notice},
-    render, short_date,
+    render, render_admin, short_date,
 };
 
 pub const RULES_PATH: &str = "/rules";
@@ -110,12 +110,11 @@ fn acceptance_hint(a: RulesAcceptance) -> &'static str {
 
 pub fn admin_rules_page(chrome: &Chrome, view: AdminRulesView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Rules", chrome, move || {
+    render_admin(Tab::Rules, "Rules", chrome, move || {
         let v = &view;
         let c = &chrome_for_body;
         rsx! {
-            h1 { "Server settings" }
-            {tabs(c, Tab::Rules)}
+            h1 { "Rules" }
             p { class: "lede",
                 "Everyone can read the rules at "
                 a { href: RULES_PATH, "{RULES_PATH}" }

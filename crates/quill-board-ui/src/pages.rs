@@ -15,10 +15,12 @@ use quill_proto::{
 use crate::{
     AdminLogEntryView, AdminLogView, AdminReportsView, AuthMode, AuthView, BoardView, ChipKind,
     Chrome, MessageView, PersonasView, PromptFormView, PromptView, ReportView, SettingsView,
+    admin::Tab,
     admin_log_entry_url, admin_log_url,
     chips::chip_classes,
     layout::{card_list, csrf, error_notice, prompt_meta, tag_datalist, tag_list},
-    maturity_label, prompt_url, reason_label, render, short_date, short_datetime, state_label,
+    maturity_label, prompt_url, reason_label, render, render_admin, short_date, short_datetime,
+    state_label,
 };
 
 const TAG_OPTIONS: &str = "tag-options";
@@ -715,7 +717,7 @@ pub fn settings_page(chrome: &Chrome, view: SettingsView) -> String {
 
 pub fn admin_reports_page(chrome: &Chrome, view: AdminReportsView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Reports", chrome, move || {
+    render_admin(Tab::Reports, "Reports", chrome, move || {
         let v = &view;
         rsx! {
             h1 { "Reports" }
@@ -903,7 +905,7 @@ fn log_targets(e: &AdminLogEntry) -> Element {
 }
 
 pub fn admin_log_page(chrome: &Chrome, view: AdminLogView) -> String {
-    render("Admin log", chrome, move || {
+    render_admin(Tab::Log, "Admin log", chrome, move || {
         let v = &view;
         let filtered = v.admin.is_some() || v.account.is_some();
         rsx! {
@@ -976,7 +978,7 @@ pub fn admin_log_page(chrome: &Chrome, view: AdminLogView) -> String {
 /// with the prompts the decision touched.
 pub fn admin_log_entry_page(chrome: &Chrome, view: AdminLogEntryView) -> String {
     let title = format!("Admin log entry {}", view.detail.entry.id);
-    render(title, chrome, move || {
+    render_admin(Tab::Log, title, chrome, move || {
         let v = &view;
         let e = &v.detail.entry;
         let count = e.target_count;
@@ -1055,6 +1057,56 @@ pub fn admin_log_entry_page(chrome: &Chrome, view: AdminLogEntryView) -> String 
                         }
                     }
                 }
+            }
+        }
+    })
+}
+
+// ---- More ------------------------------------------------------------------
+
+/// The phone's "More" page: the links that don't fit its tab bar, grouped.
+/// Wide screens have them all in the header and never link here.
+pub fn more_page(chrome: &Chrome) -> String {
+    let chrome_for_body = chrome.clone();
+    render("More", chrome, move || {
+        let c = &chrome_for_body;
+        let admin = c.viewer.as_ref().is_some_and(|v| v.is_admin);
+        let pending = c.viewer.as_ref().map_or(0, |v| v.pending_tags);
+        rsx! {
+            h1 { "More" }
+            h2 { class: "list-group", "You" }
+            ul { class: "link-list",
+                li { a { href: "/personas", "Personas" } }
+                li { a { href: "/settings", "Settings" } }
+                li { a { href: "/announcements", "Announcements" } }
+                if c.has_rules {
+                    li { a { href: crate::RULES_PATH, "Server rules" } }
+                }
+            }
+            if admin {
+                h2 { class: "list-group admin", "Administration" }
+                ul { class: "link-list",
+                    li { a { href: "/admin/reports", "Reports" } }
+                    li { a { href: "/admin/log", "Admin log" } }
+                    li { a { href: "/admin/settings/announcements", "Announcements" } }
+                    li { a { href: crate::ADMIN_RULES_PATH, "Rules" } }
+                    li { a { href: "/admin/settings/tag-types", "Tag types" } }
+                    li { a { href: "/admin/settings/tags", "Tags" } }
+                    li {
+                        a { href: "/admin/settings/tag-requests", "Tag requests" }
+                        if pending > 0 {
+                            " "
+                            span { class: "count", "{pending}" }
+                        }
+                    }
+                    li { a { href: "/admin/moderation/scripts", "Automated moderation" } }
+                    li { a { href: "/admin/settings/handles", "Handles" } }
+                    li { a { href: "/admin/settings/sessions", "Sessions" } }
+                }
+            }
+            form { class: "form-card", method: "post", action: "/logout",
+                {csrf(c)}
+                button { class: "btn btn-quiet", r#type: "submit", "Sign out" }
             }
         }
     })

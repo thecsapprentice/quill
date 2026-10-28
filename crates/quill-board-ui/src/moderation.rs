@@ -10,38 +10,10 @@ use quill_proto::automod::{
 
 use crate::{
     Chrome,
-    admin::{Tab, byte_size, tabs},
+    admin::{Tab, byte_size},
     layout::{csrf, error_notice},
-    render, short_date,
+    render_admin, short_date,
 };
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Section {
-    Scripts,
-    Chains,
-    Data,
-    DryRun,
-}
-
-fn sections(current: Section) -> Element {
-    let mark = |s: Section| (s == current).then_some("page");
-    rsx! {
-        nav { class: "tabs", "aria-label": "Moderation",
-            a { href: "/admin/moderation/scripts", "aria-current": mark(Section::Scripts), "Scripts" }
-            a { href: "/admin/moderation/chains", "aria-current": mark(Section::Chains), "Chains" }
-            a { href: "/admin/moderation/data", "aria-current": mark(Section::Data), "Common data" }
-            a { href: "/admin/moderation/dry-run", "aria-current": mark(Section::DryRun), "Dry run" }
-        }
-    }
-}
-
-fn top(chrome: &Chrome, section: Section) -> Element {
-    rsx! {
-        h1 { "Server settings" }
-        {tabs(chrome, Tab::Moderation)}
-        {sections(section)}
-    }
-}
 
 pub fn hook_label(hook: Hook) -> &'static str {
     match hook {
@@ -84,11 +56,11 @@ pub struct ModerationScriptsView {
 
 pub fn moderation_scripts_page(chrome: &Chrome, view: ModerationScriptsView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Moderation scripts", chrome, move || {
+    render_admin(Tab::Scripts, "Moderation scripts", chrome, move || {
         let v = &view;
         let c = &chrome_for_body;
         rsx! {
-            {top(c, Section::Scripts)}
+            h1 { "Moderation scripts" }
             p { class: "lede",
                 "Scripts check what writers post before it's saved, and can refuse it, flag it for you, or let it through. Put them in order in "
                 a { href: "/admin/moderation/chains", "Chains" }
@@ -180,12 +152,12 @@ pub struct ModerationScriptView {
 pub fn moderation_script_page(chrome: &Chrome, view: ModerationScriptView) -> String {
     let chrome_for_body = chrome.clone();
     let title = view.script.name.clone();
-    render(&title, chrome, move || {
+    render_admin(Tab::Scripts, &title, chrome, move || {
         let v = &view;
         let s = &v.script;
         let c = &chrome_for_body;
         rsx! {
-            {top(c, Section::Scripts)}
+            h1 { "Moderation script" }
             p { a { href: "/admin/moderation/scripts", "← All scripts" } }
             h2 { "{s.name}" }
             p { class: "card-meta",
@@ -260,11 +232,11 @@ pub struct ModerationChainsView {
 
 pub fn moderation_chains_page(chrome: &Chrome, view: ModerationChainsView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Moderation chains", chrome, move || {
+    render_admin(Tab::Chains, "Moderation chains", chrome, move || {
         let v = &view;
         let c = &chrome_for_body;
         rsx! {
-            {top(c, Section::Chains)}
+            h1 { "Moderation chains" }
             p { class: "lede",
                 "Each moment a writer posts something runs its chain: the scripts below, in order. The first script to refuse, flag or dismiss decides, and the rest don't run. If none does, it goes through. Administrators' own posts aren't checked."
             }
@@ -328,11 +300,11 @@ pub struct ModerationDataListView {
 
 pub fn moderation_data_list_page(chrome: &Chrome, view: ModerationDataListView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Common data", chrome, move || {
+    render_admin(Tab::Data, "Common data", chrome, move || {
         let v = &view;
         let c = &chrome_for_body;
         rsx! {
-            {top(c, Section::Data)}
+            h1 { "Common data" }
             p { class: "lede",
                 "Lists and text kept once and read by any script, like blocked words or allowed sites. Change a list here and every script reading it follows. Every save is kept, so you can undo."
             }
@@ -401,12 +373,12 @@ pub struct ModerationDataView {
 pub fn moderation_data_page(chrome: &Chrome, view: ModerationDataView) -> String {
     let chrome_for_body = chrome.clone();
     let title = view.entry.name.clone();
-    render(&title, chrome, move || {
+    render_admin(Tab::Data, &title, chrome, move || {
         let v = &view;
         let d = &v.entry;
         let c = &chrome_for_body;
         rsx! {
-            {top(c, Section::Data)}
+            h1 { "Common data" }
             p { a { href: "/admin/moderation/data", "← All common data" } }
             h2 { code { "{d.name}" } }
             p { class: "card-meta",
@@ -574,11 +546,11 @@ fn dry_run_steps(steps: &[DryRunStep]) -> Element {
 
 pub fn moderation_dry_run_page(chrome: &Chrome, view: ModerationDryRunView) -> String {
     let chrome_for_body = chrome.clone();
-    render("Dry run", chrome, move || {
+    render_admin(Tab::DryRun, "Dry run", chrome, move || {
         let v = &view;
         let c = &chrome_for_body;
         rsx! {
-            {top(c, Section::DryRun)}
+            h1 { "Dry run" }
             p { class: "lede",
                 "Run a chain, or one script, on text you type or on a prompt already on the board. Every script runs, even after one decides, and nothing is done or logged."
             }

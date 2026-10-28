@@ -1420,7 +1420,7 @@ mod moderation_pages {
     #[test]
     fn scripts_page_lists_modes_chains_and_templates() {
         let html = moderation_scripts_page(&chrome(true, true), scripts_view());
-        assert!(html.contains(r#"aria-current="page">Moderation"#));
+        assert!(html.contains(r#"aria-current="page">Scripts"#));
         assert!(html.contains("Log only") && html.contains("A comment is posted"));
         assert!(html.contains(r#"action="/admin/moderation/templates/shouting""#));
         assert!(html.contains("blob/main/docs/automod.md"));

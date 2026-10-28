@@ -836,6 +836,17 @@ pub async fn settings_save(
     }
 }
 
+// ---- More ------------------------------------------------------------------
+
+/// The phone's "More" page: links that don't fit its tab bar.
+pub async fn more(State(state): State<AppState>, MaybeSession(session): MaybeSession) -> Response {
+    let Some(s) = session else {
+        return redirect("/login");
+    };
+    let c = chrome(&state, Some(&s), Nav::More, None);
+    html(StatusCode::OK, quill_board_ui::more_page(&c))
+}
+
 // ---- Sign in, register, sign out -----------------------------------------
 
 #[derive(Debug, Default, Deserialize)]

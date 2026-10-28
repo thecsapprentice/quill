@@ -70,6 +70,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/personas/{id}/delete", post(handlers::persona_delete))
         .route("/notices", get(handlers::notices))
+        .route("/more", get(handlers::more))
         .route(
             "/settings",
             get(handlers::settings).post(handlers::settings_save),
