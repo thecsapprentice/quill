@@ -1505,7 +1505,20 @@ mod moderation_pages {
         let dir = std::path::PathBuf::from(dir);
         let css = format!("<style>{}</style>", crate::STYLESHEET);
         let c = chrome(true, true);
+        // The layout's pages (#51), to compare by eye with the mockups in
+        // docs/design/board-layout.
+        let p = prompt("The keeper's ledger", Maturity::General);
+        let mut board_view = board(
+            vec![p.clone(), prompt("Night shift", Maturity::Teen)],
+            BoardFilters {
+                include: "genre:horror".into(),
+                ..BoardFilters::default()
+            },
+        );
+        board_view.open = Some(p);
         let pages = [
+            ("board", board_page(&c, board_view)),
+            ("more", more_page(&c)),
             ("scripts", moderation_scripts_page(&c, scripts_view())),
             ("chains", moderation_chains_page(&c, chains_view())),
             ("data", moderation_data_page(&c, data_view())),

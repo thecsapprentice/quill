@@ -215,6 +215,18 @@ Each hook has one chain: an ordered list of scripts and an `on_error` setting.
 
 Seven commented scripts ship with the server (`moderation/templates/`): blocked words, links to outside sites, contact details, mixed alphabets, new accounts, shouting, and posting the same prompt again. What an admin is likely to change sits at the top or in common data, so most never edit the logic. Using one copies it into a new script, creating the common data it reads if missing; the copy is the admin's from then on, so a later server version can't change rules under them. Each template is tested against sample posts it should and shouldn't catch.
 
+### Board layout
+
+The web board fits the screen it's on (#51); the mockups and the review behind them are in [design/board-layout](design/board-layout/README.md). It still loads no JavaScript and nothing from other sites, and the CSP still forbids inline styles, so every layout is plain HTML and `board.css`.
+
+- **Three widths.** Phones (under 47.5rem) get one column and a tab bar fixed to the bottom; tablets a top bar and one column; wide screens (75rem and up) put panes side by side. The admin sidebar sits beside the page from 64rem and becomes a strip of links that scrolls sideways below that.
+- **One nav.** The header's nav is the desktop top bar and, restyled, the phone's tab bar: links marked `tab` show there (Board, Post, Mine, Notices, More) with a short label and an icon, the rest only on wide screens and on the More page. Rendering two navs would mean two sets of counts and links to keep in step.
+- **Each page picks a layout** (`Layout` in `quill-board-ui`): one reading column for forms and single prompts, the full width for pages with panes, or the admin sidebar.
+- **The reading pane without JavaScript.** Opening a prompt from the board's list links to the same board URL plus `open=<id>`; the server renders the list and that prompt together. Wide screens show both; narrower ones hide the list while a prompt is open and show a link back. A prompt rated above the visitor's cap isn't opened in the pane: its own page asks first. Admin reports and tags use the same pattern (`open=`) for the chosen row's panel.
+- **The filter builder is one GET form** at `/filters`. Hidden fields carry the filter so far; the tags on screen have Any / Has / Hide radios and are named in a `shown` field; type, letter and page are submit buttons. On every request the server drops what the hidden fields said about the shown tags and applies their radios, so switching type or page never loses a choice, and only tags the page showed can be set. Show prompts redirects to the board with the usual `include`, `exclude`, `maturity`, `state` and `q`. Tag counts come from one query per page over the `tag_ids` GIN index.
+- **The filter summary** above the list shows a few tags of each kind and "+N", and never grows, so a long filter can't push the list off the screen.
+- **The stylesheet's URL carries a fingerprint of its contents**, because it's cached for a day: a changed stylesheet must reach browsers at once, even within one release.
+
 ### Server rules
 
 Administrators keep one Markdown page of server rules (#42), read at `/rules` and `GET /rules` by anyone. The code is `quill-server`'s `rules` module.
