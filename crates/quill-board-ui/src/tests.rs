@@ -20,11 +20,13 @@ fn chrome(signed_in: bool, admin: bool) -> Chrome {
             maturity_max: Maturity::Teen,
             pending_tags: if admin { 3 } else { 0 },
             unread_notices: 2,
+            must_accept_rules: false,
         }),
         source_url: "https://github.com/thecsapprentice/quill".into(),
         version: "0.1.0".into(),
         notice: None,
         current: Nav::Board,
+        has_rules: false,
     }
 }
 
@@ -355,6 +357,7 @@ fn other_pages_render() {
             username: "x".into(),
             error: None,
             registration_open: true,
+            accept_rules: None,
         },
     );
     assert!(auth.contains(r#"autocomplete="new-password""#));
@@ -1433,5 +1436,151 @@ mod moderation_pages {
             );
             std::fs::write(dir.join(format!("{name}.html")), html).unwrap();
         }
+    }
+}
+
+mod rules_pages {
+    use quill_proto::rules::{Rules, RulesAcceptance};
+
+    use super::*;
+
+    fn rules(must_accept: bool) -> Rules {
+        Rules {
+            body: "# Be kind".into(),
+            body_html: "<h3>Be kind</h3><p>No <em>spam</em>.</p>".into(),
+            version: 3,
+            updated_at: datetime!(2026-10-27 12:00 UTC),
+            must_accept,
+        }
+    }
+
+    #[test]
+    fn rules_page_shows_the_rules_and_asks_only_when_needed() {
+        let c = Chrome {
+            current: Nav::Rules,
+            ..chrome(true, false)
+        };
+        let page = rules_page(
+            &c,
+            RulesView {
+                rules: Some(rules(false)),
+                error: None,
+            },
+        );
+        assert!(page.contains("<h3>Be kind</h3>"));
+        assert!(page.contains("Version 3"));
+        assert!(!page.contains(ACCEPT_RULES_PATH));
+
+        let page = rules_page(
+            &c,
+            RulesView {
+                rules: Some(rules(true)),
+                error: None,
+            },
+        );
+        assert!(page.contains(&format!(r#"action="{ACCEPT_RULES_PATH}""#)));
+        assert!(page.contains(r#"name="version" value="3""#));
+        assert!(page.contains("csrf-token-123"));
+        // The banner isn't shown on the page it points to.
+        assert!(!page.contains("rules-banner"));
+
+        let empty = rules_page(
+            &chrome(false, false),
+            RulesView {
+                rules: None,
+                error: None,
+            },
+        );
+        assert!(empty.contains("haven&#39;t written any rules"));
+    }
+
+    #[test]
+    fn banner_and_footer_link() {
+        let mut c = chrome(true, false);
+        c.has_rules = true;
+        if let Some(v) = c.viewer.as_mut() {
+            v.must_accept_rules = true;
+        }
+        let message = |c: &Chrome| {
+            message_page(
+                c,
+                MessageView {
+                    title: "Hi".into(),
+                    text: "Hello".into(),
+                    link: None,
+                },
+            )
+        };
+        let page = message(&c);
+        assert!(page.contains("rules-banner"));
+        assert!(page.contains(r#"href="/rules""#));
+
+        let plain = message(&chrome(false, false));
+        assert!(!plain.contains("rules-banner"));
+        assert!(!plain.contains("Server rules"));
+    }
+
+    #[test]
+    fn sign_up_asks_to_accept_when_the_server_does() {
+        let mut c = chrome(false, false);
+        c.has_rules = true;
+        let register = |accept_rules| {
+            auth_page(
+                &c,
+                AuthView {
+                    mode: AuthMode::Register,
+                    username: String::new(),
+                    error: None,
+                    registration_open: true,
+                    accept_rules,
+                },
+            )
+        };
+        let asks = register(Some(3));
+        assert!(asks.contains(r#"name="accept_rules""#));
+        assert!(asks.contains(r#"name="rules_version" value="3""#));
+
+        let links = register(None);
+        assert!(!links.contains("accept_rules"));
+        assert!(links.contains("read the"));
+    }
+
+    #[test]
+    fn admin_editor() {
+        let c = Chrome {
+            current: Nav::ServerSettings,
+            ..chrome(true, true)
+        };
+        let first = admin_rules_page(
+            &c,
+            AdminRulesView {
+                current: None,
+                body: String::new(),
+                minor: false,
+                preview_html: None,
+                acceptance: RulesAcceptance::None,
+                error: None,
+            },
+        );
+        assert!(first.contains("Write the rules"));
+        // There's nothing to make a minor edit to yet.
+        assert!(!first.contains(r#"name="minor""#));
+
+        let editing = admin_rules_page(
+            &c,
+            AdminRulesView {
+                current: Some(rules(false)),
+                body: "# Be kind".into(),
+                minor: true,
+                preview_html: Some("<h3>Be kind</h3>".into()),
+                acceptance: RulesAcceptance::OnChange,
+                error: None,
+            },
+        );
+        assert!(editing.contains("now version 3"));
+        assert!(editing.contains(r#"name="minor""#));
+        assert!(editing.contains(r#"aria-label="Preview""#));
+        assert!(editing.contains(r#"value="on-change" checked"#));
+        assert!(editing.contains(r#"href="/admin/settings/rules" aria-current="page""#));
     }
 }

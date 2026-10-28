@@ -765,6 +765,11 @@ textarea.short {
   font-size: 1rem;
 }
 
+/* The server rules: one long document. */
+textarea.tall {
+  min-height: 26rem;
+}
+
 /* Moderation scripts and common data: code and lists, not prose. */
 textarea.code {
   min-height: 22rem;

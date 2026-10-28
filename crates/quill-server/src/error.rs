@@ -34,6 +34,9 @@ pub enum ApiError {
     /// administrators' wording, for the writer.
     #[error("{0}")]
     ContentRejected(String),
+    /// The account must accept the server rules before writing (#42).
+    #[error("{0}")]
+    RulesNotAccepted(String),
     #[error("too many requests; try again later")]
     TooManyRequests,
     #[error("internal error")]
@@ -52,6 +55,7 @@ impl ApiError {
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
             Self::ContentRejected(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::RulesNotAccepted(_) => StatusCode::FORBIDDEN,
             Self::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -69,6 +73,7 @@ impl ApiError {
             Self::PayloadTooLarge => "payload-too-large",
             Self::UnsupportedMediaType => "unsupported-media-type",
             Self::ContentRejected(_) => "content-rejected",
+            Self::RulesNotAccepted(_) => "rules-not-accepted",
             Self::TooManyRequests => "too-many-requests",
             Self::Internal(_) => "internal",
         }

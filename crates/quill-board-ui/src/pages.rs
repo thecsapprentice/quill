@@ -215,6 +215,7 @@ pub fn auth_page(chrome: &Chrome, view: AuthView) -> String {
         AuthMode::SignIn => "Sign in",
         AuthMode::Register => "Create an account",
     };
+    let chrome_has_rules = chrome.has_rules;
     render(title, chrome, move || {
         let v = &view;
         let register = v.mode == AuthMode::Register;
@@ -254,6 +255,24 @@ pub fn auth_page(chrome: &Chrome, view: AuthView) -> String {
                         div { class: "field",
                             label { r#for: "confirm", "Repeat password" }
                             input { r#type: "password", id: "confirm", name: "confirm", required: true, autocomplete: "new-password" }
+                        }
+                        if let Some(version) = v.accept_rules {
+                            div { class: "field",
+                                input { r#type: "hidden", name: "rules_version", value: "{version}" }
+                                label { class: "inline-check",
+                                    input { r#type: "checkbox", name: "accept_rules", value: "on", required: true }
+                                    span {
+                                        "I accept the "
+                                        a { href: crate::RULES_PATH, "server rules" }
+                                    }
+                                }
+                            }
+                        } else if chrome_has_rules {
+                            p { class: "hint",
+                                "Before you start, read the "
+                                a { href: crate::RULES_PATH, "server rules" }
+                                "."
+                            }
                         }
                     }
                     div { class: "actions",
@@ -771,6 +790,7 @@ fn action_label(action: AdminAction) -> &'static str {
         AdminAction::AutomodFlag => "Tag flagged by a script",
         AdminAction::AutomodDismiss => "Report closed by a script",
         AdminAction::AutomodError => "Moderation script failed",
+        AdminAction::UpdateRules => "Server rules changed",
     }
 }
 

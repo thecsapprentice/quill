@@ -108,7 +108,8 @@ async fn run(args: Args) -> Result<()> {
             Credentials {
                 username: login.clone(),
                 password: args.password.clone(),
-            },
+            }
+            .into(),
         )
         .await
         .with_context(|| format!("creating account {login}"))?;
