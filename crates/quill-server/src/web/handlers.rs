@@ -21,7 +21,7 @@ use quill_proto::{
         CreatePrompt, CreateReport, Maturity, PromptQuery, PromptState, ReportReason, Resolution,
         TagQuery, UpdateAccountSettings, UpdatePrompt,
     },
-    limits::MAX_PAGE_SIZE,
+    limits::{FREQUENT_TAGS, MAX_PAGE_SIZE},
     validate,
 };
 use serde::Deserialize;
@@ -241,10 +241,40 @@ async fn prompt_form_view(
     tags: FormTags,
     error: Option<String>,
 ) -> Result<PromptFormView, ApiError> {
+    let personas = routes::personas(state, session.account_id).await?;
+    // Suggestions are for the persona posting: the one chosen, else the
+    // first in the list, which the form selects.
+    let persona = parse_opt::<Uuid>(&post.persona)
+        .filter(|id| personas.iter().any(|p| p.id == *id))
+        .or_else(|| personas.first().map(|p| p.id));
+    let chosen: Vec<String> = tags.chips.iter().map(|c| c.tag.key()).collect();
+    let frequent: Vec<_> = match persona {
+        Some(id) => prompts::frequent_tags(
+            state,
+            session.account_id,
+            Some(id),
+            FREQUENT_TAGS + chosen.len(),
+        )
+        .await?
+        .into_iter()
+        .filter(|t| !chosen.contains(&t.key()))
+        .take(FREQUENT_TAGS)
+        .collect(),
+        None => Vec::new(),
+    };
+    let all = prompts::account_settings(state, session.account_id)
+        .await?
+        .suggest_all_personas;
+    let frequent_for = persona
+        .filter(|_| !all)
+        .and_then(|id| personas.iter().find(|p| p.id == id))
+        .map(|p| p.handle.clone());
     Ok(PromptFormView {
         editing,
-        personas: routes::personas(state, session.account_id).await?,
+        personas,
         persona: parse_opt(&post.persona),
+        frequent,
+        frequent_for,
         title: post.title.clone().unwrap_or_default(),
         body: post.body.clone().unwrap_or_default(),
         maturity: parse_opt(&post.maturity).unwrap_or(Maturity::General),

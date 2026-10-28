@@ -578,6 +578,7 @@ fn tag_picker(v: &PromptFormView, action: &str) -> Element {
                     }
                 }
             }
+            {frequent_row(v, &back_to_tags, &count)}
             div { class: "add-tags",
                 label { r#for: "add-tags", "Add tags"
                     span { class: "hint", "Type as type:name, like genre:horror or theme:found family. Separate several with commas." }
@@ -624,6 +625,36 @@ fn tag_picker(v: &PromptFormView, action: &str) -> Element {
                                 p { class: "hint", "Remove a {n.display} tag to pick a different one." }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// "You often use": the writer's own most used tags, one click each, greyed
+/// like the browser's when their type is full. Only the writer sees it.
+fn frequent_row(
+    v: &PromptFormView,
+    back_to_tags: &str,
+    count: &dyn Fn(&TagNamespace) -> u32,
+) -> Element {
+    if v.frequent.is_empty() {
+        return rsx! {};
+    }
+    rsx! {
+        div { class: "frequent",
+            p { class: "label",
+                "You often use"
+                if let Some(handle) = &v.frequent_for {
+                    span { class: "hint", " for @{handle}" }
+                }
+            }
+            div { class: "chips",
+                for tag in v.frequent.iter() {
+                    match v.namespaces.iter().find(|n| n.name == tag.namespace) {
+                        Some(n) => rsx! { {browse_chip(n, tag, back_to_tags, n.full(count(n)))} },
+                        None => rsx! {},
                     }
                 }
             }
