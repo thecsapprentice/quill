@@ -258,7 +258,8 @@ async fn story(server: &TestServer) {
             name: "setting".into(),
             display: "Setting".into(),
             locked: false,
-            required: false,
+            min: 0,
+            max: None,
             color: None,
         })
         .await

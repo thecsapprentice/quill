@@ -142,6 +142,14 @@ pub fn router() -> Router<AppState> {
             "/admin/settings/tag-types/{name}",
             post(settings::tag_type_update),
         )
+        .route(
+            "/admin/settings/tag-types/{name}/limits",
+            post(settings::tag_type_limits),
+        )
+        .route(
+            "/admin/settings/tag-types/{name}/outside",
+            get(settings::tag_type_outside),
+        )
         .route("/admin/settings/new-tags", post(settings::new_tags_save))
         .route("/admin/settings/sessions", get(settings::sessions_page))
         .route(

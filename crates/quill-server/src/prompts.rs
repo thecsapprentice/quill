@@ -674,7 +674,7 @@ pub async fn post_prompt(
 
     let mut tx = state.pool.begin().await?;
     let tag_ids = resolve_for_write(&mut tx, specs).await?;
-    check_required_types(&mut tx, &tag_ids).await?;
+    check_tag_limits(&mut tx, &tag_ids).await?;
     let id = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO prompts (id, actor_id, title, body_md, body_html, maturity, state, tag_ids)
@@ -738,7 +738,7 @@ pub async fn edit_prompt(
         .map(validate::prompt_body)
         .transpose()?;
     let specs = body.tags.as_deref().map(validate::tag_specs).transpose()?;
-    // Any edit must meet the current required tag types, and is checked by
+    // Any edit must meet the current tag type limits, and is checked by
     // moderation scripts. Changing only the open/busy/closed status isn't
     // an edit.
     let edits_content = body.title.is_some()
@@ -803,7 +803,7 @@ pub async fn edit_prompt(
         None => None,
     };
     if edits_content {
-        check_required_types(&mut tx, tag_ids.as_deref().unwrap_or(&current_tags)).await?;
+        check_tag_limits(&mut tx, tag_ids.as_deref().unwrap_or(&current_tags)).await?;
     }
     let body_html = markdown_body.as_deref().map(markdown::render);
     sqlx::query(
@@ -950,18 +950,28 @@ async fn list_namespaces(
 }
 
 const NAMESPACE_SELECT: &str =
-    "SELECT name, display, locked, required, chip_bg, chip_fg FROM tag_namespaces";
+    "SELECT name, display, locked, min_tags, max_tags, chip_bg, chip_fg FROM tag_namespaces";
 
-type NamespaceRow = (String, String, bool, bool, Option<String>, Option<String>);
+type NamespaceRow = (
+    String,
+    String,
+    bool,
+    i32,
+    Option<i32>,
+    Option<String>,
+    Option<String>,
+);
 
 /// A tag type with its colours as set (text colour not resolved).
 fn to_namespace(row: NamespaceRow) -> TagNamespace {
-    let (name, display, locked, required, chip_bg, chip_fg) = row;
+    let (name, display, locked, min, max, chip_bg, chip_fg) = row;
     TagNamespace {
         name,
         display,
         locked,
-        required,
+        // The table's check keeps both non-negative.
+        min: u32::try_from(min).unwrap_or(0),
+        max: max.and_then(|m| u32::try_from(m).ok()),
         color: chip_bg.map(|background| ChipColor {
             background,
             text: chip_fg,
@@ -993,24 +1003,51 @@ pub(crate) async fn load_namespace(
     Ok(to_namespace(row))
 }
 
-/// Refuses a prompt whose tags lack a currently required tag type.
-async fn check_required_types(conn: &mut PgConnection, tag_ids: &[i64]) -> Result<(), ApiError> {
-    let missing: Vec<String> = sqlx::query_scalar(
-        "SELECT n.display FROM tag_namespaces n
-         WHERE n.required AND NOT EXISTS (
-             SELECT 1 FROM tags t WHERE t.id = ANY($1) AND t.namespace = n.name)
+fn tags_word(n: i64) -> &'static str {
+    if n == 1 { "tag" } else { "tags" }
+}
+
+/// Refuses a prompt whose tags don't meet the current tag type limits,
+/// naming each type and its limit.
+async fn check_tag_limits(conn: &mut PgConnection, tag_ids: &[i64]) -> Result<(), ApiError> {
+    let broken: Vec<(String, i32, Option<i32>, i64)> = sqlx::query_as(
+        "SELECT n.display, n.min_tags, n.max_tags,
+                (SELECT count(*) FROM tags t WHERE t.id = ANY($1) AND t.namespace = n.name)
+         FROM tag_namespaces n
+         WHERE n.min_tags > 0 OR n.max_tags IS NOT NULL
          ORDER BY n.display",
     )
     .bind(tag_ids)
     .fetch_all(&mut *conn)
     .await?;
-    if missing.is_empty() {
+    let problems: Vec<String> = broken
+        .into_iter()
+        .filter_map(|(display, min, max, count)| {
+            let (min, max) = (i64::from(min), max.map(i64::from));
+            if count < min {
+                let exactly = if max == Some(min) {
+                    "exactly"
+                } else {
+                    "at least"
+                };
+                Some(format!(
+                    "Pick {exactly} {min} {display} {}.",
+                    tags_word(min)
+                ))
+            } else {
+                max.filter(|m| count > *m).map(|max| {
+                    format!(
+                        "Pick at most {max} {display} {} (you have {count}).",
+                        tags_word(max)
+                    )
+                })
+            }
+        })
+        .collect();
+    if problems.is_empty() {
         Ok(())
     } else {
-        Err(ApiError::BadRequest(format!(
-            "Every prompt needs a tag of each required type. Add: {}.",
-            missing.join(", ")
-        )))
+        Err(ApiError::BadRequest(problems.join(" ")))
     }
 }
 

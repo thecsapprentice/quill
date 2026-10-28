@@ -7,8 +7,8 @@ use axum::{
     response::Response,
 };
 use quill_board_ui::{
-    AdminHandlesView, AdminTagDeleteView, AdminTagRequestsView, AdminTagTypesView, AdminTagView,
-    AdminTagsView, Nav, NewTagType,
+    AdminHandlesView, AdminOutsideLimitsView, AdminTagDeleteView, AdminTagRequestsView,
+    AdminTagTypesView, AdminTagView, AdminTagsView, Nav, NewTagType, PendingLimits,
 };
 use quill_proto::board::{
     AdminTagQuery, ChipColor, CreateNamespace, CreateTag, TagPolicy, TagQuery, TagStatus,
@@ -105,20 +105,49 @@ pub struct TagTypeForm {
     name: Option<String>,
     display: Option<String>,
     locked: Option<String>,
-    required: Option<String>,
+    #[serde(flatten)]
+    limits: LimitFields,
     #[serde(flatten)]
     colors: ColorFields,
 }
 
 impl TagTypeForm {
     fn new_type(&self) -> NewTagType {
+        let (min, max) = self.limits.limits().unwrap_or((0, None));
         NewTagType {
             name: self.name.clone().unwrap_or_default(),
             display: self.display.clone().unwrap_or_default(),
             locked: self.locked.is_some(),
-            required: self.required.is_some(),
+            min,
+            max,
             color: self.colors.color().ok().flatten(),
         }
+    }
+}
+
+/// A tag type's limits as the form sends them: a quick choice, or the two
+/// numbers (an empty maximum is no limit).
+#[derive(Debug, Default, Deserialize)]
+pub struct LimitFields {
+    preset: Option<String>,
+    min: Option<String>,
+    max: Option<String>,
+}
+
+impl LimitFields {
+    fn limits(&self) -> Result<(u32, Option<u32>), ApiError> {
+        let number = |v: &Option<String>| {
+            opt(v)
+                .map(|v| v.parse::<u32>())
+                .transpose()
+                .map_err(|_| ApiError::BadRequest("Limits must be whole numbers.".into()))
+        };
+        Ok(match opt(&self.preset) {
+            Some("optional") => (0, None),
+            Some("exactly-one") => (1, Some(1)),
+            Some("at-least-one") => (1, None),
+            _ => (number(&self.min)?.unwrap_or(0), number(&self.max)?),
+        })
     }
 }
 
@@ -127,25 +156,36 @@ async fn render_tag_types(
     s: &Session,
     notice: Option<&str>,
     new: NewTagType,
+    pending: Option<PendingLimits>,
     error: Option<String>,
 ) -> Response {
     let c = chrome(state, Some(s), Nav::ServerSettings, notice);
     let loaded = async {
+        let namespaces = prompts::namespaces(state).await?;
+        let mut outside = Vec::new();
+        for ns in namespaces.iter().filter(|n| n.min > 0 || n.max.is_some()) {
+            let (n, _) =
+                tag_admin::prompts_outside_limits(state, &ns.name, ns.min, ns.max, 0).await?;
+            outside.push((ns.name.clone(), n));
+        }
         Ok::<_, ApiError>((
-            prompts::namespaces(state).await?,
+            namespaces,
+            outside,
             server_settings::settings(state).await?.new_tags,
         ))
     }
     .await;
     match loaded {
-        Ok((namespaces, new_tags)) => html(
+        Ok((namespaces, outside, new_tags)) => html(
             status_for(error.as_ref()),
             quill_board_ui::admin_tag_types_page(
                 &c,
                 AdminTagTypesView {
                     new_tags,
                     namespaces,
+                    outside,
                     new,
+                    pending,
                     error,
                 },
             ),
@@ -277,7 +317,17 @@ pub async fn tag_types(
     Query(q): Query<NoticeQuery>,
 ) -> Response {
     match require_admin(&state, session) {
-        Ok(s) => render_tag_types(&state, &s, opt(&q.notice), NewTagType::default(), None).await,
+        Ok(s) => {
+            render_tag_types(
+                &state,
+                &s,
+                opt(&q.notice),
+                NewTagType::default(),
+                None,
+                None,
+            )
+            .await
+        }
         Err(r) => r,
     }
 }
@@ -296,11 +346,13 @@ pub async fn tag_type_create(
     }
     let new = form.new_type();
     let created = async {
+        let (min, max) = form.limits.limits()?;
         let body = CreateNamespace {
             name: new.name.clone(),
             display: new.display.clone(),
             locked: new.locked,
-            required: new.required,
+            min,
+            max,
             color: form.colors.color()?,
         };
         tag_admin::create_namespace(&state, s.account_id, &body).await
@@ -309,7 +361,7 @@ pub async fn tag_type_create(
     match created {
         Ok(_) => redirect("/admin/settings/tag-types?notice=tag-type-created"),
         Err(e) => match form_error(&e) {
-            Some(m) => render_tag_types(&state, &s, None, new, Some(m)).await,
+            Some(m) => render_tag_types(&state, &s, None, new, None, Some(m)).await,
             None => error_page(&chrome(&state, Some(&s), Nav::ServerSettings, None), e),
         },
     }
@@ -334,9 +386,9 @@ pub async fn tag_type_update(
         let body = UpdateNamespace {
             display: form.display.clone(),
             locked: Some(form.locked.is_some()),
-            required: Some(form.required.is_some()),
             clear_color: color.is_none(),
             color,
+            ..UpdateNamespace::default()
         };
         tag_admin::update_namespace(&state, s.account_id, &name, &body).await
     }
@@ -344,9 +396,135 @@ pub async fn tag_type_update(
     match updated {
         Ok(_) => redirect("/admin/settings/tag-types?notice=tag-type-saved"),
         Err(e) => match form_error(&e) {
-            Some(m) => render_tag_types(&state, &s, None, NewTagType::default(), Some(m)).await,
+            Some(m) => {
+                render_tag_types(&state, &s, None, NewTagType::default(), None, Some(m)).await
+            }
             None => error_page(&chrome(&state, Some(&s), Nav::ServerSettings, None), e),
         },
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct LimitsForm {
+    csrf: Option<String>,
+    #[serde(flatten)]
+    limits: LimitFields,
+    /// `yes` once the administrator saw how many prompts the new limits
+    /// leave outside them.
+    confirm: Option<String>,
+}
+
+/// Saves a tag type's limits. New limits that prompts on the board don't
+/// meet are shown with that count first, to save anyway or cancel.
+pub async fn tag_type_limits(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Path(name): Path<String>,
+    Form(form): Form<LimitsForm>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let c = chrome(&state, Some(&s), Nav::ServerSettings, None);
+    if !s.csrf_matches(form.csrf.as_deref()) {
+        return csrf_failed(&c);
+    }
+    let fail = |e: ApiError| async {
+        match form_error(&e) {
+            Some(m) => {
+                render_tag_types(&state, &s, None, NewTagType::default(), None, Some(m)).await
+            }
+            None => error_page(&c, e),
+        }
+    };
+    let (min, max) = match form.limits.limits() {
+        Ok(l) => l,
+        Err(e) => return fail(e).await,
+    };
+    if opt(&form.confirm) != Some("yes") {
+        let check = async {
+            let mut conn = state.pool.acquire().await?;
+            let before = prompts::load_namespace(&mut conn, &name, false).await?;
+            if (before.min, before.max) == (min, max) {
+                return Ok(0);
+            }
+            Ok::<_, ApiError>(
+                tag_admin::prompts_outside_limits(&state, &name, min, max, 0)
+                    .await?
+                    .0,
+            )
+        }
+        .await;
+        match check {
+            Ok(0) => {}
+            Ok(outside) => {
+                let pending = PendingLimits {
+                    namespace: name,
+                    min,
+                    max,
+                    outside,
+                };
+                return render_tag_types(
+                    &state,
+                    &s,
+                    None,
+                    NewTagType::default(),
+                    Some(pending),
+                    None,
+                )
+                .await;
+            }
+            Err(e) => return fail(e).await,
+        }
+    }
+    let body = UpdateNamespace {
+        min: Some(min),
+        max,
+        clear_max: max.is_none(),
+        ..UpdateNamespace::default()
+    };
+    match tag_admin::update_namespace(&state, s.account_id, &name, &body).await {
+        Ok(_) => redirect("/admin/settings/tag-types?notice=tag-type-saved"),
+        Err(e) => fail(e).await,
+    }
+}
+
+/// The prompts on the board that don't meet a tag type's limits.
+pub async fn tag_type_outside(
+    State(state): State<AppState>,
+    MaybeSession(session): MaybeSession,
+    Path(name): Path<String>,
+) -> Response {
+    let s = match require_admin(&state, session) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let c = chrome(&state, Some(&s), Nav::ServerSettings, None);
+    let loaded = async {
+        let mut conn = state.pool.acquire().await?;
+        let namespace = prompts::load_namespace(&mut conn, &name, false).await?;
+        let (total, prompts) = tag_admin::prompts_outside_limits(
+            &state,
+            &name,
+            namespace.min,
+            namespace.max,
+            ADMIN_TAG_LIMIT,
+        )
+        .await?;
+        Ok::<_, ApiError>(AdminOutsideLimitsView {
+            namespace,
+            total,
+            prompts,
+        })
+    }
+    .await;
+    match loaded {
+        Ok(view) => html(
+            StatusCode::OK,
+            quill_board_ui::admin_outside_limits_page(&c, view),
+        ),
+        Err(e) => error_page(&c, e),
     }
 }
 

@@ -3802,7 +3802,7 @@
         "tags": [
           "admin"
         ],
-        "summary": "Change a namespace: its label, whether it is locked or required",
+        "summary": "Change a namespace: its label, whether it is locked, its limits or colours",
         "operationId": "patch_admin_tag_namespaces_by_name",
         "parameters": [
           {
@@ -10464,11 +10464,23 @@
           "locked": {
             "type": "boolean"
           },
+          "max": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "How many a prompt may carry. Absent for no limit.",
+            "minimum": 0
+          },
+          "min": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many tags of this type every prompt needs. Defaults to 0.",
+            "minimum": 0
+          },
           "name": {
             "type": "string"
-          },
-          "required": {
-            "type": "boolean"
           }
         }
       },
@@ -12932,12 +12944,23 @@
             "type": "boolean",
             "description": "Only server-curated tags may be used."
           },
+          "max": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "How many it may carry; `None` for no limit.",
+            "minimum": 0
+          },
+          "min": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many tags of this type every prompt saved must carry (0:\noptional).",
+            "minimum": 0
+          },
           "name": {
             "type": "string"
-          },
-          "required": {
-            "type": "boolean",
-            "description": "Every prompt saved must carry at least one tag of this type."
           }
         }
       },
@@ -13062,6 +13085,10 @@
             "type": "boolean",
             "description": "Remove the chip colours. Ignored when `color` is given."
           },
+          "clearMax": {
+            "type": "boolean",
+            "description": "Remove the maximum. Ignored when `max` is given."
+          },
           "color": {
             "oneOf": [
               {
@@ -13085,11 +13112,22 @@
               "null"
             ]
           },
-          "required": {
+          "max": {
             "type": [
-              "boolean",
+              "integer",
               "null"
-            ]
+            ],
+            "format": "int32",
+            "description": "A new maximum.",
+            "minimum": 0
+          },
+          "min": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
