@@ -357,6 +357,9 @@ async fn story(server: &TestServer) {
     alice_c.notices(None).await.unwrap();
     alice_c.mark_notices_read().await.unwrap();
 
+    // Frequent tags (#55).
+    alice_c.frequent_tags(None).await.unwrap();
+
     // The server rules (#42).
     anon.rules().await.unwrap_err();
     let rules = admin

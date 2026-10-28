@@ -142,6 +142,8 @@ Servers can enforce mandatory tag namespaces. For example, if Server A enforces 
 
 Each tag type has a minimum and an optional maximum number of tags per prompt (#52), so a server can ask for exactly one Length, at least one Genre, or up to three Themes. Limits are checked whenever a prompt is posted or its content edited, never applied to prompts already saved: a prompt that breaks a new limit keeps its tags until its author next edits it, and admin tag changes (aliasing, merging) go through even if they push a prompt over a maximum. The admin page counts and lists the prompts outside a type's limits, and asks before saving new limits that leave prompts outside. Administrators can't set limits nobody could meet: a curated-only type can't need more tags than it has visible, and the minimums together can't exceed the per-prompt tag cap.
 
+The post form suggests the tags a writer uses most (#55): up to 8 visible tags from their 50 newest prompts on the board, most used first, ties to the most recently used, aliases counted as their target. They're worked out on each request, so nothing new is stored, and only the writer sees them. By default only the persona posting counts, because some writers keep personas apart on purpose (a horror persona and a romance persona); an account setting widens it to all their personas. The form can't reload suggestions when the persona is changed without JavaScript, so it says which persona they're for.
+
 ### Search and filtering
 
 - **Store:** PostgreSQL with a `prompts` table, a `tags` table, and a `prompt_tags` join. A GIN index on a `tag_ids int[]` column makes "must include all of" and "must exclude any of" filters fast; a `tsvector` column with a GIN index covers full-text search on title and body.
