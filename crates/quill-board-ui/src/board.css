@@ -1249,6 +1249,256 @@ main.wrap.wide {
   }
 }
 
+/* ---- The filter builder: tag types, one type's tags, the filter ---- */
+
+.all-filters {
+  margin: -0.25rem 0 1rem;
+}
+
+.back-row {
+  margin: 0 0 0.5rem;
+}
+
+.filter-types {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.type-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0.35rem 0.75rem;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 0 4px 4px 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.type-btn:hover {
+  background: var(--chip);
+}
+
+.type-btn[aria-current="true"] {
+  background: var(--card);
+  border-left-color: var(--rule);
+  font-weight: 600;
+}
+
+.filter-panel,
+.filter-chosen {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1rem 1.25rem;
+  min-width: 0;
+}
+
+.filter-panel h2,
+.filter-chosen h2 {
+  margin: 0 0 0.75rem;
+  font: 700 1.3rem/1.25 var(--serif);
+}
+
+.muted {
+  color: var(--muted);
+  font: 400 0.875rem var(--sans);
+}
+
+.tag-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.tag-search input {
+  flex: 1;
+  min-width: 10rem;
+}
+
+.letters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  margin: 0 0 0.75rem;
+}
+
+.letters button {
+  min-width: 1.9rem;
+  min-height: 1.9rem;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--act);
+  font: 600 0.8rem var(--sans);
+  cursor: pointer;
+}
+
+.letters button[aria-current="true"] {
+  background: var(--ink);
+  color: var(--card);
+}
+
+.tag-choices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.tag-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.tag-choice .uses {
+  white-space: nowrap;
+}
+
+/* Any / Has / Hide: three radios drawn as one segmented control. */
+.tri {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.tri label {
+  position: relative;
+  display: flex;
+}
+
+.tri input {
+  position: absolute;
+  opacity: 0;
+}
+
+.tri span {
+  min-width: 3.25rem;
+  padding: 0.3rem 0.6rem;
+  border-left: 1px solid var(--line);
+  font-size: 0.85rem;
+  text-align: center;
+  cursor: pointer;
+}
+
+.tri label:first-of-type span {
+  border-left: 0;
+}
+
+.tri input:focus-visible + span {
+  outline: 2px solid var(--act);
+  outline-offset: -2px;
+}
+
+.tri input:checked + span {
+  font-weight: 600;
+}
+
+.tri-any input:checked + span {
+  background: var(--chip);
+}
+
+.tri-has input:checked + span {
+  background: var(--sticky);
+  color: var(--act);
+}
+
+.tri-hide input:checked + span {
+  background: var(--staff-bg);
+  color: var(--danger);
+}
+
+.chosen-group {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.875rem;
+}
+
+.chosen-tags .chip,
+.chosen-rest span {
+  margin: 0 0.3rem 0.3rem 0;
+}
+
+.chosen-rest {
+  display: flex;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+@media (min-width: 64rem) {
+  .filter-layout {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr) 20rem;
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .filter-chosen {
+    position: sticky;
+    top: 1rem;
+  }
+}
+
+/* Narrower: types as a strip that scrolls sideways, then the tags, then
+   the filter with its button. */
+@media (max-width: 63.99rem) {
+  .filter-types {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 0.4rem;
+    margin: 0 -1rem 1rem;
+    padding: 0 1rem 0.5rem;
+  }
+
+  .type-btn {
+    flex: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .type-btn[aria-current="true"] {
+    border-color: var(--ink);
+  }
+
+  .filter-chosen {
+    margin-top: 1rem;
+  }
+
+  .tag-choice {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .tag-choice .tri {
+    grid-column: 1 / -1;
+  }
+
+  .tri label {
+    flex: 1;
+  }
+
+  .tri span {
+    flex: 1;
+    min-height: 2.5rem;
+    padding: 0.55rem 0.6rem;
+  }
+}
+
 /* The administrators' pages: a sidebar beside the page on wide screens. */
 .admin-side {
   display: flex;

@@ -12,6 +12,7 @@
 mod admin;
 mod announcements;
 pub mod chips;
+mod filters;
 mod layout;
 mod moderation;
 mod notices;
@@ -33,6 +34,7 @@ use uuid::Uuid;
 
 pub use admin::*;
 pub use announcements::*;
+pub use filters::*;
 pub use moderation::*;
 pub use notices::notices_page;
 pub use pages::*;
@@ -41,6 +43,20 @@ pub use rules::*;
 /// The board's stylesheet, served at [`STYLESHEET_PATH`].
 pub const STYLESHEET: &str = include_str!("board.css");
 pub const STYLESHEET_PATH: &str = "/static/board.css";
+
+/// A fingerprint of the stylesheet for its URL. It's served to be cached
+/// for a day, so any change to it must change the URL, even within one
+/// release.
+pub fn stylesheet_version() -> &'static str {
+    use std::hash::{Hash, Hasher};
+    static VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        // Fixed keys, so the same stylesheet gives the same fingerprint.
+        let mut h = std::hash::DefaultHasher::new();
+        STYLESHEET.hash(&mut h);
+        format!("{:016x}", h.finish())
+    });
+    &VERSION
+}
 
 /// Form field carrying the per-session CSRF token.
 pub const CSRF_FIELD: &str = "csrf";
@@ -527,7 +543,7 @@ fn document(doc: Doc) -> Element {
                 meta { name: "viewport", content: "width=device-width, initial-scale=1" }
                 meta { name: "referrer", content: "same-origin" }
                 title { "{page_title}" }
-                link { rel: "stylesheet", href: "{STYLESHEET_PATH}?v={chrome.version}" }
+                link { rel: "stylesheet", href: "{STYLESHEET_PATH}?v={stylesheet_version()}" }
                 link { rel: "stylesheet", href: "{chips::TAG_COLORS_PATH}" }
             }
             body {

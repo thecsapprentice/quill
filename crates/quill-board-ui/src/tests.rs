@@ -1511,7 +1511,10 @@ mod moderation_pages {
         ];
         for (name, html) in pages {
             let html = html.replace(
-                r#"<link rel="stylesheet" href="/static/board.css?v=0.1.0"/>"#,
+                &format!(
+                    r#"<link rel="stylesheet" href="/static/board.css?v={}"/>"#,
+                    crate::stylesheet_version()
+                ),
                 &css,
             );
             std::fs::write(dir.join(format!("{name}.html")), html).unwrap();
@@ -1662,5 +1665,74 @@ mod rules_pages {
         assert!(editing.contains(r#"aria-label="Preview""#));
         assert!(editing.contains(r#"value="on-change" checked"#));
         assert!(editing.contains(r#"href="/admin/settings/rules" aria-current="page""#));
+    }
+}
+
+mod filter_builder {
+    use super::*;
+
+    fn tag(namespace: &str, slug: &str, display: &str) -> Tag {
+        Tag {
+            namespace: namespace.into(),
+            slug: slug.into(),
+            display: display.into(),
+            origin: TagOrigin::Server,
+            status: TagStatus::Visible,
+            color: None,
+        }
+    }
+
+    #[test]
+    fn one_get_form_carries_the_filter_and_sets_the_tags_on_screen() {
+        let view = FiltersView {
+            filters: BoardFilters {
+                include: "genre:horror,theme:sea".into(),
+                exclude: "genre:gore".into(),
+                ..BoardFilters::default()
+            },
+            cap: Maturity::Teen,
+            namespaces: vec![genre()],
+            current: Some("genre".into()),
+            search: String::new(),
+            letter: Some('H'),
+            by_name: false,
+            page: 1,
+            page_size: 2,
+            tags: vec![
+                (tag("genre", "horror", "Horror"), 3),
+                (tag("genre", "gore", "Gore <b>"), 1),
+            ],
+            total: 5,
+        };
+        let html = filters_page(&chrome(false, false), view);
+        assert!(html.contains(r#"<form class="filter-builder" method="get" action="/filters">"#));
+        // The filter so far, and which tags this page sets.
+        assert!(html.contains(r#"name="include" value="genre:horror,theme:sea""#));
+        assert!(html.contains(r#"name="shown" value="genre:horror,genre:gore""#));
+        assert!(html.contains(r#"name="letter" value="H""#));
+        // Each shown tag's radios reflect the filter.
+        assert!(html.contains(r#"name="tag:genre:horror" value="has" checked=true"#));
+        assert!(html.contains(r#"name="tag:genre:gore" value="hide" checked=true"#));
+        assert!(html.contains("Gore &#60;b&#62;"));
+        assert!(html.contains("1 prompt<"));
+        // Genre has two tags chosen; buttons switch type, letter and page.
+        assert!(html.contains(r#"name="to_type" value="genre" aria-current="true""#));
+        assert!(html.contains(r#"<span class="count">2</span>"#));
+        assert!(html.contains(r#"name="to_letter" value="H" aria-current="true""#));
+        assert!(html.contains("Page 2 of 3"));
+        assert!(html.contains(r#"name="to_page" value="0""#));
+        assert!(html.contains(r#"name="to_page" value="2""#));
+        assert!(html.contains(r#"name="go" value="apply""#));
+        // Back to the board keeps the filter as it was.
+        assert!(html.contains(r#"href="/?include=genre%3Ahorror%2Ctheme%3Asea&"#));
+        assert!(html.contains(r#"exclude=genre%3Agore">"#));
+        assert_eq!(
+            filters_url(&BoardFilters {
+                q: "sea".into(),
+                ..BoardFilters::default()
+            }),
+            "/filters?q=sea"
+        );
+        assert_eq!(filters_url(&BoardFilters::default()), "/filters");
     }
 }

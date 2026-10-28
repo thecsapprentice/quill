@@ -19,6 +19,7 @@ use crate::{
     admin::Tab,
     admin_log_entry_url, admin_log_url,
     chips::chip_classes,
+    filters_url,
     layout::{card_list, csrf, error_notice, prompt_meta, tag_datalist, tag_list},
     maturity_label, prompt_url, reason_label, render, render_admin, render_with, short_date,
     short_datetime, state_label, tag_url,
@@ -26,7 +27,7 @@ use crate::{
 
 const TAG_OPTIONS: &str = "tag-options";
 
-fn maturity_options(selected: Option<Maturity>) -> Element {
+pub(crate) fn maturity_options(selected: Option<Maturity>) -> Element {
     rsx! {
         for m in Maturity::ALL.iter() {
             option { key: "{m}", value: "{m}", selected: selected == Some(*m), "{maturity_label(*m)}" }
@@ -34,7 +35,7 @@ fn maturity_options(selected: Option<Maturity>) -> Element {
     }
 }
 
-fn state_options(selected: Option<PromptState>) -> Element {
+pub(crate) fn state_options(selected: Option<PromptState>) -> Element {
     rsx! {
         for s in PromptState::ALL.iter() {
             option { key: "{s}", value: "{s}", selected: selected == Some(*s), "{state_label(*s)}" }
@@ -73,6 +74,9 @@ pub fn board_page(chrome: &Chrome, view: BoardView) -> String {
                         }
                         {board_search(v)}
                         {filter_summary(f)}
+                        p { class: "all-filters",
+                            a { class: "btn btn-quiet", href: "{filters_url(f)}", "Filter by tag" }
+                        }
                     }
                     {error_notice(v.error.as_ref())}
                     if v.prompts.is_empty() && v.error.is_none() {
