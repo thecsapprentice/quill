@@ -58,7 +58,7 @@ fn new_prompt(persona: Uuid, title: &str, tags: &[&str]) -> CreatePrompt {
 
 fn require(on: bool) -> UpdateNamespace {
     UpdateNamespace {
-        required: Some(on),
+        min: Some(u32::from(on)),
         ..UpdateNamespace::default()
     }
 }
@@ -88,10 +88,10 @@ async fn required_tag_types_apply_to_every_save() {
         .admin_update_namespace("genre", &require(true))
         .await
         .unwrap();
-    assert!(genre.required);
+    assert!(genre.required());
     let listed = alice.tag_namespaces().await.unwrap();
-    assert!(listed.iter().any(|n| n.name == "genre" && n.required));
-    assert!(listed.iter().any(|n| n.name == "format" && !n.required));
+    assert!(listed.iter().any(|n| n.name == "genre" && n.required()));
+    assert!(listed.iter().any(|n| n.name == "format" && !n.required()));
     assert_eq!(
         status(
             &admin
@@ -108,7 +108,10 @@ async fn required_tag_types_apply_to_every_save() {
         .await
         .unwrap_err();
     assert_eq!(status(&refused), 400);
-    assert!(message(&refused).contains("Add: Genre."), "{refused}");
+    assert!(
+        message(&refused).contains("Pick at least 1 Genre tag."),
+        "{refused}"
+    );
     alice
         .create_prompt(&new_prompt(ap, "New", &["genre:mystery"]))
         .await
@@ -157,7 +160,10 @@ async fn required_tag_types_apply_to_every_save() {
         .create_prompt(&new_prompt(ap, "Bare", &[]))
         .await
         .unwrap_err();
-    assert!(message(&both).contains("Add: Genre, Length."), "{both}");
+    assert!(
+        message(&both).contains("Pick at least 1 Genre tag. Pick at least 1 Length tag."),
+        "{both}"
+    );
 
     // Turning the rule off lifts it.
     admin
@@ -198,7 +204,10 @@ async fn required_tag_types_apply_to_every_save() {
         log[0].detail.as_deref(),
         Some("renamed from Genre to Genres; curated tags only: on")
     );
-    assert_eq!(log[4].detail.as_deref(), Some("required: on"));
+    assert_eq!(
+        log[4].detail.as_deref(),
+        Some("tags per prompt: any number → at least 1")
+    );
     assert!(log[0].prompt_hash.is_none() && log[0].reason.is_none());
     assert!(log[0].admin.is_some());
     server.stop().await.unwrap();
@@ -334,7 +343,8 @@ async fn creating_tags_and_types_is_logged() {
             name: "setting".into(),
             display: "Setting".into(),
             locked: false,
-            required: true,
+            min: 1,
+            max: None,
             color: None,
         })
         .await
@@ -379,7 +389,7 @@ async fn creating_tags_and_types_is_logged() {
     assert_eq!(log[1].subject.as_deref(), Some("setting:deep-space"));
     assert_eq!(
         log[2].detail.as_deref(),
-        Some("Setting; curated tags only: off; required: on")
+        Some("Setting; curated tags only: off; tags per prompt: at least 1")
     );
     server.stop().await.unwrap();
 }

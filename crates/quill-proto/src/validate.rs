@@ -38,6 +38,10 @@ pub enum ValidationError {
         "a staff name must be 1-{STAFF_NAME_MAX_CHARS} characters on one line, and can't be “Administrators”"
     )]
     StaffName,
+    #[error(
+        "a tag type's minimum and maximum must each be at most {PROMPT_MAX_TAGS}, the maximum at least 1, and the minimum no more than the maximum"
+    )]
+    TagLimits,
 }
 
 /// The longest channel name (protocol draft, section 5).
@@ -163,6 +167,17 @@ pub fn announcement_title(input: &str) -> Result<String, ValidationError> {
 /// Announcement bodies are Markdown, like prompt bodies.
 pub fn announcement_body(input: &str) -> Result<String, ValidationError> {
     markdown_body(input, ANNOUNCEMENT_BODY_MAX_CHARS)
+}
+
+/// A tag type's limits: how many of its tags a prompt needs and may carry.
+pub fn tag_limits(min: u32, max: Option<u32>) -> Result<(), ValidationError> {
+    let cap = u32::try_from(PROMPT_MAX_TAGS).unwrap_or(u32::MAX);
+    let ok = min <= cap && max.is_none_or(|m| (1..=cap).contains(&m) && min <= m);
+    if ok {
+        Ok(())
+    } else {
+        Err(ValidationError::TagLimits)
+    }
 }
 
 /// The server rules: Markdown, up to [`RULES_BODY_MAX_CHARS`].

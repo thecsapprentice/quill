@@ -11,9 +11,9 @@ use quill_proto::notices::{NoticeFields, NoticeKind};
 use quill_proto::{
     board::{
         AdminAction, AdminTag, AdminTagQuery, ChipColor, CreateNamespace, CreateTag, DeletedTag,
-        Tag, TagNamespace, TagStatus, UpdateNamespace, UpdateTag,
+        Tag, TagNamespace, TagStatus, UpdateNamespace, UpdateTag, limit_label,
     },
-    limits::MAX_PAGE_SIZE,
+    limits::{MAX_PAGE_SIZE, PROMPT_MAX_TAGS},
     validate,
 };
 use sqlx::{PgConnection, QueryBuilder};
@@ -76,6 +76,95 @@ fn describe_color(color: Option<&ChipColor>) -> String {
 
 // ---- Tag types -----------------------------------------------------------
 
+/// Checks a tag type's limits against the other types and its tags: a
+/// curated-only type can't ask for more tags than writers can pick, and the
+/// minimums together must fit on one prompt.
+async fn check_limits(
+    conn: &mut PgConnection,
+    name: &str,
+    display: &str,
+    locked: bool,
+    min: u32,
+    max: Option<u32>,
+) -> Result<(), ApiError> {
+    validate::tag_limits(min, max)?;
+    if min == 0 {
+        return Ok(());
+    }
+    if locked {
+        let visible: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM tags
+             WHERE instance = '' AND namespace = $1 AND canonical_id IS NULL
+               AND status = 'visible'",
+        )
+        .bind(name)
+        .fetch_one(&mut *conn)
+        .await?;
+        if i64::from(min) > visible {
+            return Err(ApiError::BadRequest(format!(
+                "{display} is curated-only and has {visible} visible {}, so writers couldn't pick {min}. Add tags first, or lower the minimum.",
+                if visible == 1 { "tag" } else { "tags" }
+            )));
+        }
+    }
+    let others: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(min_tags), 0) FROM tag_namespaces WHERE name <> $1",
+    )
+    .bind(name)
+    .fetch_one(&mut *conn)
+    .await?;
+    let cap = i64::try_from(PROMPT_MAX_TAGS).unwrap_or(i64::MAX);
+    if others + i64::from(min) > cap {
+        return Err(ApiError::BadRequest(format!(
+            "Together the tag types would need {} tags on every prompt, but a prompt can have at most {PROMPT_MAX_TAGS}.",
+            others + i64::from(min)
+        )));
+    }
+    Ok(())
+}
+
+fn to_db(n: u32) -> i32 {
+    i32::try_from(n).unwrap_or(i32::MAX)
+}
+
+/// Prompts on the board whose tags don't meet `min`/`max` for tag type
+/// `name`: how many, and the newest `limit` of them. Changing limits never
+/// changes prompts; these are fixed when their authors next edit them.
+pub async fn prompts_outside_limits(
+    state: &AppState,
+    name: &str,
+    min: u32,
+    max: Option<u32>,
+    limit: u32,
+) -> Result<(u64, Vec<(Uuid, String)>), ApiError> {
+    const OUTSIDE: &str = "WITH counted AS (
+             SELECT p.id, p.title, p.created_at,
+                    (SELECT count(*) FROM tags t
+                     WHERE t.id = ANY(p.tag_ids) AND t.namespace = $1) AS n
+             FROM prompts p WHERE p.removed_at IS NULL)
+         SELECT id, title, created_at FROM counted
+         WHERE n < $2 OR ($3::integer IS NOT NULL AND n > $3)";
+    // Safe: built only from compile-time constants; values are bound.
+    let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) FROM ({OUTSIDE}) o"
+    )))
+    .bind(name)
+    .bind(to_db(min))
+    .bind(max.map(to_db))
+    .fetch_one(&state.pool)
+    .await?;
+    let rows: Vec<(Uuid, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT id, title FROM ({OUTSIDE}) o ORDER BY created_at DESC, id DESC LIMIT $4"
+    )))
+    .bind(name)
+    .bind(to_db(min))
+    .bind(max.map(to_db))
+    .bind(i64::from(limit))
+    .fetch_all(&state.pool)
+    .await?;
+    Ok((u64::try_from(total).unwrap_or(0), rows))
+}
+
 /// Creates a tag type.
 pub async fn create_namespace(
     state: &AppState,
@@ -86,14 +175,20 @@ pub async fn create_namespace(
     let display = validate::tag_display(&body.display)?;
     let color = checked_color(body.color.as_ref())?;
     let mut tx = state.pool.begin().await?;
+    // Serializes limit changes, which are checked against every type.
+    sqlx::query("LOCK TABLE tag_namespaces IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *tx)
+        .await?;
+    check_limits(&mut tx, &name, &display, body.locked, body.min, body.max).await?;
     let result = sqlx::query(
-        "INSERT INTO tag_namespaces (name, display, locked, required, chip_bg, chip_fg)
-         VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO tag_namespaces (name, display, locked, min_tags, max_tags, chip_bg, chip_fg)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(&name)
     .bind(&display)
     .bind(body.locked)
-    .bind(body.required)
+    .bind(to_db(body.min))
+    .bind(body.max.map(to_db))
     .bind(color.as_ref().map(|c| c.background.clone()))
     .bind(color.as_ref().and_then(|c| c.text.clone()))
     .execute(&mut *tx)
@@ -108,9 +203,9 @@ pub async fn create_namespace(
         Err(e) => return Err(e.into()),
     }
     let mut detail = format!(
-        "{display}; curated tags only: {}; required: {}",
+        "{display}; curated tags only: {}; tags per prompt: {}",
         on_off(body.locked),
-        on_off(body.required)
+        limit_label(body.min, body.max)
     );
     if color.is_some() {
         detail.push_str(&format!("; colour: {}", describe_color(color.as_ref())));
@@ -128,12 +223,14 @@ pub async fn create_namespace(
         name,
         display,
         locked: body.locked,
-        required: body.required,
+        min: body.min,
+        max: body.max,
         color,
     })
 }
 
-/// Renames a tag type or changes whether it is curated-only or required.
+/// Renames a tag type, or changes whether it is curated-only, its limits
+/// or its colours.
 pub async fn update_namespace(
     state: &AppState,
     admin: Uuid,
@@ -147,6 +244,9 @@ pub async fn update_namespace(
         .transpose()?;
     let new_color = checked_color(body.color.as_ref())?;
     let mut tx = state.pool.begin().await?;
+    sqlx::query("LOCK TABLE tag_namespaces IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *tx)
+        .await?;
     let before = load_namespace(&mut tx, name, true).await?;
     let color = match (new_color, body.clear_color) {
         (Some(c), _) => Some(c),
@@ -157,7 +257,12 @@ pub async fn update_namespace(
         name: before.name.clone(),
         display: display.unwrap_or_else(|| before.display.clone()),
         locked: body.locked.unwrap_or(before.locked),
-        required: body.required.unwrap_or(before.required),
+        min: body.min.unwrap_or(before.min),
+        max: match (body.max, body.clear_max) {
+            (Some(m), _) => Some(m),
+            (None, true) => None,
+            (None, false) => before.max,
+        },
         color,
     };
     let mut changes = Vec::new();
@@ -170,8 +275,12 @@ pub async fn update_namespace(
     if after.locked != before.locked {
         changes.push(format!("curated tags only: {}", on_off(after.locked)));
     }
-    if after.required != before.required {
-        changes.push(format!("required: {}", on_off(after.required)));
+    if (after.min, after.max) != (before.min, before.max) {
+        changes.push(format!(
+            "tags per prompt: {} → {}",
+            before.limit_label(),
+            after.limit_label()
+        ));
     }
     if after.color != before.color {
         changes.push(format!("colour: {}", describe_color(after.color.as_ref())));
@@ -179,15 +288,27 @@ pub async fn update_namespace(
     if changes.is_empty() {
         return Ok(before);
     }
+    if (after.locked, after.min, after.max) != (before.locked, before.min, before.max) {
+        check_limits(
+            &mut tx,
+            &after.name,
+            &after.display,
+            after.locked,
+            after.min,
+            after.max,
+        )
+        .await?;
+    }
     sqlx::query(
         "UPDATE tag_namespaces
-         SET display = $2, locked = $3, required = $4, chip_bg = $5, chip_fg = $6
+         SET display = $2, locked = $3, min_tags = $4, max_tags = $5, chip_bg = $6, chip_fg = $7
          WHERE name = $1",
     )
     .bind(&after.name)
     .bind(&after.display)
     .bind(after.locked)
-    .bind(after.required)
+    .bind(to_db(after.min))
+    .bind(after.max.map(to_db))
     .bind(after.color.as_ref().map(|c| c.background.clone()))
     .bind(after.color.as_ref().and_then(|c| c.text.clone()))
     .execute(&mut *tx)
@@ -600,7 +721,7 @@ async fn api_create_namespace(
 
 #[utoipa::path(
     patch, path = "/admin/tag-namespaces/{name}", tag = "admin", security(("bearer" = [])),
-    summary = "Change a namespace: its label, whether it is locked or required",
+    summary = "Change a namespace: its label, whether it is locked, its limits or colours",
     params(("name" = String, Path, description = "The namespace")),
     request_body = UpdateNamespace,
     responses((status = 200, body = TagNamespace), (status = 404, description = "No such namespace")),

@@ -456,7 +456,8 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `display`    | `public` | Its display name.                           |
 | `locked`     | `public` | Whether only administrators add tags to it. |
 | `created_at` | `public` | When it was made.                           |
-| `required`   | `public` | Whether every prompt needs one.             |
+| `min_tags`   | `public` | How many tags of this type every prompt needs (0: optional). |
+| `max_tags`   | `public` | How many a prompt may carry; empty for no limit. |
 | `chip_bg`    | `public` | Its chip colours on the board.              |
 | `chip_fg`    | `public` | The same.                                   |
 

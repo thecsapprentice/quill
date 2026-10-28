@@ -236,12 +236,50 @@ pub struct TagNamespace {
     pub display: String,
     /// Only server-curated tags may be used.
     pub locked: bool,
-    /// Every prompt saved must carry at least one tag of this type.
+    /// How many tags of this type every prompt saved must carry (0:
+    /// optional).
     #[serde(default)]
-    pub required: bool,
+    pub min: u32,
+    /// How many it may carry; `None` for no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u32>,
     /// Chip colours for this type's tags, unless a tag has its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<ChipColor>,
+}
+
+impl TagNamespace {
+    /// Whether every prompt needs at least one tag of this type.
+    pub fn required(&self) -> bool {
+        self.min > 0
+    }
+
+    /// Whether a prompt may carry `count` tags of this type.
+    pub fn allows(&self, count: u32) -> bool {
+        count >= self.min && self.max.is_none_or(|m| count <= m)
+    }
+
+    /// Whether a prompt with `count` tags of this type can't take another.
+    pub fn full(&self, count: u32) -> bool {
+        self.max.is_some_and(|m| count >= m)
+    }
+
+    /// The limit in words, as in "exactly 1" or "up to 3".
+    pub fn limit_label(&self) -> String {
+        limit_label(self.min, self.max)
+    }
+}
+
+/// A tag type's limit in words: "any number", "up to 3", "at least 1",
+/// "exactly 1" or "1 to 2".
+pub fn limit_label(min: u32, max: Option<u32>) -> String {
+    match (min, max) {
+        (0, None) => "any number".to_owned(),
+        (0, Some(m)) => format!("up to {m}"),
+        (n, None) => format!("at least {n}"),
+        (n, Some(m)) if n == m => format!("exactly {n}"),
+        (n, Some(m)) => format!("{n} to {m}"),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -304,8 +342,12 @@ pub struct CreateNamespace {
     pub display: String,
     #[serde(default)]
     pub locked: bool,
+    /// How many tags of this type every prompt needs. Defaults to 0.
     #[serde(default)]
-    pub required: bool,
+    pub min: u32,
+    /// How many a prompt may carry. Absent for no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<ChipColor>,
 }
@@ -320,7 +362,13 @@ pub struct UpdateNamespace {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locked: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub required: Option<bool>,
+    pub min: Option<u32>,
+    /// A new maximum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u32>,
+    /// Remove the maximum. Ignored when `max` is given.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_max: bool,
     /// New chip colours.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<ChipColor>,

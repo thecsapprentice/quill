@@ -6,13 +6,15 @@ use quill_proto::{
     board::{AdminTag, ChipColor, Tag, TagNamespace, TagOrigin, TagPolicy, TagStatus},
     color::MIN_READABLE_CONTRAST,
     handles::{ReservedKind, ReservedSource},
+    limits::PROMPT_MAX_TAGS,
 };
 
 use crate::{
-    AdminHandlesView, AdminSessionsView, AdminTagDeleteView, AdminTagRequestsView,
-    AdminTagTypesView, AdminTagView, AdminTagsView, Chrome, admin_tag_url, chips,
+    AdminHandlesView, AdminOutsideLimitsView, AdminSessionsView, AdminTagDeleteView,
+    AdminTagRequestsView, AdminTagTypesView, AdminTagView, AdminTagsView, Chrome, admin_tag_url,
+    chips,
     layout::{csrf, error_notice, tag_datalist},
-    render, tag_url,
+    prompt_url, render, tag_url,
 };
 
 const ALIAS_OPTIONS: &str = "alias-options";
@@ -102,9 +104,9 @@ fn namespace_options(namespaces: &[TagNamespace], selected: Option<&str>) -> Ele
     }
 }
 
-/// The two switches of a tag type. Explanations show only on the "add" form;
+/// The curated-only switch. Its explanation shows only on the "add" form;
 /// the page introduction covers the existing types.
-fn type_checkboxes(locked: bool, required: bool, explain: bool) -> Element {
+fn locked_checkbox(locked: bool, explain: bool) -> Element {
     rsx! {
         div { class: "field",
             label { class: "inline-check",
@@ -117,17 +119,69 @@ fn type_checkboxes(locked: bool, required: bool, explain: bool) -> Element {
                 }
             }
         }
-        div { class: "field",
-            label { class: "inline-check",
-                input { r#type: "checkbox", name: "required", value: "yes", checked: required }
-                span {
-                    "Required"
-                    if explain {
-                        span { class: "hint", "Every prompt needs at least one tag of this type when it's posted or edited. Existing prompts aren't changed until they're edited." }
+    }
+}
+
+/// Quick choices for a tag type's limits (form value, label). Choosing one
+/// other than the first sets both numbers, so no JavaScript is needed.
+pub const LIMIT_PRESETS: [(&str, &str); 4] = [
+    ("numbers", "The numbers below"),
+    ("optional", "Optional, any number"),
+    ("exactly-one", "Exactly one"),
+    ("at-least-one", "At least one"),
+];
+
+/// How many tags of a type each prompt needs and may have.
+fn limit_fields(id: &str, min: u32, max: Option<u32>) -> Element {
+    let max_text = max.map(|m| m.to_string()).unwrap_or_default();
+    rsx! {
+        fieldset { class: "choices",
+            legend { class: "label", "Tags of this type on each prompt" }
+            div { class: "field",
+                label { r#for: "{id}-preset", "Quick choice" }
+                select { id: "{id}-preset", name: "preset",
+                    for (value, label) in LIMIT_PRESETS.iter() {
+                        option { key: "{value}", value: "{value}", "{label}" }
                     }
                 }
             }
+            div { class: "filter-grid",
+                div { class: "field",
+                    label { r#for: "{id}-min", "Minimum"
+                        span { class: "hint", "0 makes the type optional." }
+                    }
+                    input { r#type: "number", id: "{id}-min", name: "min", min: "0",
+                        max: "{PROMPT_MAX_TAGS}", value: "{min}" }
+                }
+                div { class: "field",
+                    label { r#for: "{id}-max", "Maximum"
+                        span { class: "hint", "Leave empty for no limit." }
+                    }
+                    input { r#type: "number", id: "{id}-max", name: "max", min: "1",
+                        max: "{PROMPT_MAX_TAGS}", value: "{max_text}" }
+                }
+            }
         }
+    }
+}
+
+/// A tag type's limits as a sentence, as in "Every prompt needs exactly 1."
+pub fn limit_sentence(min: u32, max: Option<u32>) -> String {
+    match (min, max) {
+        (0, None) => "Optional: prompts can have any number.".to_owned(),
+        (0, Some(m)) => format!("Optional: prompts can have up to {m}."),
+        (n, None) => format!("Every prompt needs at least {n}."),
+        (n, Some(m)) if n == m => format!("Every prompt needs exactly {n}."),
+        (n, Some(m)) => format!("Every prompt needs {n} to {m}."),
+    }
+}
+
+/// "1 prompt" or "3 prompts".
+fn prompts_text(n: u64) -> String {
+    if n == 1 {
+        "1 prompt".to_owned()
+    } else {
+        format!("{n} prompts")
     }
 }
 
@@ -144,9 +198,28 @@ pub fn admin_tag_types_page(chrome: &Chrome, view: AdminTagTypesView) -> String 
                 "Tag types group the tags on prompts, like Genre or Content warning. The identifier appears in filters such as genre:horror and can't be changed."
             }
             p { class: "lede",
-                "With curated tags only, writers can use just the tags listed here. A required type needs at least one tag on every prompt when it's posted or edited; existing prompts aren't changed until then."
+                "With curated tags only, writers can use just the tags listed here. Each type says how many of its tags a prompt needs and may have. Prompts are checked when they're posted or edited; changing a type's limits never changes existing prompts."
             }
             {error_notice(v.error.as_ref())}
+            if let Some(p) = &v.pending {
+                div { class: "warning", role: "alert",
+                    p {
+                        strong { "{prompts_text(p.outside)} on the board wouldn't meet these limits." }
+                        " They keep their tags; their authors will be asked to fix them the next time they edit."
+                    }
+                    form { method: "post", action: "/admin/settings/tag-types/{p.namespace}/limits",
+                        {csrf(&chrome_for_body)}
+                        input { r#type: "hidden", name: "min", value: "{p.min}" }
+                        input { r#type: "hidden", name: "max",
+                            value: "{p.max.map(|m| m.to_string()).unwrap_or_default()}" }
+                        input { r#type: "hidden", name: "confirm", value: "yes" }
+                        div { class: "actions",
+                            button { class: "btn", r#type: "submit", "Save these limits anyway" }
+                            a { href: "/admin/settings/tag-types", "Cancel" }
+                        }
+                    }
+                }
+            }
             form { class: "form-card", method: "post", action: "/admin/settings/new-tags",
                 {csrf(&chrome_for_body)}
                 fieldset { class: "choices",
@@ -175,7 +248,7 @@ pub fn admin_tag_types_page(chrome: &Chrome, view: AdminTagTypesView) -> String 
                         label { r#for: "display-{ns.name}", "Name shown on the board" }
                         input { r#type: "text", id: "display-{ns.name}", name: "display", value: "{ns.display}", required: true }
                     }
-                    {type_checkboxes(ns.locked, ns.required, false)}
+                    {locked_checkbox(ns.locked, false)}
                     {color_fields(
                         &format!("ns-{}", ns.name),
                         ns.color.as_ref(),
@@ -185,6 +258,22 @@ pub fn admin_tag_types_page(chrome: &Chrome, view: AdminTagTypesView) -> String 
                     div { class: "actions",
                         button { class: "btn", r#type: "submit", "Save {ns.display}" }
                         a { href: "/admin/settings/tags?namespace={ns.name}", "See its tags" }
+                    }
+                }
+                form { class: "form-card limits-card", method: "post",
+                    action: "/admin/settings/tag-types/{ns.name}/limits",
+                    {csrf(&chrome_for_body)}
+                    h3 { class: "form-title", "{ns.display}: " span { class: "limit", "{ns.limit_label()}" } }
+                    p { class: "hint", "{limit_sentence(ns.min, ns.max)}" }
+                    {limit_fields(&format!("ns-{}", ns.name), ns.min, ns.max)}
+                    if let Some((_, n)) = v.outside.iter().find(|(name, n)| *name == ns.name && *n > 0) {
+                        p { class: "hint",
+                            "{prompts_text(*n)} don't meet these limits yet. "
+                            a { href: "/admin/settings/tag-types/{ns.name}/outside", "See which" }
+                        }
+                    }
+                    div { class: "actions",
+                        button { class: "btn", r#type: "submit", "Save limits" }
                     }
                 }
             }
@@ -205,12 +294,44 @@ pub fn admin_tag_types_page(chrome: &Chrome, view: AdminTagTypesView) -> String 
                         input { r#type: "text", id: "new-display", name: "display", value: "{v.new.display}", required: true }
                     }
                 }
-                {type_checkboxes(v.new.locked, v.new.required, true)}
+                {locked_checkbox(v.new.locked, true)}
+                {limit_fields("new", v.new.min, v.new.max)}
                 {color_fields("new", v.new.color.as_ref(), "No colour", &None)}
                 div { class: "actions",
                     button { class: "btn", r#type: "submit", "Add tag type" }
                 }
             }
+        }
+    })
+}
+
+/// The prompts on the board that don't meet a tag type's limits.
+pub fn admin_outside_limits_page(chrome: &Chrome, view: AdminOutsideLimitsView) -> String {
+    let chrome_for_body = chrome.clone();
+    let title = format!("{} limits", view.namespace.display);
+    render(title, chrome, move || {
+        let v = &view;
+        let ns = &v.namespace;
+        rsx! {
+            h1 { "Server settings" }
+            {tabs(&chrome_for_body, Tab::TagTypes)}
+            h2 { "{ns.display}: {ns.limit_label()} per prompt" }
+            p { class: "lede",
+                "{prompts_text(v.total)} on the board don't meet this. They keep their tags until their authors next edit them, when the form asks them to fix it."
+            }
+            if v.prompts.is_empty() {
+                p { "Every prompt meets it." }
+            } else {
+                ul {
+                    for (id, title) in v.prompts.iter() {
+                        li { key: "{id}", a { href: "{prompt_url(*id)}", "{title}" } }
+                    }
+                }
+                if v.total > v.prompts.len() as u64 {
+                    p { class: "hint", "Showing the newest {v.prompts.len()}." }
+                }
+            }
+            p { a { href: "/admin/settings/tag-types", "Back to tag types" } }
         }
     })
 }
@@ -416,9 +537,9 @@ pub fn admin_tag_delete_page(chrome: &Chrome, view: AdminTagDeleteView) -> Strin
                     p { "It's on {uses_text(n).to_lowercase()}. Deleting removes it from them; the prompts stay on the board with their other tags." }
                 },
             }
-            if ns.required && t.alias_of.is_none() && t.uses > 0 {
+            if ns.required() && t.alias_of.is_none() && t.uses > 0 {
                 div { class: "warning",
-                    p { "{ns.display} is a required type. Prompts left without a {ns.display} tag will need one the next time their authors edit them." }
+                    p { "Every prompt needs at least {ns.min} {ns.display} tag. Prompts left with too few will need another the next time their authors edit them." }
                 }
             }
             if !ns.locked {

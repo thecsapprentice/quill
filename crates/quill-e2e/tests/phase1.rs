@@ -753,7 +753,8 @@ async fn admin_tag_management_and_aliases() {
         name: "setting".into(),
         display: "Setting".into(),
         locked: true,
-        required: false,
+        min: 0,
+        max: None,
         color: None,
     };
     assert_eq!(

@@ -225,21 +225,24 @@ fn forms_render_with_values_and_errors() {
                     name: "genre".into(),
                     display: "Genre".into(),
                     locked: false,
-                    required: true,
+                    min: 1,
+                    max: None,
                     color: None,
                 },
                 TagNamespace {
                     name: "format".into(),
                     display: "Format".into(),
                     locked: true,
-                    required: true,
+                    min: 1,
+                    max: None,
                     color: None,
                 },
                 TagNamespace {
                     name: "length".into(),
                     display: "Length".into(),
                     locked: true,
-                    required: false,
+                    min: 0,
+                    max: None,
                     color: None,
                 },
             ],
@@ -375,7 +378,8 @@ fn genre() -> TagNamespace {
         name: "genre".into(),
         display: "Genre".into(),
         locked: false,
-        required: true,
+        min: 1,
+        max: None,
         color: None,
     }
 }
@@ -407,23 +411,68 @@ fn server_settings_pages() {
         AdminTagTypesView {
             new_tags: TagPolicy::Approval,
             namespaces: vec![genre()],
+            outside: vec![("genre".into(), 2)],
             new: NewTagType {
                 name: "setting".into(),
                 ..NewTagType::default()
             },
+            pending: None,
             error: Some("a tag type named \"setting\" already exists".into()),
         },
     );
     assert!(types.contains(r#"action="/admin/settings/tag-types/genre""#));
-    assert!(types.contains(r#"name="required" value="yes" checked=true"#));
+    // Its limits have a form of their own, with quick choices.
+    assert!(types.contains(r#"action="/admin/settings/tag-types/genre/limits""#));
+    assert!(types.contains("Every prompt needs at least 1."));
+    assert!(types.contains(r#"value="exactly-one""#));
+    assert!(types.contains(r#"id="ns-genre-min" name="min" min="0" max="15" value="1""#));
+    assert!(types.contains("2 prompts don&#39;t meet these limits yet."));
+    assert!(types.contains(r#"href="/admin/settings/tag-types/genre/outside""#));
     assert!(types.contains(r#"value="setting""#));
     assert!(types.contains("role=\"alert\""));
     assert!(types.contains(r#"href="/admin/settings" aria-current="page""#));
     // The header counts waiting tag requests for administrators.
     assert!(types.contains(r#"<span class="count" title="Tag requests waiting">3</span>"#));
-    // The new-tags switch, set to approval; plus two type forms and the add form.
+    // The new-tags switch, set to approval; plus the type's two forms and
+    // the add form.
     assert!(types.contains(r#"value="approval" checked=true"#));
-    assert_eq!(types.matches(r#"name="csrf""#).count(), 4);
+    assert_eq!(types.matches(r#"name="csrf""#).count(), 5);
+
+    // New limits that leave prompts outside wait for a confirmation.
+    let confirm = admin_tag_types_page(
+        &c,
+        AdminTagTypesView {
+            new_tags: TagPolicy::Approval,
+            namespaces: vec![genre()],
+            outside: Vec::new(),
+            new: NewTagType::default(),
+            pending: Some(PendingLimits {
+                namespace: "genre".into(),
+                min: 1,
+                max: Some(1),
+                outside: 41,
+            }),
+            error: None,
+        },
+    );
+    assert!(confirm.contains("41 prompts on the board wouldn&#39;t meet these limits."));
+    assert!(confirm.contains(r#"name="confirm" value="yes""#));
+    assert!(confirm.contains(r#"name="max" value="1""#));
+
+    let outside = admin_outside_limits_page(
+        &c,
+        AdminOutsideLimitsView {
+            namespace: TagNamespace {
+                max: Some(1),
+                ..genre()
+            },
+            total: 3,
+            prompts: vec![(Uuid::nil(), "Too <many>".into())],
+        },
+    );
+    assert!(outside.contains("Genre: exactly 1 per prompt"));
+    assert!(outside.contains("Too &#60;many&#62;"));
+    assert!(outside.contains("Showing the newest 1."));
 
     let tags = admin_tags_page(
         &c,
@@ -481,7 +530,7 @@ fn server_settings_pages() {
         },
     );
     assert!(delete.contains("It&#39;s on 3 prompts."));
-    assert!(delete.contains("Genre is a required type."));
+    assert!(delete.contains("Every prompt needs at least 1 Genre tag."));
     assert!(delete.contains("Writers can still create this tag again"));
     assert!(delete.contains(r#"name="confirm""#));
 }

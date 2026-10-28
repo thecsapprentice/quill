@@ -336,7 +336,7 @@ fn tag_picker(v: &PromptFormView, action: &str) -> Element {
     let missing: Vec<&TagNamespace> = v
         .namespaces
         .iter()
-        .filter(|n| n.required && !chosen_types.contains(&n.name.as_str()))
+        .filter(|n| n.required() && !chosen_types.contains(&n.name.as_str()))
         .collect();
     let chosen: Vec<String> = v.chips.iter().map(|c| c.tag.key()).collect();
     let mut groups: Vec<(&TagNamespace, Vec<&Tag>)> = v
@@ -353,7 +353,7 @@ fn tag_picker(v: &PromptFormView, action: &str) -> Element {
         .filter(|(_, tags)| !tags.is_empty())
         .collect();
     // Required types first, matching the empty slots.
-    groups.sort_by_key(|(n, _)| !n.required);
+    groups.sort_by_key(|(n, _)| !n.required());
     rsx! {
         fieldset { id: "tags", class: "tag-picker",
             legend { class: "label", "Tags" }
@@ -412,7 +412,7 @@ fn tag_picker(v: &PromptFormView, action: &str) -> Element {
                         div { key: "{n.name}", class: "browse-group",
                             h3 {
                                 "{n.display}"
-                                if n.required { span { class: "hint", " (required)" } }
+                                if n.required() { span { class: "hint", " (required)" } }
                             }
                             div { class: "chips",
                                 for tag in tags.iter() {
