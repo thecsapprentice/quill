@@ -536,6 +536,32 @@ button.chip {
   cursor: pointer;
 }
 
+/* A type that has as many tags as it may: its other tags can't be picked. */
+button.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  text-decoration: none;
+}
+
+/* A tag type's count against its limit, beside its name in the picker. */
+.limit-count {
+  font-weight: 600;
+  font-size: 0.8rem;
+  margin-left: 0.25rem;
+}
+
+.limit-count.ok {
+  color: var(--act);
+}
+
+.limit-count.full {
+  color: var(--busy);
+}
+
+.limit-count.short {
+  color: var(--danger);
+}
+
 button.chip:hover {
   text-decoration: underline;
 }

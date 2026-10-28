@@ -218,6 +218,14 @@ fn forms_render_with_values_and_errors() {
                     status: TagStatus::Visible,
                     color: None,
                 },
+                Tag {
+                    namespace: "genre".into(),
+                    slug: "mystery".into(),
+                    display: "Mystery".into(),
+                    origin: TagOrigin::Server,
+                    status: TagStatus::Visible,
+                    color: None,
+                },
             ],
             tag_policy: TagPolicy::Open,
             namespaces: vec![
@@ -226,7 +234,7 @@ fn forms_render_with_values_and_errors() {
                     display: "Genre".into(),
                     locked: false,
                     min: 1,
-                    max: None,
+                    max: Some(1),
                     color: None,
                 },
                 TagNamespace {
@@ -253,9 +261,16 @@ fn forms_render_with_values_and_errors() {
     assert!(html.contains(r#"value="theme:Sea &#60;b&#62;""#));
     assert!(html.contains("(new, needs approval)"));
     assert!(html.contains("chip tcn-genre tc-genre__horror chip-choice"));
-    // Genre is chosen; Format is required and missing, so it gets a slot.
-    assert!(html.contains("Format: required"));
-    assert!(!html.contains("Genre: required"));
+    // Genre is chosen; Format needs one and has none, so it gets a slot.
+    assert!(html.contains("Format: pick 1"));
+    assert!(!html.contains("Genre: pick"));
+    assert!(html.contains(r#"<span class="limit-count short">0 of at least 1</span>"#));
+    // Genre takes exactly one and has it: its other tags can't be picked.
+    assert!(html.contains(r#"<span class="limit-count full">1 of exactly 1 · full</span>"#));
+    assert!(html.contains(
+        r#"value="genre:mystery" formaction="/new#tags" formnovalidate=true disabled=true"#
+    ));
+    assert!(html.contains("Remove a Genre tag to pick a different one."));
     // Typed text that couldn't be added is kept, with the reason.
     assert!(html.contains(r#"name="add" value="nope""#));
     assert!(html.contains("must be written as namespace:name"));

@@ -326,17 +326,47 @@ fn tag_policy_hint(policy: TagPolicy, namespaces: &[TagNamespace]) -> String {
     }
 }
 
-/// The tag picker: chosen tags as chips, slots for required types, a field
-/// to add tags, and "Browse tags". No JavaScript: a chip is a checkbox
-/// (unticked chips aren't sent), and Add or a browsed tag reloads the form.
+/// A tag type's count on the form against its limit, as in "1 of 1 to 2 ✓"
+/// or "3 of up to 3 · full", with a class for its state. `None` for a type
+/// with no limits.
+fn limit_counter(n: &TagNamespace, count: u32) -> Option<(String, &'static str)> {
+    if n.min == 0 && n.max.is_none() {
+        return None;
+    }
+    let label = n.limit_label();
+    Some(if count < n.min {
+        (format!("{count} of {label}"), "limit-count short")
+    } else if n.full(count) {
+        (format!("{count} of {label} · full"), "limit-count full")
+    } else if n.allows(count) {
+        (format!("{count} of {label} ✓"), "limit-count ok")
+    } else {
+        (
+            format!("{count} of {label} · too many"),
+            "limit-count short",
+        )
+    })
+}
+
+/// The tag picker: chosen tags as chips, slots for types below their
+/// minimum, a field to add tags, and "Browse tags" with each type's count
+/// against its limit. No JavaScript: a chip is a checkbox (unticked chips
+/// aren't sent), and Add or a browsed tag reloads the form, so the counts
+/// are as of the last reload; the server's check is what counts.
 fn tag_picker(v: &PromptFormView, action: &str) -> Element {
     // Add and browse jump back to the picker after reloading.
     let back_to_tags = format!("{action}#tags");
-    let chosen_types: Vec<&str> = v.chips.iter().map(|c| c.tag.namespace.as_str()).collect();
-    let missing: Vec<&TagNamespace> = v
+    let count = |n: &TagNamespace| {
+        let c = v.chips.iter().filter(|c| c.tag.namespace == n.name).count();
+        u32::try_from(c).unwrap_or(u32::MAX)
+    };
+    let missing: Vec<(&TagNamespace, u32)> = v
         .namespaces
         .iter()
-        .filter(|n| n.required() && !chosen_types.contains(&n.name.as_str()))
+        .filter_map(|n| {
+            let have = count(n);
+            (have < n.min).then(|| (n, n.min - have))
+        })
         .collect();
     let chosen: Vec<String> = v.chips.iter().map(|c| c.tag.key()).collect();
     let mut groups: Vec<(&TagNamespace, Vec<&Tag>)> = v
@@ -352,8 +382,8 @@ fn tag_picker(v: &PromptFormView, action: &str) -> Element {
         })
         .filter(|(_, tags)| !tags.is_empty())
         .collect();
-    // Required types first, matching the empty slots.
-    groups.sort_by_key(|(n, _)| !n.required());
+    // Types still short of their minimum first, matching the empty slots.
+    groups.sort_by_key(|(n, _)| count(n) >= n.min);
     rsx! {
         fieldset { id: "tags", class: "tag-picker",
             legend { class: "label", "Tags" }
@@ -373,9 +403,9 @@ fn tag_picker(v: &PromptFormView, action: &str) -> Element {
                         span { class: "chip-x", "aria-hidden": "true" }
                     }
                 }
-                for n in missing.iter() {
+                for (n, need) in missing.iter() {
                     span { key: "slot-{n.name}", class: "chip chip-slot",
-                        "{n.display}: required"
+                        "{n.display}: pick {need}"
                     }
                 }
                 if v.chips.is_empty() && missing.is_empty() {
@@ -412,17 +442,24 @@ fn tag_picker(v: &PromptFormView, action: &str) -> Element {
                         div { key: "{n.name}", class: "browse-group",
                             h3 {
                                 "{n.display}"
-                                if n.required() { span { class: "hint", " (required)" } }
+                                if let Some((text, class)) = limit_counter(n, count(n)) {
+                                    " "
+                                    span { class: "{class}", "{text}" }
+                                }
                             }
                             div { class: "chips",
                                 for tag in tags.iter() {
                                     button { key: "{tag.key()}", class: "{chip_classes(tag)} chip-add",
                                         r#type: "submit", name: "pick", value: "{tag.key()}",
                                         formaction: "{back_to_tags}", formnovalidate: true,
+                                        disabled: n.full(count(n)),
                                         "aria-label": "Add {n.display}: {tag.display}",
                                         "+ {tag.display}"
                                     }
                                 }
+                            }
+                            if n.full(count(n)) {
+                                p { class: "hint", "Remove a {n.display} tag to pick a different one." }
                             }
                         }
                     }
