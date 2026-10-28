@@ -949,6 +949,16 @@ pub fn settings_page(chrome: &Chrome, view: SettingsView) -> String {
                     }
                     select { id: "maturity_max", name: "maturity_max", {maturity_options(Some(s.maturity_max))} }
                 }
+                div { class: "field",
+                    label { class: "inline-check",
+                        input { r#type: "checkbox", name: "suggest_all_personas", value: "on",
+                            checked: s.suggest_all_personas }
+                        span {
+                            "Suggest tags from all my personas"
+                            span { class: "hint", "The post form's “You often use” row draws on the persona you're posting as. Tick this to use all of them. Only you see the suggestions." }
+                        }
+                    }
+                }
                 if s.is_admin {
                     div { class: "field",
                         label { r#for: "staff_name", "Staff name"

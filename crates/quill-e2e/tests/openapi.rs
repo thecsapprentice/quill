@@ -103,6 +103,7 @@ async fn story(server: &TestServer) {
         .update_account(&UpdateAccountSettings {
             maturity_max: Some(Maturity::General),
             staff_name: None,
+            suggest_all_personas: Some(true),
         })
         .await
         .unwrap();

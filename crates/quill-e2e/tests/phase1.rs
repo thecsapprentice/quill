@@ -89,6 +89,7 @@ async fn instance_and_account_defaults() {
         .update_account(&UpdateAccountSettings {
             maturity_max: Some(Maturity::Explicit),
             staff_name: None,
+            suggest_all_personas: None,
         })
         .await
         .unwrap();
@@ -443,6 +444,7 @@ async fn search_filters_and_maturity() {
     bob.update_account(&UpdateAccountSettings {
         maturity_max: Some(Maturity::Explicit),
         staff_name: None,
+        suggest_all_personas: None,
     })
     .await
     .unwrap();

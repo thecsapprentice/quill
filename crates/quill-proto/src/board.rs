@@ -621,6 +621,10 @@ pub struct AccountSettings {
     /// their staff comments; the login name never is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub staff_name: Option<String>,
+    /// Suggest tags on the post form from all the login's personas, rather
+    /// than only the one posting.
+    #[serde(default)]
+    pub suggest_all_personas: bool,
 }
 
 /// `PATCH /account`.
@@ -633,6 +637,8 @@ pub struct UpdateAccountSettings {
     /// Administrators only. An empty string clears it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub staff_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggest_all_personas: Option<bool>,
 }
 
 // ---- Reports and the admin inbox -----------------------------------------

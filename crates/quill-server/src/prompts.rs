@@ -84,19 +84,22 @@ pub async fn account_settings(
     state: &AppState,
     account: Uuid,
 ) -> Result<AccountSettings, ApiError> {
-    let row: Option<(String, bool, Option<String>)> = sqlx::query_as(
-        "SELECT maturity_max::text, is_admin, staff_name FROM accounts WHERE id = $1",
+    let row: Option<(String, bool, Option<String>, bool)> = sqlx::query_as(
+        "SELECT maturity_max::text, is_admin, staff_name, suggest_all_personas
+         FROM accounts WHERE id = $1",
     )
     .bind(account)
     .fetch_optional(&state.pool)
     .await?;
-    let (maturity, is_admin, staff_name) = row.ok_or(ApiError::Unauthorized)?;
+    let (maturity, is_admin, staff_name, suggest_all_personas) =
+        row.ok_or(ApiError::Unauthorized)?;
     Ok(AccountSettings {
         maturity_max: parse_enum(&maturity)?,
         is_admin,
         unread_notices: crate::notices::unread_count(state, account).await?,
         // Kept if admin rights are taken away, but only shown to admins.
         staff_name: staff_name.filter(|_| is_admin),
+        suggest_all_personas,
     })
 }
 
@@ -121,6 +124,13 @@ pub async fn update_account_settings(
         sqlx::query("UPDATE accounts SET maturity_max = $2::maturity WHERE id = $1")
             .bind(account)
             .bind(m.as_str())
+            .execute(&mut *tx)
+            .await?;
+    }
+    if let Some(all) = body.suggest_all_personas {
+        sqlx::query("UPDATE accounts SET suggest_all_personas = $2 WHERE id = $1")
+            .bind(account)
+            .bind(all)
             .execute(&mut *tx)
             .await?;
     }

@@ -28,6 +28,10 @@ pub enum AccountCommand {
         /// An empty string clears it.
         #[arg(long)]
         staff_name: Option<String>,
+        /// Suggest tags on the post form from all your personas (on), or
+        /// only the one posting (off).
+        #[arg(long, value_parser = clap::builder::BoolishValueParser::new())]
+        suggest_all_personas: Option<bool>,
     },
     /// Show what administrators have done to your prompts and tags, and mark
     /// it read.
@@ -398,11 +402,13 @@ pub async fn account(ctx: &Ctx, cmd: AccountCommand) -> Result<()> {
         AccountCommand::Set {
             maturity,
             staff_name,
+            suggest_all_personas,
         } => {
             client
                 .update_account(&UpdateAccountSettings {
                     maturity_max: maturity,
                     staff_name,
+                    suggest_all_personas,
                 })
                 .await?
         }
@@ -414,6 +420,14 @@ pub async fn account(ctx: &Ctx, cmd: AccountCommand) -> Result<()> {
             println!("staff name: {name}");
         }
         println!("unread notices: {}", s.unread_notices);
+        println!(
+            "tag suggestions from: {}",
+            if s.suggest_all_personas {
+                "all personas"
+            } else {
+                "the persona posting"
+            }
+        );
     })
 }
 

@@ -853,6 +853,8 @@ pub struct SettingsForm {
     maturity_max: Option<String>,
     /// Sent only by administrators' forms.
     staff_name: Option<String>,
+    /// A checkbox: the form is always sent whole, so absent means off.
+    suggest_all_personas: Option<String>,
 }
 
 pub async fn settings_save(
@@ -870,6 +872,7 @@ pub async fn settings_save(
     let update = UpdateAccountSettings {
         maturity_max: parse_opt(&form.maturity_max),
         staff_name: form.staff_name.clone().filter(|_| s.is_admin),
+        suggest_all_personas: Some(form.suggest_all_personas.is_some()),
     };
     match prompts::update_account_settings(&state, s.account_id, &update).await {
         Ok(_) => redirect("/settings?notice=settings"),

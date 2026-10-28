@@ -352,6 +352,7 @@ fn other_pages_render() {
                 is_admin: true,
                 unread_notices: 0,
                 staff_name: None,
+                suggest_all_personas: false,
             },
             staff_name: "Nat <admin>".into(),
             error: Some("a staff name must be".into()),

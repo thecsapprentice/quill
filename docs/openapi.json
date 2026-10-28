@@ -9650,6 +9650,10 @@
             ],
             "description": "An administrator's name for commenting as staff, if set. Public on\ntheir staff comments; the login name never is."
           },
+          "suggestAllPersonas": {
+            "type": "boolean",
+            "description": "Suggest tags on the post form from all the login's personas, rather\nthan only the one posting."
+          },
           "unreadNotices": {
             "type": "integer",
             "format": "int64",
@@ -13024,6 +13028,12 @@
               "null"
             ],
             "description": "Administrators only. An empty string clears it."
+          },
+          "suggestAllPersonas": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         }
       },
