@@ -1,9 +1,18 @@
 //! Typed client for the `/api/v1` client API.
 
 use quill_proto::{
+    announcements::{
+        Announcement, AnnouncementPage, AnnouncementQuery, Comment, CommentPage, CommentQuery,
+        CreateAnnouncement, CreateComment, RemoveComment, ReportComment, UpdateAnnouncement,
+    },
     api::{
         CreatePersona, Credentials, InstanceInfo, PROBLEM_CONTENT_TYPE, Persona, Problem,
-        TokenResponse, UpdatePersona,
+        Registration, TokenResponse, UpdatePersona,
+    },
+    automod::{
+        DryRun, DryRunResult, Hook, ModerationChain, ModerationData, ModerationDataContent,
+        ModerationDataSummary, ModerationDataVersion, ModerationScript, ReplaceScript, RestoreData,
+        SaveModerationData, ScriptTemplate, SetScriptMode, UpdateChain, UploadScript, UseTemplate,
     },
     board::{
         AccountSettings, AdminLogEntry, AdminTag, AdminTagQuery, CreateNamespace, CreatePrompt,
@@ -11,6 +20,7 @@ use quill_proto::{
         Resolution, ResolveReport, ServerSettings, Tag, TagNamespace, TagQuery,
         UpdateAccountSettings, UpdateNamespace, UpdatePrompt, UpdateServerSettings, UpdateTag,
     },
+    rules::{AcceptRules, Rules, UpdateRules},
 };
 use reqwest::{Method, RequestBuilder, Response, StatusCode, header};
 use serde::{Serialize, de::DeserializeOwned};
@@ -199,8 +209,13 @@ impl Client {
     // ---- Auth -----------------------------------------------------------
 
     pub async fn register(&self, creds: &Credentials) -> Result<TokenResponse, CoreError> {
+        self.register_with(&creds.clone().into()).await
+    }
+
+    /// Registers, also naming the server rules version accepted.
+    pub async fn register_with(&self, body: &Registration) -> Result<TokenResponse, CoreError> {
         let builder = self.request(Method::POST, "/auth/register")?;
-        Self::json(Self::with_json(builder, creds)).await
+        Self::json(Self::with_json(builder, body)).await
     }
 
     pub async fn login(&self, creds: &Credentials) -> Result<TokenResponse, CoreError> {
@@ -299,6 +314,94 @@ impl Client {
         Self::empty(self.authed(Method::DELETE, &format!("/prompts/{id}"))?).await
     }
 
+    // ---- Announcements ----------------------------------------------------
+
+    pub async fn announcements(
+        &self,
+        query: &AnnouncementQuery,
+    ) -> Result<AnnouncementPage, CoreError> {
+        Self::json(self.request(Method::GET, "/announcements")?.query(query)).await
+    }
+
+    pub async fn announcement(&self, id: Uuid) -> Result<Announcement, CoreError> {
+        Self::json(self.request(Method::GET, &format!("/announcements/{id}"))?).await
+    }
+
+    pub async fn admin_post_announcement(
+        &self,
+        body: &CreateAnnouncement,
+    ) -> Result<Announcement, CoreError> {
+        let builder = self.authed(Method::POST, "/admin/announcements")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn admin_update_announcement(
+        &self,
+        id: Uuid,
+        body: &UpdateAnnouncement,
+    ) -> Result<Announcement, CoreError> {
+        let builder = self.authed(Method::PATCH, &format!("/admin/announcements/{id}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn admin_delete_announcement(&self, id: Uuid) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::DELETE, &format!("/admin/announcements/{id}"))?).await
+    }
+
+    // ---- Server rules ---------------------------------------------------
+
+    /// The server rules. Signed in, also whether this login must accept them.
+    pub async fn rules(&self) -> Result<Rules, CoreError> {
+        Self::json(self.maybe_authed(Method::GET, "/rules")?).await
+    }
+
+    /// Accepts the server rules, naming the version that was read.
+    pub async fn accept_rules(&self, version: u32) -> Result<(), CoreError> {
+        let builder = self.authed(Method::POST, "/rules/accept")?;
+        Self::empty(Self::with_json(builder, &AcceptRules { version })).await
+    }
+
+    pub async fn admin_update_rules(&self, body: &UpdateRules) -> Result<Rules, CoreError> {
+        let builder = self.authed(Method::PUT, "/admin/rules")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn comments(
+        &self,
+        announcement: Uuid,
+        query: &CommentQuery,
+    ) -> Result<CommentPage, CoreError> {
+        let path = format!("/announcements/{announcement}/comments");
+        Self::json(self.maybe_authed(Method::GET, &path)?.query(query)).await
+    }
+
+    pub async fn post_comment(
+        &self,
+        announcement: Uuid,
+        body: &CreateComment,
+    ) -> Result<Comment, CoreError> {
+        let path = format!("/announcements/{announcement}/comments");
+        Self::json(Self::with_json(self.authed(Method::POST, &path)?, body)).await
+    }
+
+    pub async fn delete_comment(&self, id: Uuid) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::DELETE, &format!("/comments/{id}"))?).await
+    }
+
+    pub async fn report_comment(&self, id: Uuid, body: &ReportComment) -> Result<(), CoreError> {
+        let builder = self.maybe_authed(Method::POST, &format!("/comments/{id}/report"))?;
+        Self::empty(Self::with_json(builder, body)).await
+    }
+
+    pub async fn admin_remove_comment(
+        &self,
+        id: Uuid,
+        body: &RemoveComment,
+    ) -> Result<(), CoreError> {
+        let builder = self.authed(Method::POST, &format!("/admin/comments/{id}/remove"))?;
+        Self::empty(Self::with_json(builder, body)).await
+    }
+
     // ---- Tags -----------------------------------------------------------
 
     pub async fn tag_namespaces(&self) -> Result<Vec<TagNamespace>, CoreError> {
@@ -307,6 +410,12 @@ impl Client {
 
     pub async fn tags(&self, query: &TagQuery) -> Result<Vec<Tag>, CoreError> {
         Self::json(self.request(Method::GET, "/tags")?.query(query)).await
+    }
+
+    /// The tags this login uses most, for `persona` (see `GET /tags/frequent`).
+    pub async fn frequent_tags(&self, persona: Option<Uuid>) -> Result<Vec<Tag>, CoreError> {
+        let query = quill_proto::board::FrequentTagsQuery { persona };
+        Self::json(self.authed(Method::GET, "/tags/frequent")?.query(&query)).await
     }
 
     pub async fn create_tag(&self, body: &CreateTag) -> Result<Tag, CoreError> {
@@ -334,6 +443,126 @@ impl Client {
     pub async fn resolve_report(&self, id: Uuid, action: Resolution) -> Result<Report, CoreError> {
         let builder = self.authed(Method::POST, &format!("/admin/reports/{id}/resolve"))?;
         Self::json(Self::with_json(builder, &ResolveReport { action })).await
+    }
+
+    // ---- Automated moderation (administrators) --------------------------
+
+    pub async fn automod_scripts(&self) -> Result<Vec<ModerationScript>, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/moderation/scripts")?).await
+    }
+
+    pub async fn automod_script(&self, id: Uuid) -> Result<ModerationScript, CoreError> {
+        Self::json(self.authed(Method::GET, &format!("/admin/moderation/scripts/{id}"))?).await
+    }
+
+    pub async fn automod_upload(&self, body: &UploadScript) -> Result<ModerationScript, CoreError> {
+        let builder = self.authed(Method::POST, "/admin/moderation/scripts")?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn automod_replace(
+        &self,
+        id: Uuid,
+        body: &ReplaceScript,
+    ) -> Result<ModerationScript, CoreError> {
+        let builder = self.authed(Method::PUT, &format!("/admin/moderation/scripts/{id}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn automod_set_mode(
+        &self,
+        id: Uuid,
+        body: &SetScriptMode,
+    ) -> Result<ModerationScript, CoreError> {
+        let builder = self.authed(Method::PATCH, &format!("/admin/moderation/scripts/{id}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn automod_remove(&self, id: Uuid) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::DELETE, &format!("/admin/moderation/scripts/{id}"))?).await
+    }
+
+    pub async fn automod_chains(&self) -> Result<Vec<ModerationChain>, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/moderation/chains")?).await
+    }
+
+    pub async fn automod_update_chain(
+        &self,
+        hook: Hook,
+        body: &UpdateChain,
+    ) -> Result<ModerationChain, CoreError> {
+        let builder = self.authed(Method::PUT, &format!("/admin/moderation/chains/{hook}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn automod_data_list(&self) -> Result<Vec<ModerationDataSummary>, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/moderation/data")?).await
+    }
+
+    /// Common data names are lowercase letters, digits and underscores, so
+    /// they go into paths as they are.
+    pub async fn automod_data(&self, name: &str) -> Result<ModerationData, CoreError> {
+        Self::json(self.authed(Method::GET, &format!("/admin/moderation/data/{name}"))?).await
+    }
+
+    pub async fn automod_save_data(
+        &self,
+        name: &str,
+        body: &SaveModerationData,
+    ) -> Result<ModerationData, CoreError> {
+        let builder = self.authed(Method::PUT, &format!("/admin/moderation/data/{name}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn automod_delete_data(&self, name: &str) -> Result<(), CoreError> {
+        Self::empty(self.authed(Method::DELETE, &format!("/admin/moderation/data/{name}"))?).await
+    }
+
+    pub async fn automod_data_history(
+        &self,
+        name: &str,
+    ) -> Result<Vec<ModerationDataVersion>, CoreError> {
+        let path = format!("/admin/moderation/data/{name}/versions");
+        Self::json(self.authed(Method::GET, &path)?).await
+    }
+
+    pub async fn automod_data_version(
+        &self,
+        name: &str,
+        version: i32,
+    ) -> Result<ModerationDataContent, CoreError> {
+        let path = format!("/admin/moderation/data/{name}/versions/{version}");
+        Self::json(self.authed(Method::GET, &path)?).await
+    }
+
+    pub async fn automod_restore_data(
+        &self,
+        name: &str,
+        version: i32,
+    ) -> Result<ModerationData, CoreError> {
+        let builder = self.authed(
+            Method::POST,
+            &format!("/admin/moderation/data/{name}/restore"),
+        )?;
+        Self::json(Self::with_json(builder, &RestoreData { version })).await
+    }
+
+    pub async fn automod_templates(&self) -> Result<Vec<ScriptTemplate>, CoreError> {
+        Self::json(self.authed(Method::GET, "/admin/moderation/templates")?).await
+    }
+
+    pub async fn automod_use_template(
+        &self,
+        id: &str,
+        body: &UseTemplate,
+    ) -> Result<ModerationScript, CoreError> {
+        let builder = self.authed(Method::POST, &format!("/admin/moderation/templates/{id}"))?;
+        Self::json(Self::with_json(builder, body)).await
+    }
+
+    pub async fn automod_dry_run(&self, body: &DryRun) -> Result<DryRunResult, CoreError> {
+        let builder = self.authed(Method::POST, "/admin/moderation/dry-run")?;
+        Self::json(Self::with_json(builder, body)).await
     }
 
     pub async fn admin_log(

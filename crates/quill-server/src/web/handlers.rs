@@ -8,7 +8,7 @@ use axum::{
     Form,
     body::Bytes,
     extract::{Path, Query, State},
-    http::{StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
 use quill_board_ui::{
@@ -16,12 +16,12 @@ use quill_board_ui::{
     Nav, PersonasView, PromptFormView, PromptView, ReportView, SettingsView,
 };
 use quill_proto::{
-    api::{CreatePersona, Credentials},
+    api::{CreatePersona, Credentials, Registration},
     board::{
         CreatePrompt, CreateReport, Maturity, PromptQuery, PromptState, ReportReason, Resolution,
         TagQuery, UpdateAccountSettings, UpdatePrompt,
     },
-    limits::MAX_PAGE_SIZE,
+    limits::{FREQUENT_TAGS, MAX_PAGE_SIZE},
     validate,
 };
 use serde::Deserialize;
@@ -49,7 +49,11 @@ fn parse_opt<T: FromStr>(value: &Option<String>) -> Option<T> {
 /// Errors the visitor can fix by changing the form.
 pub(super) fn form_error(err: &ApiError) -> Option<String> {
     match err {
-        ApiError::BadRequest(m) | ApiError::Conflict(m) | ApiError::Forbidden(m) => Some(m.clone()),
+        ApiError::BadRequest(m)
+        | ApiError::Conflict(m)
+        | ApiError::Forbidden(m)
+        | ApiError::ContentRejected(m)
+        | ApiError::RulesNotAccepted(m) => Some(m.clone()),
         _ => None,
     }
 }
@@ -104,12 +108,15 @@ pub struct BoardParams {
     maturity: Option<String>,
     state: Option<String>,
     cursor: Option<String>,
+    /// A prompt to show in the reading pane beside the list.
+    open: Option<String>,
     notice: Option<String>,
 }
 
 pub async fn board(
     State(state): State<AppState>,
     MaybeSession(session): MaybeSession,
+    headers: HeaderMap,
     Query(p): Query<BoardParams>,
 ) -> Response {
     let c = chrome(&state, session.as_ref(), Nav::Board, opt(&p.notice));
@@ -136,16 +143,35 @@ pub async fn board(
         Err(ApiError::BadRequest(m)) => (Vec::new(), None, Some(m)),
         Err(e) => return error_page(&c, e),
     };
+    let (sticky_announcements, announcement) =
+        match super::announcements::banners(&state, &headers).await {
+            Ok(b) => b,
+            Err(e) => return error_page(&c, e),
+        };
+    let cap = session
+        .as_ref()
+        .map_or(Maturity::DEFAULT_MAX, |s| s.maturity_max);
+    // A prompt rated above the visitor's cap isn't opened here; its own
+    // page asks first.
+    let open = match parse_opt::<Uuid>(&p.open) {
+        Some(id) => match prompts::load_prompt(&state.pool, id, viewer, false).await {
+            Ok(found) => found.filter(|p| p.maturity <= cap),
+            Err(e) => return error_page(&c, e),
+        },
+        None => None,
+    };
     let view = BoardView {
         filters,
         prompts: items,
+        cursor: opt(&p.cursor).map(str::to_owned),
         next_cursor,
-        cap: session
-            .as_ref()
-            .map_or(Maturity::DEFAULT_MAX, |s| s.maturity_max),
+        open,
+        cap,
         namespaces: prompts::namespaces(&state).await.unwrap_or_default(),
         tag_options: tag_options(&state).await,
         error,
+        sticky_announcements,
+        announcement,
     };
     html(StatusCode::OK, quill_board_ui::board_page(&c, view))
 }
@@ -215,10 +241,40 @@ async fn prompt_form_view(
     tags: FormTags,
     error: Option<String>,
 ) -> Result<PromptFormView, ApiError> {
+    let personas = routes::personas(state, session.account_id).await?;
+    // Suggestions are for the persona posting: the one chosen, else the
+    // first in the list, which the form selects.
+    let persona = parse_opt::<Uuid>(&post.persona)
+        .filter(|id| personas.iter().any(|p| p.id == *id))
+        .or_else(|| personas.first().map(|p| p.id));
+    let chosen: Vec<String> = tags.chips.iter().map(|c| c.tag.key()).collect();
+    let frequent: Vec<_> = match persona {
+        Some(id) => prompts::frequent_tags(
+            state,
+            session.account_id,
+            Some(id),
+            FREQUENT_TAGS + chosen.len(),
+        )
+        .await?
+        .into_iter()
+        .filter(|t| !chosen.contains(&t.key()))
+        .take(FREQUENT_TAGS)
+        .collect(),
+        None => Vec::new(),
+    };
+    let all = prompts::account_settings(state, session.account_id)
+        .await?
+        .suggest_all_personas;
+    let frequent_for = persona
+        .filter(|_| !all)
+        .and_then(|id| personas.iter().find(|p| p.id == id))
+        .map(|p| p.handle.clone());
     Ok(PromptFormView {
         editing,
-        personas: routes::personas(state, session.account_id).await?,
+        personas,
         persona: parse_opt(&post.persona),
+        frequent,
+        frequent_for,
         title: post.title.clone().unwrap_or_default(),
         body: post.body.clone().unwrap_or_default(),
         maturity: parse_opt(&post.maturity).unwrap_or(Maturity::General),
@@ -230,6 +286,9 @@ async fn prompt_form_view(
         tag_options: tag_options(state).await,
         tag_policy: crate::server_settings::settings(state).await?.new_tags,
         namespaces: prompts::namespaces(state).await?,
+        preview_html: post
+            .previewing()
+            .then(|| crate::markdown::render(post.body.as_deref().unwrap_or_default())),
     })
 }
 
@@ -606,31 +665,59 @@ pub async fn report_submit(
     match reports::file_report(&state, session.as_ref().map(|s| s.account_id), &report).await {
         Ok(()) => redirect(&format!("/p/{}?notice=reported", prompt.id)),
         Err(ApiError::BadRequest(m)) => rerender(format!("Details {m}.")),
+        Err(ApiError::ContentRejected(m)) => rerender(m),
         Err(e) => error_page(&c, e),
     }
 }
 
 // ---- The visitor's own pages ---------------------------------------------
 
+#[derive(Debug, Default, Deserialize)]
+pub struct MineParams {
+    notice: Option<String>,
+    /// Closed prompts rather than those on the board.
+    closed: Option<String>,
+    /// One persona's prompts.
+    persona: Option<String>,
+}
+
 pub async fn mine(
     State(state): State<AppState>,
     MaybeSession(session): MaybeSession,
-    Query(q): Query<NoticeQuery>,
+    Query(q): Query<MineParams>,
 ) -> Response {
     let Some(s) = session else {
         return redirect("/login");
     };
     let c = chrome(&state, Some(&s), Nav::Mine, opt(&q.notice));
+    let closed = opt(&q.closed).is_some();
+    let persona = parse_opt::<Uuid>(&q.persona);
     let query = PromptQuery {
         author: Some("me".into()),
         limit: Some(MAX_PAGE_SIZE),
         ..PromptQuery::default()
     };
-    match prompts::search_prompts(&state, Some(s.account_id), &query).await {
-        Ok(page) => html(
-            StatusCode::OK,
-            quill_board_ui::my_prompts_page(&c, page.items),
-        ),
+    let loaded = async {
+        let page = prompts::search_prompts(&state, Some(s.account_id), &query).await?;
+        let personas = routes::personas(&state, s.account_id).await?;
+        Ok::<_, ApiError>((page.items, personas))
+    }
+    .await;
+    match loaded {
+        Ok((items, personas)) => {
+            let prompts = items
+                .into_iter()
+                .filter(|p| (p.state == PromptState::Closed) == closed)
+                .filter(|p| persona.is_none_or(|id| p.author.id == id))
+                .collect();
+            let view = quill_board_ui::MyPromptsView {
+                prompts,
+                personas,
+                persona,
+                closed,
+            };
+            html(StatusCode::OK, quill_board_ui::my_prompts_page(&c, view))
+        }
         Err(e) => error_page(&c, e),
     }
 }
@@ -751,12 +838,41 @@ pub async fn settings(
     let Some(s) = session else {
         return redirect("/login");
     };
-    let c = chrome(&state, Some(&s), Nav::Settings, opt(&q.notice));
-    match prompts::account_settings(&state, s.account_id).await {
-        Ok(settings) => html(
-            StatusCode::OK,
-            quill_board_ui::settings_page(&c, SettingsView { settings }),
-        ),
+    render_settings(&state, &s, opt(&q.notice), None, None).await
+}
+
+/// The settings page; `staff_name` and `error` refill it after a refusal.
+async fn render_settings(
+    state: &AppState,
+    s: &Session,
+    notice: Option<&str>,
+    staff_name: Option<&str>,
+    error: Option<String>,
+) -> Response {
+    let c = chrome(state, Some(s), Nav::Settings, notice);
+    match prompts::account_settings(state, s.account_id).await {
+        Ok(settings) => {
+            let staff_name = staff_name
+                .map(str::to_owned)
+                .or_else(|| settings.staff_name.clone())
+                .unwrap_or_default();
+            let status = if error.is_some() {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::OK
+            };
+            html(
+                status,
+                quill_board_ui::settings_page(
+                    &c,
+                    SettingsView {
+                        settings,
+                        staff_name,
+                        error,
+                    },
+                ),
+            )
+        }
         Err(e) => error_page(&c, e),
     }
 }
@@ -765,6 +881,10 @@ pub async fn settings(
 pub struct SettingsForm {
     csrf: Option<String>,
     maturity_max: Option<String>,
+    /// Sent only by administrators' forms.
+    staff_name: Option<String>,
+    /// A checkbox: the form is always sent whole, so absent means off.
+    suggest_all_personas: Option<String>,
 }
 
 pub async fn settings_save(
@@ -781,11 +901,27 @@ pub async fn settings_save(
     }
     let update = UpdateAccountSettings {
         maturity_max: parse_opt(&form.maturity_max),
+        staff_name: form.staff_name.clone().filter(|_| s.is_admin),
+        suggest_all_personas: Some(form.suggest_all_personas.is_some()),
     };
     match prompts::update_account_settings(&state, s.account_id, &update).await {
         Ok(_) => redirect("/settings?notice=settings"),
-        Err(e) => error_page(&c, e),
+        Err(e) => match form_error(&e) {
+            Some(m) => render_settings(&state, &s, None, form.staff_name.as_deref(), Some(m)).await,
+            None => error_page(&c, e),
+        },
     }
+}
+
+// ---- More ------------------------------------------------------------------
+
+/// The phone's "More" page: links that don't fit its tab bar.
+pub async fn more(State(state): State<AppState>, MaybeSession(session): MaybeSession) -> Response {
+    let Some(s) = session else {
+        return redirect("/login");
+    };
+    let c = chrome(&state, Some(&s), Nav::More, None);
+    html(StatusCode::OK, quill_board_ui::more_page(&c))
 }
 
 // ---- Sign in, register, sign out -----------------------------------------
@@ -795,14 +931,19 @@ pub struct AuthForm {
     username: Option<String>,
     password: Option<String>,
     confirm: Option<String>,
+    /// The "I accept the server rules" checkbox, and the version it was for.
+    accept_rules: Option<String>,
+    rules_version: Option<String>,
 }
 
+/// `accept_rules` is the rules version a sign-up form asks to accept.
 fn auth_page(
     state: &AppState,
     mode: AuthMode,
     username: &str,
     status: StatusCode,
     error: Option<String>,
+    accept_rules: Option<u32>,
 ) -> Response {
     let c = chrome(state, None, Nav::SignIn, None);
     html(
@@ -814,6 +955,7 @@ fn auth_page(
                 username: username.to_owned(),
                 error,
                 registration_open: state.config.registration_open,
+                accept_rules,
             },
         ),
     )
@@ -826,7 +968,7 @@ pub async fn login_form(
     if session.is_some() {
         return redirect("/");
     }
-    auth_page(&state, AuthMode::SignIn, "", StatusCode::OK, None)
+    auth_page(&state, AuthMode::SignIn, "", StatusCode::OK, None, None)
 }
 
 pub async fn login_submit(State(state): State<AppState>, Form(form): Form<AuthForm>) -> Response {
@@ -846,6 +988,7 @@ pub async fn login_submit(State(state): State<AppState>, Form(form): Form<AuthFo
             &username,
             StatusCode::UNAUTHORIZED,
             Some("That login name and password don't match an account.".into()),
+            None,
         ),
         Err(e) => error_page(&chrome(&state, None, Nav::SignIn, None), e),
     }
@@ -858,7 +1001,10 @@ pub async fn register_form(
     if session.is_some() {
         return redirect("/");
     }
-    auth_page(&state, AuthMode::Register, "", StatusCode::OK, None)
+    match super::rules::version_to_accept_on_join(&state).await {
+        Ok(accept) => auth_page(&state, AuthMode::Register, "", StatusCode::OK, None, accept),
+        Err(e) => error_page(&chrome(&state, None, Nav::SignIn, None), e),
+    }
 }
 
 pub async fn register_submit(
@@ -867,6 +1013,11 @@ pub async fn register_submit(
 ) -> Response {
     let username = form.username.clone().unwrap_or_default();
     let password = form.password.clone().unwrap_or_default();
+    // Asked again with the rules as they are now, should they have changed.
+    let accept = match super::rules::version_to_accept_on_join(&state).await {
+        Ok(v) => v,
+        Err(e) => return error_page(&chrome(&state, None, Nav::SignIn, None), e),
+    };
     let fail = |m: &str| {
         auth_page(
             &state,
@@ -874,6 +1025,7 @@ pub async fn register_submit(
             &username,
             StatusCode::BAD_REQUEST,
             Some(m.to_owned()),
+            accept,
         )
     };
     if validate::username(&username).is_err() {
@@ -885,17 +1037,23 @@ pub async fn register_submit(
     if form.confirm.as_deref() != Some(password.as_str()) {
         return fail("The two passwords don't match.");
     }
-    let creds = Credentials {
+    let registration = Registration {
         username: username.clone(),
         password,
+        accept_rules: form
+            .accept_rules
+            .is_some()
+            .then(|| opt(&form.rules_version).and_then(|v| v.parse().ok()))
+            .flatten(),
     };
-    match routes::create_account(&state, creds).await {
+    match routes::create_account(&state, registration).await {
         Ok(account) => match session::start(&state, account).await {
             Ok(cookie) => with_cookie(cookie, "/personas?notice=registered"),
             Err(e) => error_page(&chrome(&state, None, Nav::SignIn, None), e),
         },
         Err(ApiError::Conflict(_)) => fail("That login name is taken. Try another."),
         Err(ApiError::Forbidden(_)) => fail("This server isn't accepting new accounts right now."),
+        Err(ApiError::RulesNotAccepted(m)) => fail(&m),
         Err(e) => error_page(&chrome(&state, None, Nav::SignIn, None), e),
     }
 }
@@ -932,6 +1090,8 @@ pub(super) fn not_admin(state: &AppState, s: &Session) -> Response {
 pub struct AdminReportsParams {
     all: Option<String>,
     notice: Option<String>,
+    /// The report to show in full.
+    open: Option<String>,
 }
 
 pub async fn admin_reports(
@@ -950,7 +1110,14 @@ pub async fn admin_reports(
     match reports::reports(&state, all).await {
         Ok(reports) => html(
             StatusCode::OK,
-            quill_board_ui::admin_reports_page(&c, AdminReportsView { reports, all }),
+            quill_board_ui::admin_reports_page(
+                &c,
+                AdminReportsView {
+                    reports,
+                    all,
+                    open: parse_opt(&p.open),
+                },
+            ),
         ),
         Err(e) => error_page(&c, e),
     }

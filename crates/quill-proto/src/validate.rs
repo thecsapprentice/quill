@@ -34,6 +34,14 @@ pub enum ValidationError {
         "channel {0:?} must be 1-{CHANNEL_MAX_CHARS} characters of a-z, 0-9 and single hyphens, not starting or ending with one"
     )]
     Channel(String),
+    #[error(
+        "a staff name must be 1-{STAFF_NAME_MAX_CHARS} characters on one line, and can't be “Administrators”"
+    )]
+    StaffName,
+    #[error(
+        "a tag type's minimum and maximum must each be at most {PROMPT_MAX_TAGS}, the maximum at least 1, and the minimum no more than the maximum"
+    )]
+    TagLimits,
 }
 
 /// The longest channel name (protocol draft, section 5).
@@ -113,6 +121,19 @@ pub fn display_name(input: Option<&str>) -> Result<Option<String>, ValidationErr
     Ok(value)
 }
 
+/// An administrator's staff name. Blank clears it (`None`). It can't be
+/// the shared voice's own name, so nobody's comments read as both.
+pub fn staff_name(input: &str) -> Result<Option<String>, ValidationError> {
+    let value =
+        optional_text(Some(input), STAFF_NAME_MAX_CHARS).map_err(|_| ValidationError::StaffName)?;
+    match value {
+        Some(v) if v.contains('\n') || v.eq_ignore_ascii_case("administrators") => {
+            Err(ValidationError::StaffName)
+        }
+        other => Ok(other),
+    }
+}
+
 pub fn summary(input: Option<&str>) -> Result<Option<String>, ValidationError> {
     optional_text(input, SUMMARY_MAX_CHARS)
 }
@@ -136,13 +157,45 @@ pub fn prompt_title(input: &str) -> Result<String, ValidationError> {
 /// Prompt bodies are Markdown; line breaks and tabs are allowed. Line endings
 /// are normalized to `\n`.
 pub fn prompt_body(input: &str) -> Result<String, ValidationError> {
+    markdown_body(input, PROMPT_BODY_MAX_CHARS)
+}
+
+pub fn announcement_title(input: &str) -> Result<String, ValidationError> {
+    required_line("title", input, ANNOUNCEMENT_TITLE_MAX_CHARS)
+}
+
+/// Announcement bodies are Markdown, like prompt bodies.
+pub fn announcement_body(input: &str) -> Result<String, ValidationError> {
+    markdown_body(input, ANNOUNCEMENT_BODY_MAX_CHARS)
+}
+
+/// A tag type's limits: how many of its tags a prompt needs and may carry.
+pub fn tag_limits(min: u32, max: Option<u32>) -> Result<(), ValidationError> {
+    let cap = u32::try_from(PROMPT_MAX_TAGS).unwrap_or(u32::MAX);
+    let ok = min <= cap && max.is_none_or(|m| (1..=cap).contains(&m) && min <= m);
+    if ok {
+        Ok(())
+    } else {
+        Err(ValidationError::TagLimits)
+    }
+}
+
+/// The server rules: Markdown, up to [`RULES_BODY_MAX_CHARS`].
+pub fn rules_body(input: &str) -> Result<String, ValidationError> {
+    markdown_body(input, RULES_BODY_MAX_CHARS)
+}
+
+/// Comments are Markdown too, shorter than prompts.
+pub fn comment_body(input: &str) -> Result<String, ValidationError> {
+    markdown_body(input, COMMENT_BODY_MAX_CHARS)
+}
+
+/// Required Markdown text, its line endings normalized to `\n`.
+fn markdown_body(input: &str, max: usize) -> Result<String, ValidationError> {
     let normalized = input.replace("\r\n", "\n").replace('\r', "\n");
-    match optional_text(Some(&normalized), PROMPT_BODY_MAX_CHARS) {
+    match optional_text(Some(&normalized), max) {
         Ok(Some(v)) => Ok(v),
-        _ => Err(ValidationError::Required {
-            field: "body",
-            max: PROMPT_BODY_MAX_CHARS,
-        }),
+        _ => Err(ValidationError::Required { field: "body", max }),
     }
 }
 

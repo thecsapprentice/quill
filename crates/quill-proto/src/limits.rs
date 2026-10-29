@@ -65,6 +65,21 @@ pub const PROMPT_TITLE_MAX_CHARS: usize = 200;
 pub const PROMPT_BODY_MAX_CHARS: usize = 20_000;
 pub const PROMPT_MAX_TAGS: usize = 15;
 
+/// Announcements from administrators: the same bounds as prompts.
+pub const ANNOUNCEMENT_TITLE_MAX_CHARS: usize = PROMPT_TITLE_MAX_CHARS;
+pub const ANNOUNCEMENT_BODY_MAX_CHARS: usize = PROMPT_BODY_MAX_CHARS;
+/// Tags the post form suggests as "You often use".
+pub const FREQUENT_TAGS: usize = 8;
+/// How many of a writer's newest prompts those suggestions come from.
+pub const FREQUENT_TAGS_FROM_PROMPTS: i64 = 50;
+
+/// The server rules page: one document, so longer than a prompt.
+pub const RULES_BODY_MAX_CHARS: usize = 50_000;
+/// A comment on an announcement.
+pub const COMMENT_BODY_MAX_CHARS: usize = 5000;
+/// The name an administrator comments under as staff.
+pub const STAFF_NAME_MAX_CHARS: usize = 40;
+
 /// Tags and tag namespaces.
 pub const TAG_SLUG_MAX_CHARS: usize = 40;
 pub const TAG_DISPLAY_MAX_CHARS: usize = 40;

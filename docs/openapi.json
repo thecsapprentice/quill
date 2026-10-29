@@ -108,6 +108,26 @@
               }
             }
           },
+          "403": {
+            "description": "A staff name, from a login that isn't an administrator",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another administrator uses that staff name",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "413": {
             "description": "The body is over the instance's size limit.",
             "content": {
@@ -569,6 +589,391 @@
         ]
       }
     },
+    "/admin/announcements": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Post an announcement as the server",
+        "operationId": "post_admin_announcements",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAnnouncement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Announcement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/announcements/{id}": {
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Delete an announcement",
+        "operationId": "delete_admin_announcements_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The announcement",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such announcement, or already deleted",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Edit an announcement, or open or close its comments",
+        "operationId": "patch_admin_announcements_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The announcement",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAnnouncement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Announcement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such announcement, or deleted",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/comments/{id}/remove": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Remove a comment without a report",
+        "description": "Its author still sees it, marked as removed, and is told the reason's category.",
+        "operationId": "post_admin_comments_by_id_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The comment",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveComment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such comment",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already removed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/admin/log": {
       "get": {
         "tags": [
@@ -761,6 +1166,1605 @@
           },
           "404": {
             "description": "No such entry",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/moderation/chains": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Every hook's chain of scripts",
+        "operationId": "get_admin_moderation_chains",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModerationChain"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/moderation/chains/{hook}": {
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Save a hook's chain: its scripts in order, and what a failing script means",
+        "description": "Each script newly added is first tried on the hook's sample post.",
+        "operationId": "put_admin_moderation_chains_by_hook",
+        "parameters": [
+          {
+            "name": "hook",
+            "in": "path",
+            "description": "The hook",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Hook"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateChain"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationChain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A script fails at this hook, or doesn't exist",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/moderation/data": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Common data entries, without their content",
+        "operationId": "get_admin_moderation_data",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModerationDataSummary"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/moderation/data/{name}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "One common data entry",
+        "operationId": "get_admin_moderation_data_by_name",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The entry",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationData"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such entry",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Create a common data entry, or save a new version of it",
+        "description": "With `baseVersion`, refused (409) if someone has saved since that version.",
+        "operationId": "put_admin_moderation_data_by_name",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The entry",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveModerationData"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationData"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A bad name, or too large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Saved by someone else since",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Delete a common data entry and its history",
+        "operationId": "delete_admin_moderation_data_by_name",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The entry",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such entry",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A script reads it",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/moderation/data/{name}/restore": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Undo: save an old version's content again, as a new version",
+        "operationId": "post_admin_moderation_data_by_name_restore",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The entry",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreData"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationData"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/moderation/data/{name}/versions": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Every saved version of an entry, newest first",
+        "operationId": "get_admin_moderation_data_by_name_versions",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The entry",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModerationDataVersion"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such entry",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/moderation/data/{name}/versions/{version}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "One saved version's content",
+        "operationId": "get_admin_moderation_data_by_name_versions_by_version",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The entry",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "The version",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationDataContent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/moderation/dry-run": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Run a chain or a script without doing anything",
+        "description": "Every script runs, whatever the one before it decided; nothing is logged or done. `data` tries unsaved common data.",
+        "operationId": "post_admin_moderation_dry_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DryRun"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DryRunResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such script or prompt",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/moderation/scripts": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Moderation scripts, by name",
+        "operationId": "get_admin_moderation_scripts",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModerationScript"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Upload a moderation script",
+        "description": "Refused (400) if it doesn't compile, names common data that doesn't exist, or fails on a sample post; the message names the line.",
+        "operationId": "post_admin_moderation_scripts",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadScript"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationScript"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The script has a mistake",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The name is taken",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/moderation/scripts/{id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "One moderation script",
+        "operationId": "get_admin_moderation_scripts_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The script",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationScript"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such script",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Replace a script's source or name",
+        "description": "New source is checked as on upload, on the sample post of each hook whose chain runs it.",
+        "operationId": "put_admin_moderation_scripts_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The script",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceScript"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationScript"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The script has a mistake",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such script",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Remove a script, and its place in every chain",
+        "operationId": "delete_admin_moderation_scripts_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The script",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such script",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Switch a script on or off, or into or out of log-only mode",
+        "operationId": "patch_admin_moderation_scripts_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The script",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetScriptMode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationScript"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such script",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/moderation/templates": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "The templates scripts can be started from",
+        "operationId": "get_admin_moderation_templates",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScriptTemplate"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/moderation/templates/{id}": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Start a new script from a template",
+        "description": "Creates the common data entries it reads if they don't exist yet. The copy is the administrator's from then on.",
+        "operationId": "post_admin_moderation_templates_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The template",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UseTemplate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationScript"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such template",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The name is taken",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1327,6 +3331,93 @@
         ]
       }
     },
+    "/admin/rules": {
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Write the server rules",
+        "description": "Saves the next version. Unless `minor` is set, accounts accept it again where the rules acceptance setting asks for that.",
+        "operationId": "put_admin_rules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRules"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rules"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The login isn't an administrator.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/admin/settings": {
       "get": {
         "tags": [
@@ -1711,7 +3802,7 @@
         "tags": [
           "admin"
         ],
-        "summary": "Change a namespace: its label, whether it is locked or required",
+        "summary": "Change a namespace: its label, whether it is locked, its limits or colours",
         "operationId": "patch_admin_tag_namespaces_by_name",
         "parameters": [
           {
@@ -2321,6 +4412,361 @@
         ]
       }
     },
+    "/announcements": {
+      "get": {
+        "tags": [
+          "announcements"
+        ],
+        "summary": "The administrators' announcements, newest first",
+        "description": "Pages by `cursor`, which the previous page returns. `sticky=true` gives the sticky ones, whose banners clients show at the top of the board without a way to dismiss them.",
+        "operationId": "get_announcements",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "sticky",
+            "in": "query",
+            "description": "Only sticky announcements (`true`), or only the others (`false`).",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/announcements/{id}": {
+      "get": {
+        "tags": [
+          "announcements"
+        ],
+        "summary": "One announcement",
+        "operationId": "get_announcements_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The announcement",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Announcement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such announcement, or deleted",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/announcements/{id}/comments": {
+      "get": {
+        "tags": [
+          "announcements"
+        ],
+        "summary": "Comments on an announcement, oldest first",
+        "description": "Removed comments are left out, except for their author and administrators, who see them marked as removed. Pages by `cursor`, which the previous page returns.",
+        "operationId": "get_announcements_by_id_comments",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The announcement",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "This server shows comments to signed-in writers only (`commentVisibility` in `GET /instance`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such announcement, or deleted",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "announcements"
+        ],
+        "summary": "Comment on an announcement as one of the login's personas",
+        "description": "At most 30 comments per login an hour. Comments can't be edited. Administrators may speak as `administrators`, or as `staff` under the staff name in their account settings; the board marks both as the administrators'.",
+        "operationId": "post_announcements_by_id_comments",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The announcement",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateComment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Comments are closed on this announcement, or a staff voice from a login that isn't an administrator",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such announcement, or deleted",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many comments",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/auth/login": {
       "post": {
         "tags": [
@@ -2451,13 +4897,13 @@
           "auth"
         ],
         "summary": "Create a login and sign in",
-        "description": "Login names are 1-30 of a-z, 0-9 and underscore (folded to lowercase); passwords at least 12 characters and at most 1024 bytes.",
+        "description": "Login names are 1-30 of a-z, 0-9 and underscore (folded to lowercase); passwords at least 12 characters and at most 1024 bytes. When the instance's `rulesAcceptance` includes joining and there are rules, `acceptRules` must name the current rules version.",
         "operationId": "post_auth_register",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Credentials"
+                "$ref": "#/components/schemas/Registration"
               }
             }
           },
@@ -2485,7 +4931,7 @@
             }
           },
           "403": {
-            "description": "Registration is closed",
+            "description": "Registration is closed, or the rules weren't accepted (`rules-not-accepted`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3088,6 +5534,180 @@
           }
         },
         "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/comments/{id}": {
+      "delete": {
+        "tags": [
+          "announcements"
+        ],
+        "summary": "Delete one of the login's comments",
+        "operationId": "delete_comments_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The comment",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not one of the login's comments",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/comments/{id}/report": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Report a comment to the administrators",
+        "description": "Signing in is optional, unless the server shows comments to signed-in writers only. The author never learns who reported, and reports (of prompts and comments together) are rate-limited per reporter.",
+        "operationId": "post_comments_by_id_report",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The comment",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportComment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Received"
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "This server shows comments to signed-in writers only",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such comment",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many reports",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
           {
             "bearer": []
           }
@@ -5931,6 +8551,140 @@
         ]
       }
     },
+    "/rules": {
+      "get": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "The server rules",
+        "description": "Signed-in callers also learn whether they must accept this version before posting, editing, commenting or reporting.",
+        "operationId": "get_rules",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rules"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The administrators haven't written any rules",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/rules/accept": {
+      "post": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Accept the server rules",
+        "operationId": "post_rules_accept",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptRules"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Accepted"
+          },
+          "400": {
+            "description": "The request is malformed or a value is invalid.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There are no rules",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The rules changed since that version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over the instance's size limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/sessions": {
       "get": {
         "tags": [
@@ -6821,10 +9575,97 @@
           }
         ]
       }
+    },
+    "/tags/frequent": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "The tags the caller uses most",
+        "description": "Up to 8 visible tags from the caller's 50 newest prompts on the board, most used first, ties to the most recently used. Only the given persona's prompts count, unless the account suggests tags from all its personas or no persona is given. Only the caller sees these.",
+        "operationId": "get_tags_frequent",
+        "parameters": [
+          {
+            "name": "persona",
+            "in": "query",
+            "description": "The persona posting, one of the caller's. Its own prompts are used\nunless the account suggests from all its personas, or it's left out.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Tag"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The persona isn't one of the caller's",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
     "schemas": {
+      "AcceptRules": {
+        "type": "object",
+        "description": "`POST /rules/accept`.",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The version the caller read. Refused if the rules changed since.",
+            "minimum": 0
+          }
+        }
+      },
       "AccountNotice": {
         "type": "object",
         "required": [
@@ -6873,6 +9714,17 @@
           },
           "maturityMax": {
             "$ref": "#/components/schemas/Maturity"
+          },
+          "staffName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An administrator's name for commenting as staff, if set. Public on\ntheir staff comments; the login name never is."
+          },
+          "suggestAllPersonas": {
+            "type": "boolean",
+            "description": "Suggest tags on the post form from all the login's personas, rather\nthan only the one posting."
           },
           "unreadNotices": {
             "type": "integer",
@@ -7052,7 +9904,25 @@
           "change_setting",
           "recolor_tag",
           "reserve_handles",
-          "unreserve_handle"
+          "unreserve_handle",
+          "post_announcement",
+          "edit_announcement",
+          "delete_announcement",
+          "set_announcement_comments",
+          "set_announcement_sticky",
+          "delete_comment",
+          "upload_script",
+          "replace_script",
+          "remove_script",
+          "set_script_mode",
+          "update_chain",
+          "save_moderation_data",
+          "delete_moderation_data",
+          "automod_reject",
+          "automod_flag",
+          "automod_dismiss",
+          "automod_error",
+          "update_rules"
         ]
       },
       "AdminLogDetail": {
@@ -7118,6 +9988,14 @@
             "type": "string",
             "format": "date-time"
           },
+          "commentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The comment an entry concerns, if any."
+          },
           "detail": {
             "type": [
               "string",
@@ -7134,7 +10012,7 @@
               "string",
               "null"
             ],
-            "description": "Hex SHA-256 of the prompt as reported (report entries only)."
+            "description": "Hex SHA-256 of the prompt or comment as reported (report entries\nand removals only)."
           },
           "promptId": {
             "type": [
@@ -7160,6 +10038,13 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "scriptName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The moderation script that acted, or that an administrator changed,\nas it was named then."
           },
           "subject": {
             "type": [
@@ -7273,6 +10158,73 @@
         ],
         "description": "A tag as administrators see it: with its usage and alias target."
       },
+      "Announcement": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "body",
+          "bodyHtml",
+          "commentsOpen",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Markdown source."
+          },
+          "bodyHtml": {
+            "type": "string",
+            "description": "Sanitized HTML rendered by the server from `body`."
+          },
+          "commentsOpen": {
+            "type": "boolean",
+            "description": "Whether writers may comment on it."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sticky": {
+            "type": "boolean",
+            "description": "Sticky announcements each keep a banner at the top of the board that\nreaders can't dismiss."
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Later than `created_at` once it has been edited."
+          }
+        }
+      },
+      "AnnouncementPage": {
+        "type": "object",
+        "description": "One page of announcements, newest first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Announcement"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "BackupInfo": {
         "type": "object",
         "description": "The login's committed backup (`GET /backup`, 2j).",
@@ -7321,6 +10273,30 @@
           }
         }
       },
+      "ChainStep": {
+        "type": "object",
+        "required": [
+          "scriptId",
+          "name",
+          "enabled",
+          "logOnly"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "logOnly": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scriptId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "ChipColor": {
         "type": "object",
         "description": "A chip's colours, as `#rrggbb`. A `None` text colour is automatic: black\nor white, whichever contrasts more with the background.",
@@ -7362,6 +10338,102 @@
           }
         }
       },
+      "Comment": {
+        "type": "object",
+        "description": "A writer's comment on an announcement: flat, under the announcement,\noldest first.",
+        "required": [
+          "id",
+          "announcement",
+          "body",
+          "bodyHtml",
+          "createdAt"
+        ],
+        "properties": {
+          "announcement": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The announcement it's on."
+          },
+          "author": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PromptAuthor",
+                "description": "The persona that wrote it (`persona` voice only)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "body": {
+            "type": "string",
+            "description": "Markdown source."
+          },
+          "bodyHtml": {
+            "type": "string",
+            "description": "Sanitized HTML rendered by the server from `body`."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "description": "Set once an administrator removed it. Only its author and\nadministrators see it then."
+          },
+          "staffName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The staff name it was posted under (`staff` voice only)."
+          },
+          "voice": {
+            "$ref": "#/components/schemas/CommentVoice",
+            "description": "Who it speaks as."
+          }
+        }
+      },
+      "CommentPage": {
+        "type": "object",
+        "description": "One page of comments, oldest first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Comment"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CommentVisibility": {
+        "type": "string",
+        "enum": [
+          "public",
+          "signed-in"
+        ]
+      },
+      "CommentVoice": {
+        "type": "string",
+        "enum": [
+          "persona",
+          "administrators",
+          "staff"
+        ]
+      },
       "CommitBackup": {
         "type": "object",
         "description": "`POST /backup/{generation}/commit`: the new backup is complete.",
@@ -7373,6 +10445,56 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "CreateAnnouncement": {
+        "type": "object",
+        "description": "`POST /admin/announcements`.",
+        "required": [
+          "title",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Markdown."
+          },
+          "commentsOpen": {
+            "type": "boolean",
+            "description": "Whether writers may comment. Defaults to true."
+          },
+          "sticky": {
+            "type": "boolean",
+            "description": "Keep its banner at the top of the board. Defaults to false."
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateComment": {
+        "type": "object",
+        "description": "`POST /announcements/{id}/comments`. Comments can't be edited, so a\nreported comment stays as it was reported; the author can delete it.",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Markdown."
+          },
+          "persona": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Persona (owned by the caller) to write as; `persona` voice only."
+          },
+          "voice": {
+            "$ref": "#/components/schemas/CommentVoice",
+            "description": "Who to speak as. `administrators` and `staff` are for administrators\nonly; `staff` needs a staff name set in the account settings."
           }
         }
       },
@@ -7418,11 +10540,23 @@
           "locked": {
             "type": "boolean"
           },
+          "max": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "How many a prompt may carry. Absent for no limit.",
+            "minimum": 0
+          },
+          "min": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many tags of this type every prompt needs. Defaults to 0.",
+            "minimum": 0
+          },
           "name": {
             "type": "string"
-          },
-          "required": {
-            "type": "boolean"
           }
         }
       },
@@ -7549,6 +10683,21 @@
           }
         }
       },
+      "DataOverride": {
+        "type": "object",
+        "required": [
+          "name",
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "DeletedTag": {
         "type": "object",
         "description": "Response to `DELETE /admin/tags/{namespace}/{slug}`.",
@@ -7629,6 +10778,128 @@
           "welcome": {
             "type": "string",
             "description": "An `MLSMessage` holding the Welcome, base64url."
+          }
+        }
+      },
+      "DryRun": {
+        "type": "object",
+        "description": "`POST /admin/moderation/dry-run`: runs scripts without doing anything.",
+        "required": [
+          "hook"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DataOverride"
+            },
+            "description": "Common data to use instead of what's saved, to try an edit before\nsaving it."
+          },
+          "hook": {
+            "$ref": "#/components/schemas/Hook"
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Run on this existing prompt, with its writer's history. Otherwise\non `title` and `body`, from a made-up writer."
+          },
+          "script": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "One script to run; the hook's whole chain if left out."
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "DryRunDecision": {
+        "type": "string",
+        "enum": [
+          "pass",
+          "reject",
+          "flag",
+          "dismiss",
+          "error"
+        ]
+      },
+      "DryRunResult": {
+        "type": "object",
+        "required": [
+          "steps"
+        ],
+        "properties": {
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DryRunStep"
+            },
+            "description": "Every script, run whether or not an earlier one decided."
+          }
+        }
+      },
+      "DryRunStep": {
+        "type": "object",
+        "description": "What one script did in a dry run.",
+        "required": [
+          "scriptId",
+          "name",
+          "decision",
+          "micros",
+          "logOnly",
+          "decides"
+        ],
+        "properties": {
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decides": {
+            "type": "boolean",
+            "description": "Whether this is the script that would decide for the chain."
+          },
+          "decision": {
+            "$ref": "#/components/schemas/DryRunDecision"
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The message, reason or error."
+          },
+          "logOnly": {
+            "type": "boolean"
+          },
+          "micros": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "printed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What the script printed."
+          },
+          "scriptId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -7777,6 +11048,16 @@
           }
         }
       },
+      "Hook": {
+        "type": "string",
+        "enum": [
+          "prompt_created",
+          "prompt_edited",
+          "comment_created",
+          "tag_requested",
+          "prompt_reported"
+        ]
+      },
       "IncomingRequest": {
         "type": "object",
         "description": "A request in the author's queue.",
@@ -7840,6 +11121,10 @@
             "type": "boolean",
             "description": "Whether sessions here take attachments: the administrators' choice."
           },
+          "commentVisibility": {
+            "$ref": "#/components/schemas/CommentVisibility",
+            "description": "Who can read comments on announcements, so a client knows to ask a\nvisitor to sign in first."
+          },
           "defaultMaturityMax": {
             "$ref": "#/components/schemas/Maturity",
             "description": "Maturity cap for anonymous visitors and new accounts."
@@ -7861,6 +11146,18 @@
           },
           "registrationOpen": {
             "type": "boolean"
+          },
+          "rulesAcceptance": {
+            "$ref": "#/components/schemas/RulesAcceptance",
+            "description": "When accounts must accept the rules, so a sign-up form knows to ask."
+          },
+          "rulesUpdatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the server rules last changed, or `None` if there are none.\nClients compare it with what they showed to know when to fetch again."
           },
           "software": {
             "type": "string"
@@ -8071,7 +11368,8 @@
         "enum": [
           "admin",
           "server",
-          "reporter"
+          "reporter",
+          "automod"
         ]
       },
       "LoggedMessage": {
@@ -8120,16 +11418,261 @@
           }
         }
       },
+      "ModerationChain": {
+        "type": "object",
+        "description": "One hook's chain: the scripts it runs, in order, and what a failing\nscript means.",
+        "required": [
+          "hook",
+          "onError",
+          "steps"
+        ],
+        "properties": {
+          "hook": {
+            "$ref": "#/components/schemas/Hook"
+          },
+          "onError": {
+            "$ref": "#/components/schemas/OnError"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChainStep"
+            }
+          }
+        }
+      },
+      "ModerationData": {
+        "type": "object",
+        "description": "A common data entry: a named string any script can read and none can\nchange. Lists are one entry per line; `#` starts a comment line.",
+        "required": [
+          "name",
+          "description",
+          "content",
+          "version",
+          "updatedAt"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The administrator who saved it last, if the account still exists."
+          },
+          "usedBy": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Names of the scripts that read it. It can't be deleted while any do."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many times it has been saved; each save is kept in its history."
+          }
+        }
+      },
+      "ModerationDataContent": {
+        "type": "object",
+        "description": "One saved version's content.",
+        "required": [
+          "name",
+          "version",
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ModerationDataSummary": {
+        "type": "object",
+        "description": "One entry in the list of common data, without its content.",
+        "required": [
+          "name",
+          "description",
+          "version",
+          "size",
+          "updatedAt"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size of the content in bytes.",
+            "minimum": 0
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "usedBy": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ModerationDataVersion": {
+        "type": "object",
+        "description": "One saved version of an entry.",
+        "required": [
+          "version",
+          "size",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ModerationScript": {
+        "type": "object",
+        "description": "A moderation script, as administrators see it.",
+        "required": [
+          "id",
+          "name",
+          "source",
+          "sourceHash",
+          "enabled",
+          "logOnly",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "chains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Hook"
+            },
+            "description": "The chains it's in."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The common data entries it reads."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether it runs at all."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "logOnly": {
+            "type": "boolean",
+            "description": "Whether its results are only logged, with nothing done."
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "Rhai source."
+          },
+          "sourceHash": {
+            "type": "string",
+            "description": "Hex SHA-256 of `source`, as the log records it."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "uploadedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "NoticeFields": {
         "type": "object",
         "description": "Kind-specific details. Absent fields don't apply to the kind.",
         "properties": {
+          "announcement": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "For a removed comment: the announcement it was on, its title at the\ntime, and the persona that wrote it. Not the comment's text."
+          },
+          "announcementTitle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "from": {
             "type": [
               "string",
               "null"
             ],
             "description": "For a rename: the old and new display names."
+          },
+          "handle": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "into": {
             "type": [
@@ -8138,16 +11681,29 @@
             ],
             "description": "For a merge: the tag the prompts carry now, as `namespace:slug`."
           },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "reason": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/ReportReason",
-                "description": "For a removal after a report: the report's category. Never who\nreported it."
+                "description": "For a removal: the reason's category. Never who reported it."
               },
               {
                 "type": "null"
               }
             ]
+          },
+          "refused": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a refused submission: what it was (`prompt`, `edit`, `comment`,\n`tag` or `report`), its title or tag name if it had one, and the\nmessage the writer was shown. Never the refused text."
           },
           "tag": {
             "type": [
@@ -8162,6 +11718,12 @@
               "null"
             ],
             "description": "The tag's display name at the time."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "to": {
             "type": [
@@ -8181,7 +11743,9 @@
           "tag_hidden",
           "tag_shown",
           "tag_renamed",
-          "tag_approved"
+          "tag_approved",
+          "comment_removed",
+          "content_rejected"
         ]
       },
       "NoticePrompt": {
@@ -8205,6 +11769,14 @@
             "type": "string"
           }
         }
+      },
+      "OnError": {
+        "type": "string",
+        "enum": [
+          "continue",
+          "reject",
+          "flag"
+        ]
       },
       "OutgoingRequest": {
         "type": "object",
@@ -8543,6 +12115,31 @@
           }
         }
       },
+      "Registration": {
+        "type": "object",
+        "description": "`POST /api/v1/auth/register`: credentials, and the version of the\nserver rules the person accepted when the server asks for that on joining.",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "acceptRules": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The rules version shown at sign-up. Required when `InstanceInfo`'s\n`rulesAcceptance` includes joining and the server has rules.",
+            "minimum": 0
+          },
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
       "Rejoin": {
         "type": "object",
         "description": "A restored device's request to be let back into a session (2j).",
@@ -8566,6 +12163,36 @@
           }
         }
       },
+      "RemoveComment": {
+        "type": "object",
+        "description": "`POST /admin/comments/{id}/remove`: an administrator removes a comment\nwithout a report. The author is told the reason's category.",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/ReportReason"
+          }
+        }
+      },
+      "ReplaceScript": {
+        "type": "object",
+        "description": "`PUT /admin/moderation/scripts/{id}`: new source, a new name, or both.",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "Report": {
         "type": "object",
         "description": "A Review Message in the administrators' inbox.",
@@ -8576,6 +12203,17 @@
           "createdAt"
         ],
         "properties": {
+          "comment": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Comment",
+                "description": "The reported comment; `None` once its author deleted it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -8590,6 +12228,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "kind": {
+            "$ref": "#/components/schemas/ReportKind",
+            "description": "Whether `prompt` or `comment` was reported."
+          },
           "prompt": {
             "oneOf": [
               {
@@ -8603,7 +12245,7 @@
           },
           "promptHash": {
             "type": "string",
-            "description": "Hex SHA-256 of the prompt as it was when reported."
+            "description": "Hex SHA-256 of the prompt or comment as it was when reported."
           },
           "reason": {
             "$ref": "#/components/schemas/ReportReason"
@@ -8624,8 +12266,40 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "script": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The moderation script that filed it, as named then; `None` for a\nwriter's report. `details` holds the script's reason."
           }
         }
+      },
+      "ReportComment": {
+        "type": "object",
+        "description": "`POST /comments/{id}/report`. Anyone may report, signed in or not.",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "$ref": "#/components/schemas/ReportReason"
+          }
+        }
+      },
+      "ReportKind": {
+        "type": "string",
+        "enum": [
+          "prompt",
+          "comment"
+        ]
       },
       "ReportReason": {
         "type": "string",
@@ -8820,6 +12494,19 @@
           }
         }
       },
+      "RestoreData": {
+        "type": "object",
+        "description": "`POST /admin/moderation/data/{name}/restore`: undo back to a version.",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "RevokeDevice": {
         "type": "object",
         "description": "`POST /personas/{id}/devices/{device}/revoke`.",
@@ -8830,6 +12517,111 @@
           "revocation": {
             "type": "string",
             "description": "A `DeviceRevocation`, base64url."
+          }
+        }
+      },
+      "Rules": {
+        "type": "object",
+        "description": "`GET /rules`.",
+        "required": [
+          "body",
+          "bodyHtml",
+          "version",
+          "updatedAt"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Markdown source."
+          },
+          "bodyHtml": {
+            "type": "string",
+            "description": "Sanitized HTML rendered by the server from `body`."
+          },
+          "mustAccept": {
+            "type": "boolean",
+            "description": "For a signed-in caller: whether they must accept this version before\nposting, editing, commenting or reporting again. Always false otherwise."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Goes up by one on every save. Accepting names the version read.",
+            "minimum": 0
+          }
+        }
+      },
+      "RulesAcceptance": {
+        "type": "string",
+        "enum": [
+          "none",
+          "on-join",
+          "on-change",
+          "both"
+        ]
+      },
+      "SaveModerationData": {
+        "type": "object",
+        "description": "`PUT /admin/moderation/data/{name}`: creates the entry or saves a new\nversion of it.",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "baseVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The version this edit started from. If someone else has saved since,\nthe save is refused rather than overwriting their change. Leave out\nto create an entry, or to save regardless."
+          },
+          "content": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "ScriptTemplate": {
+        "type": "object",
+        "description": "A template scripts can be started from.",
+        "required": [
+          "id",
+          "name",
+          "summary",
+          "hooks",
+          "source"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The common data entries it reads, created empty if missing."
+          },
+          "hooks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Hook"
+            },
+            "description": "The chains it's written for."
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
           }
         }
       },
@@ -8894,9 +12686,17 @@
             "type": "boolean",
             "description": "Whether sessions on this server take attachments (2i)."
           },
+          "commentVisibility": {
+            "$ref": "#/components/schemas/CommentVisibility",
+            "description": "Who can read comments on announcements."
+          },
           "newTags": {
             "$ref": "#/components/schemas/TagPolicy",
             "description": "Whether writers may create new tags."
+          },
+          "rulesAcceptance": {
+            "$ref": "#/components/schemas/RulesAcceptance",
+            "description": "When accounts must accept the server rules."
           }
         }
       },
@@ -9126,6 +12926,24 @@
           }
         }
       },
+      "SetScriptMode": {
+        "type": "object",
+        "description": "`PATCH /admin/moderation/scripts/{id}`: switch a script on or off, or\ninto or out of log-only mode.",
+        "properties": {
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "logOnly": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
       "StartLink": {
         "type": "object",
         "description": "`POST /link`: a new device's KeyPackage for the personal group.",
@@ -9202,12 +13020,23 @@
             "type": "boolean",
             "description": "Only server-curated tags may be used."
           },
+          "max": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "How many it may carry; `None` for no limit.",
+            "minimum": 0
+          },
+          "min": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many tags of this type every prompt saved must carry (0:\noptional).",
+            "minimum": 0
+          },
           "name": {
             "type": "string"
-          },
-          "required": {
-            "type": "boolean",
-            "description": "Every prompt saved must carry at least one tag of this type."
           }
         }
       },
@@ -9264,6 +13093,69 @@
                 "type": "null"
               }
             ]
+          },
+          "staffName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Administrators only. An empty string clears it."
+          },
+          "suggestAllPersonas": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateAnnouncement": {
+        "type": "object",
+        "description": "`PATCH /admin/announcements/{id}`. Absent fields are unchanged.",
+        "properties": {
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commentsOpen": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "sticky": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateChain": {
+        "type": "object",
+        "description": "`PUT /admin/moderation/chains/{hook}`: the whole chain, in order.",
+        "required": [
+          "onError",
+          "scripts"
+        ],
+        "properties": {
+          "onError": {
+            "$ref": "#/components/schemas/OnError"
+          },
+          "scripts": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         }
       },
@@ -9274,6 +13166,10 @@
           "clearColor": {
             "type": "boolean",
             "description": "Remove the chip colours. Ignored when `color` is given."
+          },
+          "clearMax": {
+            "type": "boolean",
+            "description": "Remove the maximum. Ignored when `max` is given."
           },
           "color": {
             "oneOf": [
@@ -9298,11 +13194,22 @@
               "null"
             ]
           },
-          "required": {
+          "max": {
             "type": [
-              "boolean",
+              "integer",
               "null"
-            ]
+            ],
+            "format": "int32",
+            "description": "A new maximum.",
+            "minimum": 0
+          },
+          "min": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -9371,6 +13278,23 @@
           }
         }
       },
+      "UpdateRules": {
+        "type": "object",
+        "description": "`PUT /admin/rules`.",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Markdown."
+          },
+          "minor": {
+            "type": "boolean",
+            "description": "A minor edit, such as a typo fix: accounts needn't accept it again.\nIgnored for the first version."
+          }
+        }
+      },
       "UpdateServerSettings": {
         "type": "object",
         "description": "`PATCH /admin/settings`. Absent fields are unchanged.",
@@ -9381,10 +13305,30 @@
               "null"
             ]
           },
+          "commentVisibility": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CommentVisibility"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "newTags": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/TagPolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rulesAcceptance": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RulesAcceptance"
               },
               {
                 "type": "null"
@@ -9457,6 +13401,39 @@
             "description": "A last-resort package, replacing the device's current one."
           }
         }
+      },
+      "UploadScript": {
+        "type": "object",
+        "description": "`POST /admin/moderation/scripts`.",
+        "required": [
+          "name",
+          "source"
+        ],
+        "properties": {
+          "logOnly": {
+            "type": "boolean",
+            "description": "Start in log-only mode, to watch what it would do first."
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "UseTemplate": {
+        "type": "object",
+        "description": "`POST /admin/moderation/templates/{id}`: a new script from a template.",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The new script's name; the template's own if left out."
+          }
+        }
       }
     },
     "securitySchemes": {
@@ -9495,6 +13472,14 @@
     {
       "name": "reports",
       "description": "Reporting prompts"
+    },
+    {
+      "name": "announcements",
+      "description": "News from the server's administrators"
+    },
+    {
+      "name": "rules",
+      "description": "The server rules, and accepting them"
     },
     {
       "name": "admin",

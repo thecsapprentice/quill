@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mobile 3 post a prompt</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#fff}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}
+.field label{font-weight:600;font-size:14px}
+.inp{border:1px solid #c9d3dc;border-radius:6px;padding:9px 10px;font:15px system-ui,sans-serif;background:#fff;color:#1e2b3a;box-sizing:border-box;width:100%;min-height:44px}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:13px;min-height:32px;padding:0 10px;border-radius:999px;background:#eef2f6;color:#1e2b3a;margin:0 4px 6px 0}
+.chip.g{background:#e3e6f7}.chip.f{background:#e3f2ef}
+.chip.slot{background:transparent;border:1px dashed #8d99a6;color:#5b6878}
+.ns{color:#5b6878}
+.btn{display:flex;align-items:center;justify-content:center;min-height:48px;padding:0 14px;border-radius:6px;background:#1c6b63;color:#fff;border:0;font:600 16px system-ui,sans-serif;text-decoration:none}
+.btn-q{background:#fff;color:#1e2b3a;border:1px solid #c9d3dc;font-size:15px;min-height:44px}
+</style>
+</helmet>
+<div class="r" style="width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column">
+  <header style="padding: 8px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #c9d3dc">
+    <a href="M3a-board.dc.html" style="min-height: 44px; display: flex; align-items: center">Cancel</a>
+    <span style="font-weight: 700">New prompt</span>
+    <span style="width: 52px"></span>
+  </header>
+  <form style="flex: 1; overflow: hidden; padding: 14px 16px">
+    <div class="field"><label for="m3t">Title</label><input class="inp serif" id="m3t" type="text" value="Night shift at the observatory" style="font-size: 17px"></div>
+    <div class="field"><label for="m3b">Prompt</label><textarea class="inp serif" id="m3b" rows="6" style="font-size: 16px; line-height: 1.5">The telescope keeps finding the same star in different places. Slow burn, two narrators.</textarea></div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+      <div class="field"><label for="m3r">Rating</label><select class="inp" id="m3r"><option>Teen</option></select></div>
+      <div class="field"><label for="m3p">Post as</label><select class="inp" id="m3p"><option>@wren</option></select></div>
+    </div>
+    <div class="field">
+      <label for="m3tag">Tags</label>
+      <div><span class="chip g"><span class="ns">genre:</span> sci-fi ×</span><span class="chip slot">Length: required</span></div>
+      <div style="display: flex; gap: 8px"><input class="inp" id="m3tag" type="text" placeholder="length:long"><button class="btn btn-q" type="button" style="flex-shrink: 0">Add</button></div>
+      <details style="margin-top: 6px"><summary style="min-height: 40px; display: flex; align-items: center; font-weight: 600; color: #1c6b63">Browse tags</summary></details>
+    </div>
+  </form>
+  <div style="border-top: 1px solid #c9d3dc; padding: 10px 16px 16px; background: #fff">
+    <button class="btn" type="button" style="width: 100%">Post prompt</button>
+    <div class="muted" style="font-size: 13px; text-align: center; margin-top: 6px">Needs a length tag first.</div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

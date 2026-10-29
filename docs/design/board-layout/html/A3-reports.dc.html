@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Option A admin reports</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#eef1f3}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border-radius:4px;background:#1c6b63;color:#fff;border:0;font:600 14px system-ui,sans-serif;text-decoration:none}
+.btn-q{background:#fff;color:#1e2b3a;border:1px solid #c9d3dc}
+.btn-d{background:#a3302b;color:#fff}
+.count{display:inline-block;background:#c2413b;color:#fff;font-size:11px;line-height:16px;border-radius:999px;padding:0 6px;font-weight:700}
+.side a.nav{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;border-radius:4px;color:#1e2b3a;text-decoration:none}
+.side a.sub{padding-left:22px;font-size:13px}
+.side a.cur{background:#fbeae8;font-weight:600}
+.grp{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5b6878;margin:16px 10px 4px}
+table{border-collapse:collapse;width:100%;background:#fff;border:1px solid #c9d3dc}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#5b6878;text-align:left;padding:9px 12px;border-bottom:1px solid #c9d3dc;background:#f6f8f9}
+td{padding:11px 12px;border-bottom:1px solid #e3e8ee;vertical-align:top}
+tr.sel td{background:#fbeae8}
+.pill{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;background:#eef2f6}
+.pill.auto{background:#fff4d6;color:#6b4c00}
+.box{background:#fff;border:1px solid #c9d3dc;border-radius:4px;padding:14px 16px;margin-bottom:14px}
+.box h2{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#5b6878}
+.inp{border:1px solid #c9d3dc;border-radius:4px;padding:7px 9px;font:14px system-ui,sans-serif;background:#fff;color:#1e2b3a}
+</style>
+</helmet>
+<div class="r" style="width: 1440px; height: 900px; display: grid; grid-template-columns: 240px minmax(0, 1fr) 380px; overflow: hidden">
+  <aside class="side" style="background: #fff; border-right: 1px solid #c9d3dc; padding: 18px 12px; display: flex; flex-direction: column">
+    <a class="serif" href="#" style="font-size: 22px; font-weight: 700; color: #1e2b3a; text-decoration: none; padding: 0 10px">Inkwell</a>
+    <div class="muted" style="font-size: 12px; padding: 0 10px">A Quill server</div>
+    <div class="grp">Browse</div>
+    <a class="nav" href="#">Board</a>
+    <a class="nav" href="#">Announcements</a>
+    <div class="grp">Me</div>
+    <a class="nav" href="#">My prompts · Personas</a>
+    <a class="nav" href="#">Notices <span class="count">2</span></a>
+    <div class="grp" style="color: #b03a32">Admin</div>
+    <a class="nav cur" href="#" aria-current="page">Reports <span class="count">3</span></a>
+    <a class="nav" href="#">Admin log</a>
+    <a class="nav" href="#">Announcements</a>
+    <div class="grp">Tags</div>
+    <a class="nav sub" href="#">Tag types</a>
+    <a class="nav sub" href="#">Tags</a>
+    <a class="nav sub" href="#">Tag requests <span class="count">1</span></a>
+    <div class="grp">Moderation</div>
+    <a class="nav sub" href="#">Scripts</a>
+    <a class="nav sub" href="#">Chains</a>
+    <a class="nav sub" href="#">Common data</a>
+    <a class="nav sub" href="#">Dry run</a>
+    <div class="grp">Server</div>
+    <a class="nav sub" href="#">Handles</a>
+    <a class="nav sub" href="#">Sessions</a>
+  </aside>
+
+  <main style="padding: 22px 28px; overflow: hidden; min-width: 0">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px">
+      <h1 class="serif" style="margin: 0; font-size: 28px">Reports</h1>
+      <div style="display: flex; gap: 8px">
+        <select class="inp" aria-label="Show"><option>Waiting (3)</option><option>Handled</option></select>
+        <select class="inp" aria-label="Kind"><option>Prompts and comments</option></select>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Reported</th><th>Category</th><th>Reports</th><th>From</th><th>When</th></tr></thead>
+      <tbody>
+        <tr class="sel"><td><strong>Free essays, any subject, DM me</strong><div class="muted" style="font-size: 12px">Prompt by @quickpen</div></td><td><span class="pill">Spam</span></td><td>4</td><td><span class="pill auto">Automod: link-spam</span></td><td>2h ago</td></tr>
+        <tr><td><strong>Re: October flash-fiction swap</strong><div class="muted" style="font-size: 12px">Comment by @ashfall</div></td><td><span class="pill">Harassment</span></td><td>1</td><td>A writer</td><td>Yesterday</td></tr>
+        <tr><td><strong>Every door in the house opens inward</strong><div class="muted" style="font-size: 12px">Prompt by @quietfox</div></td><td><span class="pill">Wrong rating</span></td><td>2</td><td>Writers</td><td>Oct 25</td></tr>
+      </tbody>
+    </table>
+    <p class="muted" style="font-size: 13px">Reporters are never shown. Discarding a report tells nobody.</p>
+  </main>
+
+  <aside style="background: #f6f8f9; border-left: 1px solid #c9d3dc; padding: 22px 20px; overflow: hidden">
+    <div class="box" style="border-top: 3px solid #c2413b">
+      <h2>Prompt</h2>
+      <div class="serif" style="font-size: 19px; font-weight: 700">Free essays, any subject, DM me</div>
+      <div class="muted" style="font-size: 12px; margin-bottom: 8px">@quickpen · General · Open · Oct 27</div>
+      <p style="margin: 0; font-size: 13px">Fast turnaround, all subjects, visit my site for rates…</p>
+      <a href="#" style="font-size: 13px">Open the prompt</a>
+    </div>
+    <div class="box">
+      <h2>Reports (4)</h2>
+      <ul style="margin: 0; padding-left: 18px; font-size: 13px">
+        <li>Spam — "advertising a paid service"</li>
+        <li>Spam — no note</li>
+        <li>Spam — no note</li>
+        <li>Flagged by script <strong>link-spam</strong> on post</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h2>Decide</h2>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <button class="btn btn-d" type="button">Remove prompt</button>
+        <button class="btn btn-q" type="button">Discard reports</button>
+      </div>
+      <p class="muted" style="font-size: 12px; margin: 8px 0 0">Removing sends @quickpen a notice naming the category, never the reporters.</p>
+    </div>
+  </aside>
+</div>
+</x-dc>
+</body>
+</html>

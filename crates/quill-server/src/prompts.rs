@@ -12,11 +12,14 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use quill_proto::{
     board::{
-        AccountSettings, ChipColor, CreatePrompt, CreateTag, Maturity, Prompt, PromptAuthor,
-        PromptPage, PromptQuery, PromptState, Tag, TagNamespace, TagOrigin, TagPolicy, TagQuery,
-        TagStatus, UpdateAccountSettings, UpdatePrompt,
+        AccountSettings, ChipColor, CreatePrompt, CreateTag, FrequentTagsQuery, Maturity, Prompt,
+        PromptAuthor, PromptPage, PromptQuery, PromptState, Tag, TagNamespace, TagOrigin,
+        TagPolicy, TagQuery, TagStatus, UpdateAccountSettings, UpdatePrompt,
     },
-    limits::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, SEARCH_QUERY_MAX_CHARS},
+    limits::{
+        DEFAULT_PAGE_SIZE, FREQUENT_TAGS, FREQUENT_TAGS_FROM_PROMPTS, MAX_PAGE_SIZE,
+        SEARCH_QUERY_MAX_CHARS,
+    },
     validate::{self, TagSpec},
 };
 use sqlx::{AssertSqlSafe, PgConnection, PgPool, QueryBuilder};
@@ -28,6 +31,7 @@ use crate::{
     auth::{Authed, MaybeAuthed},
     error::ApiError,
     markdown,
+    moderation::hooks,
     routes::ApiJson,
     server_settings,
 };
@@ -39,6 +43,7 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_prompt, update_prompt, delete_prompt))
         .routes(routes!(list_namespaces))
         .routes(routes!(list_tags, create_user_tag))
+        .routes(routes!(api_frequent_tags))
 }
 
 pub(crate) fn parse_enum<T: std::str::FromStr>(value: &str) -> Result<T, ApiError> {
@@ -83,16 +88,22 @@ pub async fn account_settings(
     state: &AppState,
     account: Uuid,
 ) -> Result<AccountSettings, ApiError> {
-    let row: Option<(String, bool)> =
-        sqlx::query_as("SELECT maturity_max::text, is_admin FROM accounts WHERE id = $1")
-            .bind(account)
-            .fetch_optional(&state.pool)
-            .await?;
-    let (maturity, is_admin) = row.ok_or(ApiError::Unauthorized)?;
+    let row: Option<(String, bool, Option<String>, bool)> = sqlx::query_as(
+        "SELECT maturity_max::text, is_admin, staff_name, suggest_all_personas
+         FROM accounts WHERE id = $1",
+    )
+    .bind(account)
+    .fetch_optional(&state.pool)
+    .await?;
+    let (maturity, is_admin, staff_name, suggest_all_personas) =
+        row.ok_or(ApiError::Unauthorized)?;
     Ok(AccountSettings {
         maturity_max: parse_enum(&maturity)?,
         is_admin,
         unread_notices: crate::notices::unread_count(state, account).await?,
+        // Kept if admin rights are taken away, but only shown to admins.
+        staff_name: staff_name.filter(|_| is_admin),
+        suggest_all_personas,
     })
 }
 
@@ -101,13 +112,49 @@ pub async fn update_account_settings(
     account: Uuid,
     body: &UpdateAccountSettings,
 ) -> Result<AccountSettings, ApiError> {
+    // Checked first, so a refused staff name changes nothing.
+    let staff_name = body
+        .staff_name
+        .as_deref()
+        .map(validate::staff_name)
+        .transpose()?;
+    if staff_name.is_some() && !viewer_is_admin(&state.pool, Some(account)).await? {
+        return Err(ApiError::Forbidden(
+            "Only administrators have a staff name.".into(),
+        ));
+    }
+    let mut tx = state.pool.begin().await?;
     if let Some(m) = body.maturity_max {
         sqlx::query("UPDATE accounts SET maturity_max = $2::maturity WHERE id = $1")
             .bind(account)
             .bind(m.as_str())
-            .execute(&state.pool)
+            .execute(&mut *tx)
             .await?;
     }
+    if let Some(all) = body.suggest_all_personas {
+        sqlx::query("UPDATE accounts SET suggest_all_personas = $2 WHERE id = $1")
+            .bind(account)
+            .bind(all)
+            .execute(&mut *tx)
+            .await?;
+    }
+    if let Some(name) = staff_name {
+        let set = sqlx::query("UPDATE accounts SET staff_name = $2 WHERE id = $1")
+            .bind(account)
+            .bind(&name)
+            .execute(&mut *tx)
+            .await;
+        match set {
+            Ok(_) => {}
+            Err(e) if crate::error::is_unique_violation(&e) => {
+                return Err(ApiError::Conflict(
+                    "Another administrator already uses that staff name.".into(),
+                ));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+    tx.commit().await?;
     account_settings(state, account).await
 }
 
@@ -127,7 +174,11 @@ async fn get_account(
     patch, path = "/account", tag = "account", security(("bearer" = [])),
     summary = "Change the login's board settings",
     request_body = UpdateAccountSettings,
-    responses((status = 200, body = AccountSettings)),
+    responses(
+        (status = 200, body = AccountSettings),
+        (status = 403, description = "A staff name, from a login that isn't an administrator"),
+        (status = 409, description = "Another administrator uses that staff name"),
+    ),
 )]
 async fn update_account(
     State(state): State<AppState>,
@@ -431,11 +482,11 @@ async fn create_user_tag_in(
 
 // ---- Listing and search --------------------------------------------------
 
-fn encode_cursor(created_at: OffsetDateTime, id: Uuid) -> String {
+pub(crate) fn encode_cursor(created_at: OffsetDateTime, id: Uuid) -> String {
     URL_SAFE_NO_PAD.encode(format!("{}.{}", created_at.unix_timestamp_nanos(), id))
 }
 
-fn decode_cursor(cursor: &str) -> Result<(OffsetDateTime, Uuid), ApiError> {
+pub(crate) fn decode_cursor(cursor: &str) -> Result<(OffsetDateTime, Uuid), ApiError> {
     let bad = || ApiError::BadRequest("invalid cursor".into());
     let bytes = URL_SAFE_NO_PAD.decode(cursor).map_err(|_| bad())?;
     let text = String::from_utf8(bytes).map_err(|_| bad())?;
@@ -610,23 +661,34 @@ pub async fn post_prompt(
     account: Uuid,
     body: &CreatePrompt,
 ) -> Result<Prompt, ApiError> {
+    crate::rules::require_accepted(state, account).await?;
     let title = validate::prompt_title(&body.title)?;
     let markdown_body = validate::prompt_body(&body.body)?;
     let specs = validate::tag_specs(&body.tags)?;
     let prompt_state = body.state.unwrap_or(PromptState::Open);
 
-    let mut tx = state.pool.begin().await?;
     let owns: Option<i32> =
         sqlx::query_scalar("SELECT 1 FROM actors WHERE id = $1 AND account_id = $2")
             .bind(body.persona)
             .bind(account)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&state.pool)
             .await?;
     if owns.is_none() {
         return Err(ApiError::BadRequest("unknown persona".into()));
     }
+    // Moderation scripts run before anything is saved, outside the
+    // transaction so its locks aren't held while they run.
+    let draft = hooks::PromptDraft {
+        title: &title,
+        body: &markdown_body,
+        tags: &specs,
+        maturity: body.maturity,
+    };
+    let checks = hooks::before_new_prompt(state, account, body.persona, &draft).await?;
+
+    let mut tx = state.pool.begin().await?;
     let tag_ids = resolve_for_write(&mut tx, specs).await?;
-    check_required_types(&mut tx, &tag_ids).await?;
+    check_tag_limits(&mut tx, &tag_ids).await?;
     let id = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO prompts (id, actor_id, title, body_md, body_html, maturity, state, tag_ids)
@@ -643,6 +705,7 @@ pub async fn post_prompt(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
+    hooks::after_prompt(state, checks, account, id, &title, &markdown_body).await;
 
     load_prompt(&state.pool, id, Some(account), true)
         .await?
@@ -689,6 +752,29 @@ pub async fn edit_prompt(
         .map(validate::prompt_body)
         .transpose()?;
     let specs = body.tags.as_deref().map(validate::tag_specs).transpose()?;
+    // Any edit must meet the current tag type limits, and is checked by
+    // moderation scripts. Changing only the open/busy/closed status isn't
+    // an edit.
+    let edits_content = body.title.is_some()
+        || body.body.is_some()
+        || body.maturity.is_some()
+        || body.tags.is_some();
+    let checks = if edits_content {
+        crate::rules::require_accepted(state, account).await?;
+        let before = before_edit_checks(
+            state,
+            account,
+            id,
+            title.as_deref(),
+            markdown_body.as_deref(),
+            specs.as_deref(),
+            body.maturity,
+        )
+        .await?;
+        Some(before)
+    } else {
+        None
+    };
 
     let mut tx = state.pool.begin().await?;
     let current: Option<(bool, Vec<i64>)> = sqlx::query_as(
@@ -730,14 +816,8 @@ pub async fn edit_prompt(
         }
         None => None,
     };
-    // Any edit must meet the current required tag types. Changing only the
-    // open/busy/closed status doesn't count as an edit.
-    let edits_content = body.title.is_some()
-        || body.body.is_some()
-        || body.maturity.is_some()
-        || body.tags.is_some();
     if edits_content {
-        check_required_types(&mut tx, tag_ids.as_deref().unwrap_or(&current_tags)).await?;
+        check_tag_limits(&mut tx, tag_ids.as_deref().unwrap_or(&current_tags)).await?;
     }
     let body_html = markdown_body.as_deref().map(markdown::render);
     sqlx::query(
@@ -765,9 +845,68 @@ pub async fn edit_prompt(
     }
     tx.commit().await?;
 
-    load_prompt(&state.pool, id, Some(account), true)
+    let prompt = load_prompt(&state.pool, id, Some(account), true)
         .await?
-        .ok_or(ApiError::NotFound)
+        .ok_or(ApiError::NotFound)?;
+    if let Some(checks) = checks {
+        hooks::after_prompt(state, checks, account, id, &prompt.title, &prompt.body).await;
+    }
+    Ok(prompt)
+}
+
+/// Runs `prompt_edited` (and `tag_requested` for new tags) on the prompt as
+/// it would be after the edit, with how it was.
+async fn before_edit_checks(
+    state: &AppState,
+    account: Uuid,
+    id: Uuid,
+    title: Option<&str>,
+    body: Option<&str>,
+    specs: Option<&[TagSpec]>,
+    maturity: Option<Maturity>,
+) -> Result<hooks::PromptChecks, ApiError> {
+    let row: Option<(Uuid, String, String, String, Vec<i64>)> = sqlx::query_as(
+        "SELECT p.actor_id, p.title, p.body_md, p.maturity::text, p.tag_ids
+         FROM prompts p JOIN actors a ON a.id = p.actor_id
+         WHERE p.id = $1 AND a.account_id = $2",
+    )
+    .bind(id)
+    .bind(account)
+    .fetch_optional(&state.pool)
+    .await?;
+    // A missing prompt is reported by the edit itself.
+    let Some((persona, old_title, old_body, old_maturity, old_tags)) = row else {
+        return Ok(hooks::PromptChecks::default());
+    };
+    let tags = load_tags(&state.pool, &old_tags).await?;
+    let old_specs: Vec<TagSpec> = old_tags
+        .iter()
+        .filter_map(|t| tags.get(t))
+        .map(|t| TagSpec {
+            namespace: t.namespace.clone(),
+            slug: t.slug.clone(),
+            display: t.display.clone(),
+        })
+        .collect();
+    let previous = crate::moderation::context::Previous {
+        title: old_title.clone(),
+        body: old_body.clone(),
+        tags: old_specs
+            .iter()
+            .map(|t| format!("{}:{}", t.namespace, t.slug))
+            .collect(),
+        maturity: old_maturity.clone(),
+    };
+    let draft = hooks::PromptDraft {
+        title: title.unwrap_or(&old_title),
+        body: body.unwrap_or(&old_body),
+        tags: specs.unwrap_or(&old_specs),
+        maturity: match maturity {
+            Some(m) => m,
+            None => parse_enum(&old_maturity)?,
+        },
+    };
+    hooks::before_edit(state, account, persona, id, &draft, previous).await
 }
 
 #[utoipa::path(
@@ -825,18 +964,28 @@ async fn list_namespaces(
 }
 
 const NAMESPACE_SELECT: &str =
-    "SELECT name, display, locked, required, chip_bg, chip_fg FROM tag_namespaces";
+    "SELECT name, display, locked, min_tags, max_tags, chip_bg, chip_fg FROM tag_namespaces";
 
-type NamespaceRow = (String, String, bool, bool, Option<String>, Option<String>);
+type NamespaceRow = (
+    String,
+    String,
+    bool,
+    i32,
+    Option<i32>,
+    Option<String>,
+    Option<String>,
+);
 
 /// A tag type with its colours as set (text colour not resolved).
 fn to_namespace(row: NamespaceRow) -> TagNamespace {
-    let (name, display, locked, required, chip_bg, chip_fg) = row;
+    let (name, display, locked, min, max, chip_bg, chip_fg) = row;
     TagNamespace {
         name,
         display,
         locked,
-        required,
+        // The table's check keeps both non-negative.
+        min: u32::try_from(min).unwrap_or(0),
+        max: max.and_then(|m| u32::try_from(m).ok()),
         color: chip_bg.map(|background| ChipColor {
             background,
             text: chip_fg,
@@ -868,24 +1017,51 @@ pub(crate) async fn load_namespace(
     Ok(to_namespace(row))
 }
 
-/// Refuses a prompt whose tags lack a currently required tag type.
-async fn check_required_types(conn: &mut PgConnection, tag_ids: &[i64]) -> Result<(), ApiError> {
-    let missing: Vec<String> = sqlx::query_scalar(
-        "SELECT n.display FROM tag_namespaces n
-         WHERE n.required AND NOT EXISTS (
-             SELECT 1 FROM tags t WHERE t.id = ANY($1) AND t.namespace = n.name)
+fn tags_word(n: i64) -> &'static str {
+    if n == 1 { "tag" } else { "tags" }
+}
+
+/// Refuses a prompt whose tags don't meet the current tag type limits,
+/// naming each type and its limit.
+async fn check_tag_limits(conn: &mut PgConnection, tag_ids: &[i64]) -> Result<(), ApiError> {
+    let broken: Vec<(String, i32, Option<i32>, i64)> = sqlx::query_as(
+        "SELECT n.display, n.min_tags, n.max_tags,
+                (SELECT count(*) FROM tags t WHERE t.id = ANY($1) AND t.namespace = n.name)
+         FROM tag_namespaces n
+         WHERE n.min_tags > 0 OR n.max_tags IS NOT NULL
          ORDER BY n.display",
     )
     .bind(tag_ids)
     .fetch_all(&mut *conn)
     .await?;
-    if missing.is_empty() {
+    let problems: Vec<String> = broken
+        .into_iter()
+        .filter_map(|(display, min, max, count)| {
+            let (min, max) = (i64::from(min), max.map(i64::from));
+            if count < min {
+                let exactly = if max == Some(min) {
+                    "exactly"
+                } else {
+                    "at least"
+                };
+                Some(format!(
+                    "Pick {exactly} {min} {display} {}.",
+                    tags_word(min)
+                ))
+            } else {
+                max.filter(|m| count > *m).map(|max| {
+                    format!(
+                        "Pick at most {max} {display} {} (you have {count}).",
+                        tags_word(max)
+                    )
+                })
+            }
+        })
+        .collect();
+    if problems.is_empty() {
         Ok(())
     } else {
-        Err(ApiError::BadRequest(format!(
-            "Every prompt needs a tag of each required type. Add: {}.",
-            missing.join(", ")
-        )))
+        Err(ApiError::BadRequest(problems.join(" ")))
     }
 }
 
@@ -907,6 +1083,77 @@ async fn list_tags(
     Query(q): Query<TagQuery>,
 ) -> Result<Json<Vec<Tag>>, ApiError> {
     search_tags(&state, &q).await.map(Json)
+}
+
+#[utoipa::path(
+    get, path = "/tags/frequent", tag = "tags", security(("bearer" = [])),
+    summary = "The tags the caller uses most",
+    description = "Up to 8 visible tags from the caller's 50 newest prompts on the board, most used first, ties to the most recently used. Only the given persona's prompts count, unless the account suggests tags from all its personas or no persona is given. Only the caller sees these.",
+    params(FrequentTagsQuery),
+    responses(
+        (status = 200, body = Vec<Tag>),
+        (status = 400, description = "The persona isn't one of the caller's"),
+    ),
+)]
+async fn api_frequent_tags(
+    State(state): State<AppState>,
+    authed: Authed,
+    Query(q): Query<FrequentTagsQuery>,
+) -> Result<Json<Vec<Tag>>, ApiError> {
+    frequent_tags(&state, authed.account_id, q.persona, FREQUENT_TAGS)
+        .await
+        .map(Json)
+}
+
+/// The tags `account` puts on its prompts most: counted over its newest
+/// prompts on the board, most used first and ties to the most recently
+/// used. Only `persona`'s prompts count unless the account suggests from
+/// all its personas or no persona is given. Aliases count as their target;
+/// hidden and pending tags are never suggested. Nothing is stored.
+pub async fn frequent_tags(
+    state: &AppState,
+    account: Uuid,
+    persona: Option<Uuid>,
+    limit: usize,
+) -> Result<Vec<Tag>, ApiError> {
+    let (owns, all): (Option<bool>, bool) = sqlx::query_as(
+        "SELECT (SELECT true FROM actors WHERE id = $2 AND account_id = $1),
+                suggest_all_personas
+         FROM accounts WHERE id = $1",
+    )
+    .bind(account)
+    .bind(persona)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(ApiError::Unauthorized)?;
+    if persona.is_some() && owns.is_none() {
+        return Err(ApiError::BadRequest("unknown persona".into()));
+    }
+    let persona = persona.filter(|_| !all);
+    // Safe: built only from compile-time constants; values are bound.
+    let rows: Vec<TagRow> = sqlx::query_as(AssertSqlSafe(format!(
+        "WITH recent AS (
+             SELECT p.tag_ids, p.created_at FROM prompts p JOIN actors a ON a.id = p.actor_id
+             WHERE a.account_id = $1 AND ($2::uuid IS NULL OR p.actor_id = $2)
+               AND p.removed_at IS NULL
+             ORDER BY p.created_at DESC LIMIT $4),
+         used AS (
+             SELECT COALESCE(t.canonical_id, t.id) AS tag_id, count(*) AS n,
+                    max(r.created_at) AS last
+             FROM recent r CROSS JOIN LATERAL unnest(r.tag_ids) AS u(id)
+             JOIN tags t ON t.id = u.id
+             GROUP BY 1)
+         {TAG_SELECT} JOIN used ON used.tag_id = t.id
+         WHERE t.instance = '' AND t.canonical_id IS NULL AND t.status = 'visible'
+         ORDER BY used.n DESC, used.last DESC, t.id LIMIT $3"
+    )))
+    .bind(account)
+    .bind(persona)
+    .bind(i64::try_from(limit).unwrap_or(i64::MAX))
+    .bind(FREQUENT_TAGS_FROM_PROMPTS)
+    .fetch_all(&state.pool)
+    .await?;
+    rows.into_iter().map(TagRow::into_tag).collect()
 }
 
 /// Canonical local tags, optionally filtered by namespace and prefix.
@@ -931,6 +1178,73 @@ pub async fn search_tags(state: &AppState, q: &TagQuery) -> Result<Vec<Tag>, Api
         .push_bind(i64::from(limit));
     let rows: Vec<TagRow> = qb.build_query_as().fetch_all(&state.pool).await?;
     rows.into_iter().map(TagRow::into_tag).collect()
+}
+
+/// A tag with how many prompts on the board carry it, and how many tags
+/// matched the whole query.
+#[derive(sqlx::FromRow)]
+struct CountedTag {
+    #[sqlx(flatten)]
+    row: TagRow,
+    uses: i64,
+    total: i64,
+}
+
+/// How the filter builder orders a tag type's tags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TagOrder {
+    MostUsed,
+    AToZ,
+}
+
+/// One page of a tag type's visible tags, each with how many prompts on
+/// the board carry it, for the board's filter builder. `search` keeps names
+/// containing it; `letter` keeps names starting with it. Returns the page
+/// and how many tags matched.
+pub async fn tag_page(
+    state: &AppState,
+    namespace: &str,
+    search: &str,
+    letter: Option<char>,
+    order: TagOrder,
+    offset: u32,
+    limit: u32,
+) -> Result<(Vec<(Tag, u64)>, u64), ApiError> {
+    let mut qb = QueryBuilder::new(TAG_SELECT.replace(
+        " FROM tags t",
+        ", (SELECT count(*) FROM prompts p
+             WHERE p.tag_ids @> ARRAY[t.id] AND p.removed_at IS NULL) AS uses,
+           count(*) OVER () AS total FROM tags t",
+    ));
+    qb.push(" WHERE t.instance = '' AND t.canonical_id IS NULL AND t.status = 'visible'")
+        .push(" AND t.namespace = ")
+        .push_bind(validate::namespace(namespace)?);
+    let search = search.trim().to_lowercase();
+    if !search.is_empty() {
+        qb.push(" AND lower(t.display) LIKE ")
+            .push_bind(format!("%{}%", escape_like(&search)));
+    }
+    if let Some(l) = letter {
+        qb.push(" AND lower(t.display) LIKE ")
+            .push_bind(format!("{}%", escape_like(&l.to_lowercase().to_string())));
+    }
+    qb.push(match order {
+        TagOrder::MostUsed => " ORDER BY uses DESC, lower(t.display)",
+        TagOrder::AToZ => " ORDER BY lower(t.display)",
+    });
+    qb.push(" LIMIT ")
+        .push_bind(i64::from(limit))
+        .push(" OFFSET ")
+        .push_bind(i64::from(offset));
+    let rows: Vec<CountedTag> = qb.build_query_as().fetch_all(&state.pool).await?;
+    let total = rows
+        .first()
+        .map_or(0, |r| u64::try_from(r.total).unwrap_or(0));
+    let tags = rows
+        .into_iter()
+        .map(|r| Ok((r.row.into_tag()?, u64::try_from(r.uses).unwrap_or(0))))
+        .collect::<Result<_, ApiError>>()?;
+    Ok((tags, total))
 }
 
 pub(crate) async fn load_tag(

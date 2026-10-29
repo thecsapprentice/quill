@@ -2,7 +2,11 @@
 //! database. Environment variables only supply their starting values.
 
 use axum::{Json, extract::State};
-use quill_proto::board::{AdminAction, ServerSettings, TagPolicy, UpdateServerSettings};
+use quill_proto::{
+    announcements::CommentVisibility,
+    board::{AdminAction, ServerSettings, TagPolicy, UpdateServerSettings},
+    rules::RulesAcceptance,
+};
 use sqlx::{PgConnection, PgPool};
 use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
@@ -16,6 +20,11 @@ use crate::{
 const NEW_TAGS: &str = "new_tags";
 /// Whether sessions take attachments.
 const ATTACHMENTS: &str = "attachments";
+/// Who can read comments on announcements. Not seeded: absent is public.
+const COMMENT_VISIBILITY: &str = "comment_visibility";
+/// When accounts must accept the server rules. Not seeded: absent is never.
+/// SQL in `rules` reads this key directly.
+pub(crate) const RULES_ACCEPTANCE: &str = "rules_acceptance";
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(api_get, api_update))
@@ -57,12 +66,51 @@ pub async fn attachments(conn: &mut PgConnection) -> Result<bool, ApiError> {
     Ok(raw.as_deref() != Some("off"))
 }
 
+/// Who can read comments on announcements.
+pub async fn comment_visibility(conn: &mut PgConnection) -> Result<CommentVisibility, ApiError> {
+    let raw: Option<String> =
+        sqlx::query_scalar("SELECT value FROM server_settings WHERE key = $1")
+            .bind(COMMENT_VISIBILITY)
+            .fetch_optional(&mut *conn)
+            .await?;
+    // Never set: public, as comments were before the setting existed.
+    raw.map_or(Ok(CommentVisibility::Public), |r| parse_enum(&r))
+}
+
+/// When accounts must accept the server rules.
+pub async fn rules_acceptance(conn: &mut PgConnection) -> Result<RulesAcceptance, ApiError> {
+    let raw: Option<String> =
+        sqlx::query_scalar("SELECT value FROM server_settings WHERE key = $1")
+            .bind(RULES_ACCEPTANCE)
+            .fetch_optional(&mut *conn)
+            .await?;
+    raw.map_or(Ok(RulesAcceptance::None), |r| parse_enum(&r))
+}
+
 pub async fn settings(state: &AppState) -> Result<ServerSettings, ApiError> {
     let mut conn = state.pool.acquire().await?;
     Ok(ServerSettings {
         new_tags: tag_policy(&mut conn).await?,
         attachments: attachments(&mut conn).await?,
+        comment_visibility: comment_visibility(&mut conn).await?,
+        rules_acceptance: rules_acceptance(&mut conn).await?,
     })
+}
+
+fn acceptance_label(a: RulesAcceptance) -> &'static str {
+    match a {
+        RulesAcceptance::None => "never",
+        RulesAcceptance::OnJoin => "on joining",
+        RulesAcceptance::OnChange => "after a change",
+        RulesAcceptance::Both => "on joining and after a change",
+    }
+}
+
+fn visibility_label(v: CommentVisibility) -> &'static str {
+    match v {
+        CommentVisibility::Public => "everyone",
+        CommentVisibility::SignedIn => "signed-in writers only",
+    }
 }
 
 fn policy_label(p: TagPolicy) -> &'static str {
@@ -126,6 +174,54 @@ pub async fn update(
             admin,
             AdminAction::ChangeSetting,
             ATTACHMENTS,
+            Some(&detail),
+        )
+        .await?;
+    }
+    let was = comment_visibility(&mut tx).await?;
+    if let Some(now) = body.comment_visibility.filter(|v| *v != was) {
+        sqlx::query(
+            "INSERT INTO server_settings (key, value) VALUES ($1, $2)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+        )
+        .bind(COMMENT_VISIBILITY)
+        .bind(now.as_str())
+        .execute(&mut *tx)
+        .await?;
+        let detail = format!(
+            "comments readable by: {} → {}",
+            visibility_label(was),
+            visibility_label(now)
+        );
+        log_action(
+            &mut tx,
+            admin,
+            AdminAction::ChangeSetting,
+            COMMENT_VISIBILITY,
+            Some(&detail),
+        )
+        .await?;
+    }
+    let was = rules_acceptance(&mut tx).await?;
+    if let Some(now) = body.rules_acceptance.filter(|a| *a != was) {
+        sqlx::query(
+            "INSERT INTO server_settings (key, value) VALUES ($1, $2)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+        )
+        .bind(RULES_ACCEPTANCE)
+        .bind(now.as_str())
+        .execute(&mut *tx)
+        .await?;
+        let detail = format!(
+            "accounts accept the rules: {} → {}",
+            acceptance_label(was),
+            acceptance_label(now)
+        );
+        log_action(
+            &mut tx,
+            admin,
+            AdminAction::ChangeSetting,
+            RULES_ACCEPTANCE,
             Some(&detail),
         )
         .await?;

@@ -80,6 +80,39 @@ pub fn render(markdown: &str) -> String {
     SANITIZER.clean(&unsafe_html).to_string()
 }
 
+/// The text of prompt Markdown without its formatting, with block
+/// boundaries as newlines. Link and image destinations are left out; see
+/// [`link_destinations`].
+pub fn plain_text(markdown: &str) -> String {
+    let mut out = String::with_capacity(markdown.len());
+    for event in Parser::new_ext(markdown, Options::ENABLE_STRIKETHROUGH) {
+        match event {
+            Event::Text(t) | Event::Code(t) | Event::Html(t) | Event::InlineHtml(t) => {
+                out.push_str(&t)
+            }
+            Event::SoftBreak | Event::HardBreak | Event::Rule => out.push('\n'),
+            Event::End(
+                TagEnd::Paragraph | TagEnd::Heading(_) | TagEnd::Item | TagEnd::CodeBlock,
+            ) => out.push('\n'),
+            _ => {}
+        }
+    }
+    out.truncate(out.trim_end().len());
+    out
+}
+
+/// The destinations of Markdown links and images, in order.
+pub fn link_destinations(markdown: &str) -> Vec<String> {
+    Parser::new_ext(markdown, Options::ENABLE_STRIKETHROUGH)
+        .filter_map(|event| match event {
+            Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                Some(dest_url.into_string())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 fn demote(level: HeadingLevel) -> HeadingLevel {
     match level {
         HeadingLevel::H1 | HeadingLevel::H2 => HeadingLevel::H3,
@@ -89,7 +122,21 @@ fn demote(level: HeadingLevel) -> HeadingLevel {
 
 #[cfg(test)]
 mod tests {
-    use super::render;
+    use super::{link_destinations, plain_text, render};
+
+    #[test]
+    fn plain_text_drops_formatting() {
+        let text =
+            plain_text("# Title\n\nA *keeper* and [a link](https://x.example).\n\n- one\n- two");
+        assert_eq!(text, "Title\nA keeper and a link.\none\ntwo");
+    }
+
+    #[test]
+    fn link_destinations_include_images() {
+        let links =
+            link_destinations("[a](https://a.example) ![b](https://b.example/i.png) bare.example");
+        assert_eq!(links, ["https://a.example", "https://b.example/i.png"]);
+    }
 
     #[test]
     fn basic_formatting() {

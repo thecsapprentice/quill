@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 3 admin board settings</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1c6b63}a:hover{color:#134d47}
+.r{font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e2b3a;background:#eef1f3}
+.serif{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+.muted{color:#5b6878}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 12px;border-radius:4px;background:#1c6b63;color:#fff;border:0;font:600 13px system-ui,sans-serif;text-decoration:none}
+.btn-q{background:#fff;color:#1e2b3a;border:1px solid #c9d3dc}
+.count{display:inline-block;background:#c2413b;color:#fff;font-size:11px;line-height:16px;border-radius:999px;padding:0 6px;font-weight:700}
+.top a.nav{color:#5b6878;text-decoration:none}
+.top a.cur{color:#1e2b3a;font-weight:600}
+.side a.nav{display:flex;justify-content:space-between;align-items:center;padding:4px 10px;border-radius:4px;color:#1e2b3a;text-decoration:none}
+.side a.sub{padding-left:22px;font-size:13px}
+.side a.cur{background:#fbeae8;font-weight:600}
+.grp{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5b6878;margin:12px 10px 4px}
+.inp{border:1px solid #c9d3dc;border-radius:4px;padding:6px 8px;font:14px system-ui,sans-serif;background:#fff;color:#1e2b3a;width:80px;box-sizing:border-box}
+.box{background:#fff;border:1px solid #c9d3dc;border-radius:4px;padding:16px 18px;margin-bottom:14px}
+.box h2{margin:0 0 4px;font-size:16px}
+.line{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #eef1f3}
+.line:first-of-type{border-top:0}
+.line label{flex:1}
+.sort{display:grid;grid-template-columns:22px 160px minmax(0,1fr);gap:8px;padding:7px 0;border-top:1px solid #eef1f3;align-items:baseline}
+</style>
+</helmet>
+<div class="r" style="width: 1440px; height: 900px; display: flex; flex-direction: column; overflow: hidden">
+  <header class="top" style="background: #fff; border-bottom: 1px solid #c9d3dc; padding: 10px 20px; display: flex; align-items: center; gap: 22px">
+    <a class="serif" href="#" style="font-size: 20px; font-weight: 700; color: #1e2b3a; text-decoration: none">Inkwell</a>
+    <a class="nav" href="D1-board.dc.html">Board</a><a class="nav" href="#">Announcements</a><a class="nav" href="D6-my-prompts.dc.html">My prompts</a><a class="nav" href="#">Notices <span class="count">2</span></a><a class="nav cur" href="#" aria-current="page">Admin <span class="count">4</span></a>
+    <a class="nav" href="#" style="margin-left: auto">wren ▾</a>
+  </header>
+  <div style="flex: 1; display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 0">
+    <aside class="side" aria-label="Admin" style="background: #fff; border-right: 1px solid #c9d3dc; padding: 8px 12px; overflow: hidden">
+      <a class="nav" href="D4-overview.dc.html" style="margin-top: 8px">Overview</a>
+      <a class="nav" href="#">Reports <span class="count">3</span></a>
+      <a class="nav" href="#">Admin log</a>
+      <a class="nav" href="#">Announcements</a>
+      <a class="nav cur" href="#" aria-current="page">Board settings</a>
+      <div class="grp">Tags</div>
+      <a class="nav sub" href="#">Tag requests <span class="count">1</span></a>
+      <a class="nav sub" href="D7-tag-type.dc.html">Tag types (7)</a>
+      <div class="grp">Moderation</div>
+      <a class="nav sub" href="#">Scripts</a>
+      <a class="nav sub" href="#">Chains</a>
+      <div class="grp">Server</div>
+      <a class="nav sub" href="#">Handles</a>
+      <a class="nav sub" href="#">Sessions</a>
+    </aside>
+    <main style="padding: 18px 28px; overflow: hidden; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; align-content: start">
+      <h1 class="serif" style="margin: 0 0 14px; font-size: 28px; grid-column: span 2">Board settings</h1>
+      <div>
+        <div class="box">
+          <h2>Posting limits</h2>
+          <p class="muted" style="margin: 0 0 6px; font-size: 13px">Per account, across all its personas. Checked when someone posts; only they see a refusal.</p>
+          <div class="line"><label for="d8h">New prompts per hour</label><input class="inp" id="d8h" type="number" value="2"></div>
+          <div class="line"><label for="d8d">New prompts per day</label><input class="inp" id="d8d" type="number" value="5"></div>
+        </div>
+        <div class="box">
+          <h2>Refreshing prompts</h2>
+          <div class="line"><label><input type="checkbox" checked> Writers can refresh open prompts</label></div>
+          <div class="line"><label for="d8c"><strong>Each prompt:</strong> once every</label><input class="inp" id="d8c" type="number" value="7"> days</div>
+          <div class="line"><label for="d8k"><strong>Each account:</strong></label><input class="inp" id="d8k" type="number" value="3"> refreshes every <input class="inp" id="d8w" type="number" value="7" aria-label="Account window in days"> days</div>
+          <p class="muted" style="margin: 6px 0 0; font-size: 12px">An account's refresh comes back that many days after it's used, even if the prompt is later closed or deleted. Counted across all of an account's personas, and checked privately when someone refreshes. Scripts can limit this further on the <a href="#">prompt_refreshed</a> hook.</p>
+        </div>
+      </div>
+      <div>
+        <div class="box">
+          <h2>Board orders</h2>
+          <p class="muted" style="margin: 0 0 6px; font-size: 13px">Which orders readers can pick. Each shows its one-line explanation on the board.</p>
+          <div class="sort"><input type="checkbox" checked disabled aria-label="Newest"><strong>Newest</strong><span class="muted">Always on. No persona twice in any run of <input class="inp" type="number" value="20" style="width: 56px" aria-label="Run length">.</span></div>
+          <div class="sort"><input type="checkbox" checked aria-label="Waiting longest"><strong>Waiting longest</strong><span class="muted">Open prompts, oldest first.</span></div>
+          <div class="sort"><input type="checkbox" checked aria-label="Shuffle"><strong>Shuffle</strong><span class="muted">Random, reshuffled daily.</span></div>
+          <div class="sort"><input type="checkbox" checked aria-label="Quiet tags"><strong>Quiet tags</strong><span class="muted">Prompts with tags few people have used lately.</span></div>
+          <div class="sort"><input type="checkbox" checked aria-label="First partner"><strong>First partner filter</strong><span class="muted">Authors opt in per prompt.</span></div>
+        </div>
+      </div>
+      <div style="grid-column: span 2"><button class="btn" type="button">Save board settings</button></div>
+    </main>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

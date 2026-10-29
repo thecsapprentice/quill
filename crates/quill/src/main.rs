@@ -3,11 +3,14 @@
 //! Covers the server address, accounts, personas and the prompt board. Each
 //! later phase adds the commands that exercise its server features.
 
+mod announce_cmd;
+mod automod_cmd;
 mod backup_cmd;
 mod board;
 mod keys_cmd;
 mod local;
 mod request_cmd;
+mod rules_cmd;
 mod session_cmd;
 
 use std::path::PathBuf;
@@ -15,7 +18,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use quill_core::{Client, Profile, Store};
-use quill_proto::api::{CreatePersona, Credentials, UpdatePersona};
+use quill_proto::api::{CreatePersona, Credentials, Registration, UpdatePersona};
 use serde::Serialize;
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -49,7 +52,7 @@ enum Command {
     /// Show the server's name, versions and limits.
     Instance,
     /// Create an account and log in.
-    Register(UsernameArg),
+    Register(RegisterArgs),
     /// Log in to an existing account.
     Login(UsernameArg),
     /// Log out and forget the token.
@@ -75,7 +78,13 @@ enum Command {
         #[arg(long)]
         details: Option<String>,
     },
-    /// Administrator tools: reports, the admin log and tags.
+    /// Read the server administrators' announcements.
+    #[command(subcommand)]
+    Announcements(announce_cmd::AnnouncementsCommand),
+    /// Read and accept the server rules.
+    #[command(subcommand)]
+    Rules(rules_cmd::RulesCommand),
+    /// Administrator tools: reports, the admin log, tags and announcements.
     #[command(subcommand)]
     Admin(board::AdminCommand),
     /// The encrypted local store holding this client's login and keys.
@@ -109,6 +118,16 @@ enum Command {
 struct UsernameArg {
     /// Private login name (never shown publicly).
     username: String,
+}
+
+#[derive(Args)]
+struct RegisterArgs {
+    /// Private login name (never shown publicly).
+    username: String,
+    /// Accept the server rules, naming the version you read (`quill rules
+    /// show`). Needed when the server asks new accounts to accept them.
+    #[arg(long)]
+    accept_rules: Option<u32>,
 }
 
 #[derive(Subcommand)]
@@ -190,7 +209,9 @@ fn read_password(confirm: bool) -> Result<Zeroizing<String>> {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    if let Err(err) = run(cli).await {
+    // Boxed: the future holding every command is larger than the main
+    // thread's 1 MiB stack on Windows in debug builds.
+    if let Err(err) = Box::pin(run(cli)).await {
         eprintln!("error: {err:#}");
         std::process::exit(1);
     }
@@ -239,15 +260,27 @@ async fn run(cli: Cli) -> Result<()> {
                 println!("registration open: {}", i.registration_open);
                 println!("max message bytes: {}", i.limits.max_message_bytes);
                 println!("max attachment bytes: {}", i.limits.max_attachment_bytes);
+                match i.rules_updated_at {
+                    Some(at) => println!(
+                        "server rules: updated {}, accepted {}",
+                        at.date(),
+                        i.rules_acceptance
+                    ),
+                    None => println!("server rules: none"),
+                }
             })?;
         }
-        Command::Register(UsernameArg { username }) => {
+        Command::Register(RegisterArgs {
+            username,
+            accept_rules,
+        }) => {
             let password = read_password(true)?;
-            let creds = Credentials {
+            let registration = Registration {
                 username,
                 password: password.as_str().to_owned(),
+                accept_rules,
             };
-            let token = ctx.client()?.register(&creds).await?;
+            let token = ctx.client()?.register_with(&registration).await?;
             ctx.store.set_token(Some(&token.token))?;
             if !ctx.json {
                 println!("registered and logged in");
@@ -285,6 +318,8 @@ async fn run(cli: Cli) -> Result<()> {
             reason,
             details,
         } => board::report(&ctx, prompt, reason, details).await?,
+        Command::Announcements(cmd) => announce_cmd::announcements(&ctx, cmd).await?,
+        Command::Rules(cmd) => rules_cmd::rules(&ctx, cmd).await?,
         Command::Admin(cmd) => board::admin(&ctx, cmd).await?,
         Command::Store(cmd) => local::command(&mut ctx, cmd)?,
         Command::Keys(cmd) => keys_cmd::keys(&ctx, cmd).await?,
@@ -308,6 +343,8 @@ fn needs_upkeep(command: &Command) -> bool {
         command,
         Command::Server { .. }
             | Command::Instance
+            | Command::Announcements(_)
+            | Command::Rules(_)
             | Command::Register(_)
             | Command::Login(_)
             | Command::Logout

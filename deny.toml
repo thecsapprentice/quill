@@ -55,6 +55,11 @@ ignore = [
   # rand 0.7: unsound only with a custom logger calling rand::rng(); used at
   # build time by phf_generator for wry's HTML parser tables.
   { id = "RUSTSEC-2026-0097", reason = "rand 0.7, build-time phf generation for wry's HTML parser; desktop GUI only" },
+  # smartstring: archived, so marked unmaintained; not a vulnerability. Rhai
+  # (moderation scripts, #43) uses it for its strings and has no feature to
+  # drop it. It runs on the server, but only holds text that scripts build,
+  # under Rhai's string-size limit. Remove when Rhai moves off it.
+  { id = "RUSTSEC-2026-0249", reason = "smartstring, Rhai's string type; unmaintained, no known vulnerability" },
 ]
 
 [licenses]

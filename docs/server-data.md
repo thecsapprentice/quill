@@ -63,8 +63,8 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `id`         | `metadata`   | Notice id.                                                                             |
 | `account_id` | `metadata`   | The login the notice is for.                                                           |
 | `log_id`     | `metadata`   | The admin-log entry it came from.                                                      |
-| `kind`       | `moderation` | What administrators did (a prompt removed, a tag changed).                             |
-| `fields`     | `moderation` | The tag or reason involved.                                                            |
+| `kind`       | `moderation` | What administrators did (a prompt or comment removed, a tag changed).                  |
+| `fields`     | `moderation` | The tag, reason or announcement involved.                                              |
 | `prompts`    | `public`     | The login's affected prompts as they were: id, title and handle, all public on the board. |
 | `created_at` | `metadata`   | When.                                                                                  |
 | `read_at`    | `metadata`   | When the login read it.                                                                |
@@ -79,6 +79,8 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `is_admin`      | `login`    | Whether the login administers the server.                            |
 | `created_at`    | `metadata` | When the login was made.                                             |
 | `maturity_max`  | `login`    | The highest maturity the login chose to see on the board.            |
+| `staff_name`    | `public`   | An administrator's chosen name for commenting as staff; shown on their staff comments, never the login name. |
+| `suggest_all_personas` | `login` | Whether the post form suggests tags from all the login's personas, not only the one posting. |
 
 ### `actors`
 
@@ -102,13 +104,15 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `action`      | `moderation` | What happened (report received, prompt removed, tag changed).               |
 | `report_id`   | `metadata`   | The report it concerns.                                                     |
 | `prompt_id`   | `metadata`   | The prompt it concerns.                                                     |
-| `prompt_hash` | `digest`     | SHA-256 of the prompt as reported, so its text needn't be kept.             |
+| `prompt_hash` | `digest`     | SHA-256 of the prompt or comment as reported, so its text needn't be kept.  |
 | `reason`      | `moderation` | The report's reason category.                                               |
 | `admin_id`    | `metadata`   | The administrator who acted.                                                |
 | `subject`     | `moderation` | The tag acted on, e.g. `genre:horror`.                                      |
 | `detail`      | `moderation` | What changed about it.                                                      |
-| `actor`       | `moderation` | Who acted: an administrator, the server, or a reporter (left unnamed).      |
+| `actor`       | `moderation` | Who acted: an administrator, the server, a reporter (left unnamed), or a moderation script. |
 | `admin_login` | `moderation` | The acting administrator's login name, as it was.                          |
+| `comment_id`  | `metadata`   | The comment it concerns.                                                    |
+| `script_name` | `moderation` | The moderation script that acted, or that an administrator changed, as named then. |
 
 ### `admin_log_targets`
 
@@ -117,6 +121,37 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `log_id`     | `metadata`   | The entry.                                             |
 | `account_id` | `metadata`   | A login the decision was against.                      |
 | `login`      | `moderation` | Its login name, as it was, for administrators.         |
+
+### `announcements`
+
+| Column          | Class      | What                                                                   |
+|-----------------|------------|------------------------------------------------------------------------|
+| `id`            | `metadata` | Announcement id.                                                       |
+| `title`         | `public`   | Its title, shown on the board.                                         |
+| `body_md`       | `public`   | Its Markdown text.                                                     |
+| `body_html`     | `public`   | The same, rendered and sanitized.                                      |
+| `comments_open` | `settings` | Whether writers may comment on it.                                     |
+| `sticky`        | `public`   | Whether its banner stays at the top of the board, not dismissible.     |
+| `created_by`    | `metadata` | The administrator who posted it; readers see "the administrators".    |
+| `created_at`    | `public`   | When it was posted.                                                    |
+| `updated_at`    | `public`   | When it last changed.                                                  |
+| `deleted_at`    | `metadata` | When an administrator deleted it; it then shows nowhere.               |
+
+### `announcement_comments`
+
+| Column            | Class        | What                                                                    |
+|-------------------|--------------|-------------------------------------------------------------------------|
+| `id`              | `metadata`   | Comment id.                                                             |
+| `announcement_id` | `metadata`   | The announcement it's on.                                               |
+| `actor_id`        | `public`     | The persona that wrote it, shown beside it (persona comments only).     |
+| `voice`           | `public`     | Written as a persona, as "Administrators", or under a staff name.       |
+| `account_id`      | `moderation` | The administrator behind an Administrators or staff comment; never shown to writers. |
+| `staff_name`      | `public`     | The staff name it was posted under, as it was then.                     |
+| `body_md`         | `public`     | Its Markdown text, public under the announcement.                       |
+| `body_html`       | `public`     | The same, rendered and sanitized.                                       |
+| `created_at`      | `public`     | When it was posted.                                                     |
+| `removed_at`      | `moderation` | When an administrator removed it; then only its author sees it.         |
+| `removed_reason`  | `moderation` | The reason category for the removal.                                    |
 
 ### `api_tokens`
 
@@ -215,6 +250,63 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `last_seq`       | `metadata` | The last log position used.                                       |
 | `pruned_through` | `metadata` | How far the log has been deleted.                                 |
 
+### `moderation_chain_steps`
+
+| Column      | Class      | What                                       |
+|-------------|------------|--------------------------------------------|
+| `hook`      | `settings` | The chain it's part of.                    |
+| `position`  | `settings` | Where in the chain the script runs.        |
+| `script_id` | `settings` | The script.                                |
+
+### `moderation_chains`
+
+| Column     | Class      | What                                                        |
+|------------|------------|-------------------------------------------------------------|
+| `hook`     | `settings` | Where in the board the chain runs, e.g. a prompt posted.    |
+| `on_error` | `settings` | What a failing script means: carry on, refuse, or flag.     |
+
+### `moderation_data`
+
+| Column        | Class      | What                                                              |
+|---------------|------------|-------------------------------------------------------------------|
+| `name`        | `settings` | The name scripts read it by.                                      |
+| `description` | `settings` | What it's for, written by an administrator.                       |
+| `content`     | `settings` | The data an administrator keeps for scripts, e.g. a word list.    |
+| `version`     | `metadata` | How many times it has been saved.                                 |
+| `updated_by`  | `metadata` | The administrator who saved it last.                              |
+| `updated_at`  | `metadata` | When.                                                             |
+
+### `moderation_data_versions`
+
+| Column       | Class      | What                                  |
+|--------------|------------|---------------------------------------|
+| `name`       | `settings` | The entry.                            |
+| `version`    | `metadata` | Which save.                           |
+| `content`    | `settings` | The content as saved then.            |
+| `created_by` | `metadata` | The administrator who saved it.       |
+| `created_at` | `metadata` | When.                                 |
+
+### `moderation_script_data`
+
+| Column      | Class      | What                                          |
+|-------------|------------|-----------------------------------------------|
+| `script_id` | `settings` | A script.                                     |
+| `data_name` | `settings` | A common data entry it reads.                 |
+
+### `moderation_scripts`
+
+| Column        | Class      | What                                                       |
+|---------------|------------|------------------------------------------------------------|
+| `id`          | `metadata` | Script id.                                                 |
+| `name`        | `settings` | Its name, shown to administrators only.                    |
+| `source`      | `settings` | The script, written by an administrator.                   |
+| `source_hash` | `digest`   | SHA-256 of the source, so the log can say which version acted. |
+| `enabled`     | `settings` | Whether it runs.                                           |
+| `log_only`    | `settings` | Whether its results are only logged.                       |
+| `uploaded_by` | `metadata` | The administrator who uploaded it.                         |
+| `created_at`  | `metadata` | When.                                                      |
+| `updated_at`  | `metadata` | When it was last replaced.                                 |
+
 ### `prompts`
 
 | Column       | Class      | What                                                    |
@@ -238,14 +330,18 @@ Not listed column by column: sqlx's own record of which migrations ran
 |--------------------|--------------|--------------------------------------------------------------------------|
 | `id`               | `metadata`   | Report id.                                                               |
 | `prompt_id`        | `metadata`   | The prompt reported.                                                     |
+| `comment_id`       | `metadata`   | The comment reported.                                                    |
+| `kind`             | `moderation` | Whether a prompt or a comment was reported.                              |
 | `reporter_account` | `metadata`   | Who reported it, for abuse control; never shown to the prompt's author. |
 | `reason`           | `moderation` | The reason category.                                                     |
 | `details`          | `moderation` | What the reporter wrote, for administrators.                             |
-| `prompt_hash`      | `digest`     | SHA-256 of the prompt as reported.                                       |
+| `prompt_hash`      | `digest`     | SHA-256 of the prompt or comment as reported.                            |
 | `created_at`       | `metadata`   | When.                                                                    |
 | `resolved_at`      | `metadata`   | When it was dealt with.                                                  |
-| `resolution`       | `moderation` | Discarded, or the prompt deleted.                                        |
+| `resolution`       | `moderation` | Discarded, or the prompt or comment removed.                             |
 | `resolved_by`      | `metadata`   | The administrator who dealt with it.                                     |
+| `script_id`        | `metadata`   | The moderation script that filed it, if a script did.                    |
+| `script_name`      | `moderation` | That script's name, as it was.                                           |
 
 ### `reserved_handles`
 
@@ -263,11 +359,32 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `handle`     | `public` | A deleted persona's handle, never reused.                     |
 | `retired_at` | `metadata` | When it was retired.                                        |
 
+### `rules_acceptances`
+
+| Column        | Class      | What                                                           |
+|---------------|------------|----------------------------------------------------------------|
+| `account_id`  | `metadata` | The login.                                                     |
+| `version`     | `metadata` | The newest version of the server rules it accepted.            |
+| `accepted_at` | `metadata` | When.                                                          |
+
+### `server_pages`
+
+| Column           | Class      | What                                                                   |
+|------------------|------------|------------------------------------------------------------------------|
+| `name`           | `settings` | Which page (`rules`).                                                  |
+| `body_md`        | `public`   | Its Markdown text, shown to everyone.                                  |
+| `body_html`      | `public`   | The same, rendered and sanitized.                                      |
+| `version`        | `public`   | Goes up by one on every save.                                          |
+| `accept_version` | `settings` | The newest version accounts must accept; a minor edit doesn't change it. |
+| `accept_since`   | `settings` | When that version was saved.                                           |
+| `updated_at`     | `public`   | When it last changed.                                                  |
+| `updated_by`     | `metadata` | The administrator who last saved it.                                   |
+
 ### `server_settings`
 
 | Column       | Class      | What                                                  |
 |--------------|------------|-------------------------------------------------------|
-| `key`        | `settings` | A setting's name (new tags, attachments).             |
+| `key`        | `settings` | A setting's name (new tags, attachments, comment visibility, rules acceptance). |
 | `value`      | `settings` | Its value.                                            |
 | `updated_at` | `settings` | When it last changed.                                 |
 
@@ -340,7 +457,8 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `display`    | `public` | Its display name.                           |
 | `locked`     | `public` | Whether only administrators add tags to it. |
 | `created_at` | `public` | When it was made.                           |
-| `required`   | `public` | Whether every prompt needs one.             |
+| `min_tags`   | `public` | How many tags of this type every prompt needs (0: optional). |
+| `max_tags`   | `public` | How many a prompt may carry; empty for no limit. |
 | `chip_bg`    | `public` | Its chip colours on the board.              |
 | `chip_fg`    | `public` | The same.                                   |
 
@@ -359,6 +477,8 @@ Not listed column by column: sqlx's own record of which migrations ran
 | `status`       | `public` | Visible, hidden, or pending approval.             |
 | `chip_bg`      | `public` | Its chip colours.                                 |
 | `chip_fg`      | `public` | The same.                                         |
+| `flag_script`  | `moderation` | The moderation script that flagged a pending tag. |
+| `flag_reason`  | `moderation` | The reason it gave, for administrators.       |
 
 ### `web_sessions`
 

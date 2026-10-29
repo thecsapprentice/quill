@@ -173,6 +173,30 @@ string_enum! {
         RecolorTag => "recolor_tag",
         ReserveHandles => "reserve_handles",
         UnreserveHandle => "unreserve_handle",
+        PostAnnouncement => "post_announcement",
+        EditAnnouncement => "edit_announcement",
+        DeleteAnnouncement => "delete_announcement",
+        SetAnnouncementComments => "set_announcement_comments",
+        SetAnnouncementSticky => "set_announcement_sticky",
+        DeleteComment => "delete_comment",
+        UploadScript => "upload_script",
+        ReplaceScript => "replace_script",
+        RemoveScript => "remove_script",
+        /// A script switched on or off, or into or out of log-only mode.
+        SetScriptMode => "set_script_mode",
+        UpdateChain => "update_chain",
+        SaveModerationData => "save_moderation_data",
+        DeleteModerationData => "delete_moderation_data",
+        /// A script refused a submission; nothing was saved.
+        AutomodReject => "automod_reject",
+        /// A script flagged a pending tag.
+        AutomodFlag => "automod_flag",
+        /// A script closed a writer's report.
+        AutomodDismiss => "automod_dismiss",
+        /// A script failed, and its chain's error setting was applied.
+        AutomodError => "automod_error",
+        /// The server rules were saved (#42).
+        UpdateRules => "update_rules",
     }
 }
 
@@ -212,12 +236,50 @@ pub struct TagNamespace {
     pub display: String,
     /// Only server-curated tags may be used.
     pub locked: bool,
-    /// Every prompt saved must carry at least one tag of this type.
+    /// How many tags of this type every prompt saved must carry (0:
+    /// optional).
     #[serde(default)]
-    pub required: bool,
+    pub min: u32,
+    /// How many it may carry; `None` for no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u32>,
     /// Chip colours for this type's tags, unless a tag has its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<ChipColor>,
+}
+
+impl TagNamespace {
+    /// Whether every prompt needs at least one tag of this type.
+    pub fn required(&self) -> bool {
+        self.min > 0
+    }
+
+    /// Whether a prompt may carry `count` tags of this type.
+    pub fn allows(&self, count: u32) -> bool {
+        count >= self.min && self.max.is_none_or(|m| count <= m)
+    }
+
+    /// Whether a prompt with `count` tags of this type can't take another.
+    pub fn full(&self, count: u32) -> bool {
+        self.max.is_some_and(|m| count >= m)
+    }
+
+    /// The limit in words, as in "exactly 1" or "up to 3".
+    pub fn limit_label(&self) -> String {
+        limit_label(self.min, self.max)
+    }
+}
+
+/// A tag type's limit in words: "any number", "up to 3", "at least 1",
+/// "exactly 1" or "1 to 2".
+pub fn limit_label(min: u32, max: Option<u32>) -> String {
+    match (min, max) {
+        (0, None) => "any number".to_owned(),
+        (0, Some(m)) => format!("up to {m}"),
+        (n, None) => format!("at least {n}"),
+        (n, Some(m)) if n == m => format!("exactly {n}"),
+        (n, Some(m)) => format!("{n} to {m}"),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -262,6 +324,21 @@ pub struct TagQuery {
     pub limit: Option<u32>,
 }
 
+/// `GET /tags/frequent`: the tags the caller uses most.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
+#[serde(rename_all = "camelCase")]
+pub struct FrequentTagsQuery {
+    /// The persona posting, one of the caller's. Its own prompts are used
+    /// unless the account suggests from all its personas, or it's left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<Uuid>,
+}
+
 /// `POST /tags`: a user creates a tag in an unlocked namespace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -280,8 +357,12 @@ pub struct CreateNamespace {
     pub display: String,
     #[serde(default)]
     pub locked: bool,
+    /// How many tags of this type every prompt needs. Defaults to 0.
     #[serde(default)]
-    pub required: bool,
+    pub min: u32,
+    /// How many a prompt may carry. Absent for no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<ChipColor>,
 }
@@ -296,7 +377,13 @@ pub struct UpdateNamespace {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locked: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub required: Option<bool>,
+    pub min: Option<u32>,
+    /// A new maximum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u32>,
+    /// Remove the maximum. Ignored when `max` is given.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_max: bool,
     /// New chip colours.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<ChipColor>,
@@ -386,6 +473,12 @@ pub struct ServerSettings {
     /// Whether sessions on this server take attachments (2i).
     #[serde(default = "yes")]
     pub attachments: bool,
+    /// Who can read comments on announcements.
+    #[serde(default)]
+    pub comment_visibility: crate::announcements::CommentVisibility,
+    /// When accounts must accept the server rules.
+    #[serde(default)]
+    pub rules_acceptance: crate::rules::RulesAcceptance,
 }
 
 fn yes() -> bool {
@@ -401,6 +494,10 @@ pub struct UpdateServerSettings {
     pub new_tags: Option<TagPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachments: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment_visibility: Option<crate::announcements::CommentVisibility>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules_acceptance: Option<crate::rules::RulesAcceptance>,
 }
 
 // ---- Prompts -------------------------------------------------------------
@@ -535,6 +632,14 @@ pub struct AccountSettings {
     /// Account notices not yet read.
     #[serde(default)]
     pub unread_notices: u64,
+    /// An administrator's name for commenting as staff, if set. Public on
+    /// their staff comments; the login name never is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staff_name: Option<String>,
+    /// Suggest tags on the post form from all the login's personas, rather
+    /// than only the one posting.
+    #[serde(default)]
+    pub suggest_all_personas: bool,
 }
 
 /// `PATCH /account`.
@@ -544,6 +649,11 @@ pub struct AccountSettings {
 pub struct UpdateAccountSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maturity_max: Option<Maturity>,
+    /// Administrators only. An empty string clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staff_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggest_all_personas: Option<bool>,
 }
 
 // ---- Reports and the admin inbox -----------------------------------------
@@ -559,19 +669,42 @@ pub struct CreateReport {
     pub details: Option<String>,
 }
 
+string_enum! {
+    /// What a report is about.
+    ReportKind {
+        Prompt => "prompt",
+        /// A comment on an announcement.
+        Comment => "comment",
+    }
+}
+
+// `string_enum!` writes the derives, so the default is implemented by hand.
+#[allow(clippy::derivable_impls)]
+impl Default for ReportKind {
+    fn default() -> Self {
+        Self::Prompt
+    }
+}
+
 /// A Review Message in the administrators' inbox.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
     pub id: Uuid,
+    /// Whether `prompt` or `comment` was reported.
+    #[serde(default)]
+    pub kind: ReportKind,
     /// `None` once the prompt itself has been deleted by its author.
     #[serde(default)]
     pub prompt: Option<Prompt>,
+    /// The reported comment; `None` once its author deleted it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<crate::announcements::Comment>,
     pub reason: ReportReason,
     #[serde(default)]
     pub details: Option<String>,
-    /// Hex SHA-256 of the prompt as it was when reported.
+    /// Hex SHA-256 of the prompt or comment as it was when reported.
     pub prompt_hash: String,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
@@ -579,6 +712,10 @@ pub struct Report {
     pub resolved_at: Option<OffsetDateTime>,
     #[serde(default)]
     pub resolution: Option<Resolution>,
+    /// The moderation script that filed it, as named then; `None` for a
+    /// writer's report. `details` holds the script's reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script: Option<String>,
 }
 
 /// `GET /admin/reports` query.
@@ -616,7 +753,11 @@ pub struct AdminLogEntry {
     pub report_id: Option<Uuid>,
     #[serde(default)]
     pub prompt_id: Option<Uuid>,
-    /// Hex SHA-256 of the prompt as reported (report entries only).
+    /// The comment an entry concerns, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment_id: Option<Uuid>,
+    /// Hex SHA-256 of the prompt or comment as reported (report entries
+    /// and removals only).
     #[serde(default)]
     pub prompt_hash: Option<String>,
     /// Report entries only.
@@ -636,6 +777,10 @@ pub struct AdminLogEntry {
     /// The acting administrator's login name, as it was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin_login: Option<String>,
+    /// The moderation script that acted, or that an administrator changed,
+    /// as it was named then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script_name: Option<String>,
     /// Login names of the accounts the decision was against, as they were:
     /// the first [`LOG_TARGET_PREVIEW`] alphabetically (an account being
     /// filtered for comes first). Empty for server-wide changes. The full
@@ -717,6 +862,8 @@ string_enum! {
         Server => "server",
         /// A writer's report. The reporter isn't named.
         Reporter => "reporter",
+        /// A moderation script, named in `scriptName`.
+        Automod => "automod",
     }
 }
 

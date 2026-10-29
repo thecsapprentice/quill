@@ -29,6 +29,12 @@ crate::board::string_enum! {
         TagRenamed => "tag_renamed",
         /// A new tag the account used was approved.
         TagApproved => "tag_approved",
+        /// A comment on an announcement was removed, after a report or
+        /// directly.
+        CommentRemoved => "comment_removed",
+        /// The server's moderation rules refused a submission. Nothing was
+        /// saved; the writer was told when they submitted it.
+        ContentRejected => "content_rejected",
     }
 }
 
@@ -51,10 +57,26 @@ pub struct NoticeFields {
     pub from: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub to: Option<String>,
-    /// For a removal after a report: the report's category. Never who
-    /// reported it.
+    /// For a removal: the reason's category. Never who reported it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<ReportReason>,
+    /// For a removed comment: the announcement it was on, its title at the
+    /// time, and the persona that wrote it. Not the comment's text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub announcement: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub announcement_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
+    /// For a refused submission: what it was (`prompt`, `edit`, `comment`,
+    /// `tag` or `report`), its title or tag name if it had one, and the
+    /// message the writer was shown. Never the refused text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 /// One of the account's prompts as it was when the action was taken.

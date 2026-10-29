@@ -554,3 +554,85 @@ async fn the_cli_sends_reads_and_accepts_a_request() {
     assert!(!ok && err.contains("ended"), "{err}");
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_cli_sets_up_automated_moderation() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| quill(dir.path(), PASSPHRASE, args);
+    let (ok, _, err) = run(&["server", &server.url()]);
+    assert!(ok, "{err}");
+    let (ok, _, err) = run(&["register", "cli_admin"]);
+    assert!(ok, "{err}");
+    server.make_admin("cli_admin").await.unwrap();
+
+    let (ok, out, err) = run(&[
+        "admin",
+        "automod",
+        "template",
+        "blocked_words",
+        "--name",
+        "Words",
+    ]);
+    assert!(ok && out.contains("blocked_words"), "{out}{err}");
+    let words = dir.path().join("words.txt");
+    std::fs::write(&words, "spam\nfree crypto\n").unwrap();
+    let (ok, out, err) = run(&[
+        "admin",
+        "automod",
+        "data",
+        "set",
+        "blocked_words",
+        words.to_str().unwrap(),
+    ]);
+    assert!(ok && out.contains("version 2"), "{out}{err}");
+    let (ok, _, err) = run(&[
+        "admin",
+        "automod",
+        "chain",
+        "prompt_created",
+        "--on-error",
+        "continue",
+        "Words",
+    ]);
+    assert!(ok, "{err}");
+
+    let (ok, out, err) = run(&[
+        "admin",
+        "automod",
+        "dry-run",
+        "prompt_created",
+        "--title",
+        "Deal",
+        "--body",
+        "F R E E crypto",
+    ]);
+    assert!(ok, "{err}");
+    assert!(
+        out.contains("Words: reject") && out.contains("decides"),
+        "{out}"
+    );
+
+    let (ok, out, _) = run(&["admin", "automod", "chains"]);
+    assert!(
+        ok && out.contains("prompt_created") && out.contains("Words"),
+        "{out}"
+    );
+    let (ok, out, _) = run(&["admin", "automod", "data", "history", "blocked_words"]);
+    assert!(ok && out.contains("v2") && out.contains("v1"), "{out}");
+
+    // A mistake in a script comes back with its line.
+    let broken = dir.path().join("broken.rhai");
+    std::fs::write(&broken, "let a = 1;\nif a > { reject() }").unwrap();
+    let (ok, _, err) = run(&[
+        "admin",
+        "automod",
+        "upload",
+        "Broken",
+        broken.to_str().unwrap(),
+    ]);
+    assert!(!ok && err.contains("line 2"), "{err}");
+    server.stop().await.unwrap();
+}

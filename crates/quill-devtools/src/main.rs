@@ -7,6 +7,7 @@
 //! This is a development tool. It is never built into the server image and
 //! it refuses to touch a database that already has accounts.
 
+mod automod;
 mod content;
 mod rng;
 
@@ -46,6 +47,9 @@ struct Args {
     /// Password for every demo account.
     #[arg(long, env = "QUILL_DEMO_PASSWORD", default_value = DEFAULT_PASSWORD)]
     password: String,
+    /// Leave out the demo moderation scripts, chains and common data.
+    #[arg(long)]
+    no_automod: bool,
 }
 
 struct Account {
@@ -104,7 +108,8 @@ async fn run(args: Args) -> Result<()> {
             Credentials {
                 username: login.clone(),
                 password: args.password.clone(),
-            },
+            }
+            .into(),
         )
         .await
         .with_context(|| format!("creating account {login}"))?;
@@ -212,12 +217,41 @@ async fn run(args: Args) -> Result<()> {
         reports::resolve(&state, accounts[0].id, first.id, Resolution::Discard).await?;
     }
 
+    // Automated moderation, last: its demo posts are checked like anyone's.
+    let automod = if args.no_automod {
+        None
+    } else {
+        let (writer, reporter) = (&accounts[1], &accounts[2]);
+        let summary = automod::seed(
+            &state,
+            accounts[0].id,
+            writer.id,
+            writer.personas[0].0,
+            reporter.id,
+            user_tags,
+        )
+        .await?;
+        Some((writer.login.clone(), summary))
+    };
+
     println!(
         "Seeded {} accounts, {} personas, {} prompts and {report_count} reports.\n",
         accounts.len(),
         accounts.iter().map(|a| a.personas.len()).sum::<usize>(),
         prompt_ids.len(),
     );
+    if let Some((writer, summary)) = &automod {
+        println!(
+            "Automated moderation: {} scripts in chains for every hook, reading the \
+             blocked_words and allowed_sites common data. {writer} posted demo prompts: \
+             one flagged for shouting, one seen by a log-only script, and these refused:",
+            summary.scripts,
+        );
+        for message in &summary.refused {
+            println!("  - {message}");
+        }
+        println!();
+    }
     println!("Every account's password: {}\n", args.password);
     for a in &accounts {
         let handles: Vec<String> = a.personas.iter().map(|(_, h)| format!("@{h}")).collect();

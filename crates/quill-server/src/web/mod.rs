@@ -4,8 +4,13 @@
 //! is served, so the board works in Tor Browser's safest mode. Every page
 //! calls the same service functions as the JSON API.
 
+mod announcements;
+mod comments;
+mod filters;
 mod handlers;
+mod moderation;
 mod picker;
+mod rules;
 pub mod session;
 mod settings;
 
@@ -34,6 +39,7 @@ const CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self'; \
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(handlers::board))
+        .route(quill_board_ui::FILTERS_PATH, get(filters::page))
         .route("/p/{id}", get(handlers::prompt))
         .route(
             "/p/{id}/edit",
@@ -45,6 +51,19 @@ pub fn router() -> Router<AppState> {
             "/p/{id}/report",
             get(handlers::report_form).post(handlers::report_submit),
         )
+        .route(quill_board_ui::RULES_PATH, get(rules::page))
+        .route(quill_board_ui::ACCEPT_RULES_PATH, post(rules::accept))
+        .route("/announcements", get(announcements::list))
+        .route(quill_board_ui::DISMISS_PATH, post(announcements::dismiss))
+        .route("/announcements/{id}", get(announcements::show))
+        .route("/announcements/{id}/comments", post(comments::post))
+        .route("/comments/{id}", get(comments::goto))
+        .route("/comments/{id}/delete", post(comments::delete))
+        .route(
+            "/comments/{id}/report",
+            get(comments::report_form).post(comments::report_submit),
+        )
+        .route("/admin/comments/{id}/remove", post(comments::admin_remove))
         .route("/new", get(handlers::new_form).post(handlers::new_submit))
         .route("/mine", get(handlers::mine))
         .route(
@@ -53,6 +72,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/personas/{id}/delete", post(handlers::persona_delete))
         .route("/notices", get(handlers::notices))
+        .route("/more", get(handlers::more))
         .route(
             "/settings",
             get(handlers::settings).post(handlers::settings_save),
@@ -70,6 +90,52 @@ pub fn router() -> Router<AppState> {
         .route("/admin/reports/{id}/resolve", post(handlers::admin_resolve))
         .route("/admin/log", get(handlers::admin_log))
         .route("/admin/log/{id}", get(handlers::admin_log_entry))
+        .route("/admin/moderation", get(moderation::index))
+        .route(
+            "/admin/moderation/scripts",
+            get(moderation::scripts_page).post(moderation::upload),
+        )
+        .route(
+            "/admin/moderation/scripts/{id}",
+            get(moderation::script_page).post(moderation::script_save),
+        )
+        .route(
+            "/admin/moderation/scripts/{id}/mode",
+            post(moderation::script_mode),
+        )
+        .route(
+            "/admin/moderation/scripts/{id}/delete",
+            post(moderation::script_delete),
+        )
+        .route(
+            "/admin/moderation/templates/{id}",
+            post(moderation::use_template),
+        )
+        .route("/admin/moderation/chains", get(moderation::chains_page))
+        .route(
+            "/admin/moderation/chains/{hook}",
+            post(moderation::chain_save),
+        )
+        .route(
+            "/admin/moderation/data",
+            get(moderation::data_list_page).post(moderation::data_create),
+        )
+        .route(
+            "/admin/moderation/data/{name}",
+            get(moderation::data_page).post(moderation::data_save),
+        )
+        .route(
+            "/admin/moderation/data/{name}/restore",
+            post(moderation::data_restore),
+        )
+        .route(
+            "/admin/moderation/data/{name}/delete",
+            post(moderation::data_delete),
+        )
+        .route(
+            "/admin/moderation/dry-run",
+            get(moderation::dry_run_page).post(moderation::dry_run_submit),
+        )
         .route("/admin/settings", get(settings::index))
         .route(
             "/admin/settings/tag-types",
@@ -79,11 +145,51 @@ pub fn router() -> Router<AppState> {
             "/admin/settings/tag-types/{name}",
             post(settings::tag_type_update),
         )
+        .route(
+            "/admin/settings/tag-types/{name}/limits",
+            post(settings::tag_type_limits),
+        )
+        .route(
+            "/admin/settings/tag-types/{name}/outside",
+            get(settings::tag_type_outside),
+        )
         .route("/admin/settings/new-tags", post(settings::new_tags_save))
         .route("/admin/settings/sessions", get(settings::sessions_page))
         .route(
             "/admin/settings/attachments",
             post(settings::attachments_save),
+        )
+        .route(
+            "/admin/settings/announcements",
+            get(announcements::admin_list).post(announcements::admin_post),
+        )
+        .route(
+            "/admin/settings/announcements/{id}",
+            get(announcements::admin_edit_form).post(announcements::admin_edit),
+        )
+        .route(
+            "/admin/settings/announcements/{id}/comments",
+            post(announcements::admin_comments),
+        )
+        .route(
+            "/admin/settings/announcements/{id}/delete",
+            post(announcements::admin_delete),
+        )
+        .route(
+            "/admin/settings/announcements/{id}/sticky",
+            post(announcements::admin_sticky),
+        )
+        .route(
+            "/admin/settings/comment-visibility",
+            post(announcements::admin_comment_visibility),
+        )
+        .route(
+            quill_board_ui::ADMIN_RULES_PATH,
+            get(rules::admin_page).post(rules::admin_save),
+        )
+        .route(
+            "/admin/settings/rules-acceptance",
+            post(rules::admin_acceptance),
         )
         .route("/admin/settings/tag-requests", get(settings::tag_requests))
         .route(
@@ -282,11 +388,15 @@ pub(crate) fn chrome(
             maturity_max: s.maturity_max,
             pending_tags: s.pending_tags,
             unread_notices: s.unread_notices,
+            must_accept_rules: s.must_accept_rules,
         }),
         source_url: state.config.source_url.clone(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
         notice: notice.and_then(notice_text).map(str::to_owned),
         current,
+        has_rules: state
+            .rules_published
+            .load(std::sync::atomic::Ordering::Relaxed),
     }
 }
 
@@ -321,6 +431,26 @@ fn notice_text(key: &str) -> Option<&'static str> {
         "tag-color" => "Colour saved.",
         "handles-reserved" => "Handles reserved.",
         "handle-removed" => "Handle no longer reserved.",
+        "announcement-posted" => "Announcement posted.",
+        "announcement-saved" => "Changes saved.",
+        "announcement-comments" => "Setting saved.",
+        "announcement-sticky" => "Setting saved.",
+        "announcement-deleted" => "Announcement deleted.",
+        "comment-visibility-saved" => "Setting saved.",
+        "comment-posted" => "Comment posted.",
+        "comment-deleted" => "Comment deleted.",
+        "comment-removed" => "Comment removed. Its author has been told why.",
+        "script-uploaded" => "Script uploaded. Add it to a chain to run it.",
+        "script-saved" => "Script saved.",
+        "script-mode" => "Setting saved.",
+        "script-removed" => "Script removed.",
+        "chain-saved" => "Chain saved.",
+        "data-saved" => "Saved as a new version.",
+        "data-restored" => "Saved the old version again, as a new version.",
+        "data-deleted" => "Entry deleted.",
+        "rules-accepted" => "Thank you for accepting the server rules.",
+        "rules-saved" => "Rules saved as a new version.",
+        "rules-acceptance-saved" => "Setting saved.",
         _ => return None,
     })
 }
@@ -364,6 +494,20 @@ pub(crate) fn error_page(chrome: &Chrome, err: ApiError) -> Response {
         ),
         ApiError::Unauthorized => redirect("/login"),
         ApiError::Forbidden(text) => message(chrome, StatusCode::FORBIDDEN, "Not allowed", &text),
+        ApiError::RulesNotAccepted(text) => html(
+            StatusCode::FORBIDDEN,
+            quill_board_ui::message_page(
+                chrome,
+                MessageView {
+                    title: "Accept the server rules first".to_owned(),
+                    text,
+                    link: Some((
+                        rules::READ_RULES.0.to_owned(),
+                        rules::READ_RULES.1.to_owned(),
+                    )),
+                },
+            ),
+        ),
         ApiError::TooManyRequests => message(
             chrome,
             StatusCode::TOO_MANY_REQUESTS,

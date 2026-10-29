@@ -10,8 +10,8 @@ use axum::{
 };
 use quill_proto::board::{
     AdminAction, AdminLogDetail, AdminLogEntry, AdminLogPrompt, AdminLogQuery, AdminLogTarget,
-    AdminLogTargetQuery, CreateReport, LOG_TARGET_PREVIEW, Report, ReportQuery, ReportReason,
-    Resolution, ResolveReport,
+    AdminLogTargetQuery, CreateReport, LOG_TARGET_PREVIEW, Report, ReportKind, ReportQuery,
+    ReportReason, Resolution, ResolveReport,
 };
 use sha2::{Digest, Sha256};
 use sqlx::{AssertSqlSafe, PgConnection};
@@ -26,7 +26,10 @@ use crate::{
     prompts::load_prompt,
     routes::ApiJson,
 };
-use quill_proto::notices::{NoticeFields, NoticeKind, NoticePrompt};
+use quill_proto::{
+    announcements::ReportComment,
+    notices::{NoticeFields, NoticeKind, NoticePrompt},
+};
 
 /// Reports one signed-in account may file per hour.
 const ACCOUNT_REPORTS_PER_HOUR: usize = 20;
@@ -52,6 +55,15 @@ pub fn prompt_hash(title: &str, body: &str) -> Vec<u8> {
         h.update((field.len() as u64).to_be_bytes());
         h.update(field.as_bytes());
     }
+    h.finalize().to_vec()
+}
+
+/// SHA-256 of a comment's text, recorded instead of the text. Length-
+/// prefixed like [`prompt_hash`].
+pub fn comment_hash(body: &str) -> Vec<u8> {
+    let mut h = Sha256::new();
+    h.update((body.len() as u64).to_be_bytes());
+    h.update(body.as_bytes());
     h.finalize().to_vec()
 }
 
@@ -86,6 +98,20 @@ async fn create_report(
     Ok(StatusCode::ACCEPTED)
 }
 
+/// Counts a report against its reporter's hourly limit, prompts and
+/// comments together.
+fn allow_report(state: &AppState, reporter: Option<Uuid>) -> Result<(), ApiError> {
+    let (key, max) = match reporter {
+        Some(id) => (format!("report:{id}"), ACCOUNT_REPORTS_PER_HOUR),
+        None => ("report:anonymous".to_owned(), ANONYMOUS_REPORTS_PER_HOUR),
+    };
+    if state.limiter.allow(&key, max, Duration::from_secs(60 * 60)) {
+        Ok(())
+    } else {
+        Err(ApiError::TooManyRequests)
+    }
+}
+
 /// Files a report from `reporter` (an account id, or anonymous).
 pub async fn file_report(
     state: &AppState,
@@ -93,34 +119,66 @@ pub async fn file_report(
     body: &CreateReport,
 ) -> Result<(), ApiError> {
     let details = quill_proto::validate::report_details(body.details.as_deref())?;
-    let (key, max) = match reporter {
-        Some(id) => (format!("report:{id}"), ACCOUNT_REPORTS_PER_HOUR),
-        None => ("report:anonymous".to_owned(), ANONYMOUS_REPORTS_PER_HOUR),
-    };
-    if !state.limiter.allow(&key, max, Duration::from_secs(60 * 60)) {
-        return Err(ApiError::TooManyRequests);
+    if let Some(account) = reporter {
+        crate::rules::require_accepted(state, account).await?;
     }
+    allow_report(state, reporter)?;
 
-    let row: Option<(String, String)> =
-        sqlx::query_as("SELECT title, body_md FROM prompts WHERE id = $1 AND removed_at IS NULL")
-            .bind(body.prompt)
-            .fetch_optional(&state.pool)
-            .await?;
-    let (title, text) = row.ok_or(ApiError::NotFound)?;
+    let row: Option<(String, String, Uuid, Uuid, String, Vec<i64>)> = sqlx::query_as(
+        "SELECT p.title, p.body_md, p.actor_id, a.account_id, p.maturity::text, p.tag_ids
+         FROM prompts p JOIN actors a ON a.id = p.actor_id
+         WHERE p.id = $1 AND p.removed_at IS NULL",
+    )
+    .bind(body.prompt)
+    .fetch_optional(&state.pool)
+    .await?;
+    let (title, text, persona, author, maturity, tag_ids) = row.ok_or(ApiError::NotFound)?;
     let hash = prompt_hash(&title, &text);
+
+    // Moderation scripts see the report before it's filed. They may refuse
+    // it, close it straight away, or add a flag of their own.
+    let tags = crate::prompts::load_tags(&state.pool, &tag_ids).await?;
+    let reported = crate::moderation::hooks::Reported {
+        prompt: body.prompt,
+        persona,
+        author,
+        title: &title,
+        body: &text,
+        tags: tag_ids
+            .iter()
+            .filter_map(|t| tags.get(t))
+            .map(|t| t.key())
+            .collect(),
+        maturity: crate::prompts::parse_enum(&maturity)?,
+    };
+    let verdict = crate::moderation::hooks::before_report(
+        state,
+        reporter,
+        reported,
+        body.reason.as_str(),
+        details.as_deref().unwrap_or_default(),
+    )
+    .await?;
+    let dismissed = match &verdict {
+        crate::moderation::Verdict::Dismiss(d) => Some(d),
+        _ => None,
+    };
 
     let mut tx = state.pool.begin().await?;
     let report_id = Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO reports (id, prompt_id, reporter_account, reason, details, prompt_hash)
-         VALUES ($1, $2, $3, $4::report_reason, $5, $6)",
+        "INSERT INTO reports (id, prompt_id, reporter_account, reason, details, prompt_hash,
+                              resolved_at, resolution)
+         VALUES ($1, $2, $3, $4::report_reason, $5, $6,
+                 CASE WHEN $7 THEN now() END, CASE WHEN $7 THEN 'discard' END)",
     )
     .bind(report_id)
     .bind(body.prompt)
     .bind(reporter)
     .bind(body.reason.as_str())
-    .bind(details)
+    .bind(&details)
     .bind(&hash)
+    .bind(dismissed.is_some())
     .execute(&mut *tx)
     .await?;
     let log_id: i64 = sqlx::query_scalar(
@@ -133,7 +191,88 @@ pub async fn file_report(
     .bind(body.reason.as_str())
     .fetch_one(&mut *tx)
     .await?;
-    let author = notices::affected_by_prompt(&mut tx, body.prompt).await?;
+    let affected = notices::affected_by_prompt(&mut tx, body.prompt).await?;
+    log_targets(&mut tx, log_id, &affected).await?;
+    if let Some(d) = dismissed {
+        let log_id: i64 = sqlx::query_scalar(
+            "INSERT INTO admin_log (action, report_id, prompt_id, prompt_hash, reason, detail,
+                                    actor, script_name)
+             VALUES ('automod_dismiss', $1, $2, $3, $4::report_reason, $5, 'automod', $6)
+             RETURNING id",
+        )
+        .bind(report_id)
+        .bind(body.prompt)
+        .bind(&hash)
+        .bind(body.reason.as_str())
+        .bind(&d.reason)
+        .bind(&d.script_name)
+        .fetch_one(&mut *tx)
+        .await?;
+        log_targets(&mut tx, log_id, &affected).await?;
+    }
+    tx.commit().await?;
+    if let crate::moderation::Verdict::Flag(flag) = &verdict {
+        let target = crate::moderation::FlagTarget::Prompt {
+            id: body.prompt,
+            title: &title,
+            body: &text,
+        };
+        crate::moderation::file_flag(state, flag, target, author).await;
+    }
+    Ok(())
+}
+
+/// Files a report about a comment from `reporter`. Removed comments,
+/// staff comments, and those on a deleted announcement, can't be reported.
+pub async fn file_comment_report(
+    state: &AppState,
+    reporter: Option<Uuid>,
+    comment: Uuid,
+    body: &ReportComment,
+) -> Result<(), ApiError> {
+    let details = quill_proto::validate::report_details(body.details.as_deref())?;
+    // Only those who may read comments can report them.
+    crate::comments::check_readable(state, reporter).await?;
+    if let Some(account) = reporter {
+        crate::rules::require_accepted(state, account).await?;
+    }
+    allow_report(state, reporter)?;
+    let text: Option<String> = sqlx::query_scalar(
+        "SELECT c.body_md FROM announcement_comments c
+         JOIN announcements an ON an.id = c.announcement_id
+         WHERE c.id = $1 AND c.removed_at IS NULL AND an.deleted_at IS NULL
+           AND c.voice = 'persona'",
+    )
+    .bind(comment)
+    .fetch_optional(&state.pool)
+    .await?;
+    let hash = comment_hash(&text.ok_or(ApiError::NotFound)?);
+
+    let mut tx = state.pool.begin().await?;
+    let report_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO reports (id, kind, comment_id, reporter_account, reason, details, prompt_hash)
+         VALUES ($1, 'comment', $2, $3, $4::report_reason, $5, $6)",
+    )
+    .bind(report_id)
+    .bind(comment)
+    .bind(reporter)
+    .bind(body.reason.as_str())
+    .bind(details)
+    .bind(&hash)
+    .execute(&mut *tx)
+    .await?;
+    let log_id: i64 = sqlx::query_scalar(
+        "INSERT INTO admin_log (action, report_id, comment_id, prompt_hash, reason, actor)
+         VALUES ('report_received', $1, $2, $3, $4::report_reason, 'reporter') RETURNING id",
+    )
+    .bind(report_id)
+    .bind(comment)
+    .bind(&hash)
+    .bind(body.reason.as_str())
+    .fetch_one(&mut *tx)
+    .await?;
+    let author = notices::affected_by_comment(&mut tx, comment).await?;
     log_targets(&mut tx, log_id, &author).await?;
     tx.commit().await?;
     Ok(())
@@ -141,6 +280,8 @@ pub async fn file_report(
 
 type ReportRow = (
     Uuid,
+    String,
+    Option<Uuid>,
     Option<Uuid>,
     String,
     Option<String>,
@@ -148,20 +289,39 @@ type ReportRow = (
     OffsetDateTime,
     Option<OffsetDateTime>,
     Option<String>,
+    Option<String>,
 );
 
-const REPORT_SELECT: &str = "SELECT id, prompt_id, reason::text, details, prompt_hash, \
-     created_at, resolved_at, resolution FROM reports";
+const REPORT_SELECT: &str = "SELECT id, kind, prompt_id, comment_id, reason::text, details, \
+     prompt_hash, created_at, resolved_at, resolution, script_name FROM reports";
 
 async fn to_report(state: &AppState, row: ReportRow) -> Result<Report, ApiError> {
-    let (id, prompt_id, reason, details, hash, created_at, resolved_at, resolution) = row;
+    let (
+        id,
+        kind,
+        prompt_id,
+        comment_id,
+        reason,
+        details,
+        hash,
+        created_at,
+        resolved_at,
+        resolution,
+        script_name,
+    ) = row;
     let prompt = match prompt_id {
         Some(pid) => load_prompt(&state.pool, pid, None, true).await?,
         None => None,
     };
+    let comment = match comment_id {
+        Some(cid) => crate::comments::load(&state.pool, cid).await?,
+        None => None,
+    };
     Ok(Report {
         id,
+        kind: crate::prompts::parse_enum(&kind)?,
         prompt,
+        comment,
         reason: parse_reason(&reason)?,
         details,
         prompt_hash: hex(&hash),
@@ -171,6 +331,7 @@ async fn to_report(state: &AppState, row: ReportRow) -> Result<Report, ApiError>
             .map(|r| r.parse::<Resolution>())
             .transpose()
             .map_err(|e| ApiError::Internal(e.into()))?,
+        script: script_name,
     })
 }
 
@@ -241,16 +402,23 @@ pub async fn resolve(
     action: Resolution,
 ) -> Result<Report, ApiError> {
     let mut tx = state.pool.begin().await?;
-    let row: Option<(Option<Uuid>, String, Vec<u8>, bool)> = sqlx::query_as(
-        "SELECT prompt_id, reason::text, prompt_hash, resolved_at IS NOT NULL
-         FROM reports WHERE id = $1 FOR UPDATE",
+    /// `(kind, prompt, comment, reason, hash, resolved)`.
+    type Locked = (String, Option<Uuid>, Option<Uuid>, String, Vec<u8>, bool);
+    let row: Option<Locked> = sqlx::query_as(
+        "SELECT kind, prompt_id, comment_id, reason::text, prompt_hash, resolved_at IS NOT NULL
+             FROM reports WHERE id = $1 FOR UPDATE",
     )
     .bind(id)
     .fetch_optional(&mut *tx)
     .await?;
-    let (prompt_id, reason, hash, resolved) = row.ok_or(ApiError::NotFound)?;
+    let (kind, prompt_id, comment_id, reason, hash, resolved) = row.ok_or(ApiError::NotFound)?;
     if resolved {
         return Err(ApiError::Conflict("report already resolved".into()));
+    }
+    if kind == ReportKind::Comment.as_str() {
+        resolve_comment_report(&mut tx, admin, id, comment_id, &reason, &hash, action).await?;
+        tx.commit().await?;
+        return report(state, id).await;
     }
     let logged = match action {
         Resolution::Discard => "discard",
@@ -317,11 +485,67 @@ pub async fn resolve(
         .await?;
     }
     tx.commit().await?;
+    report(state, id).await
+}
 
+/// One report, as the inbox shows it.
+async fn report(state: &AppState, id: Uuid) -> Result<Report, ApiError> {
     // Safe: built only from compile-time constants; values are bound.
     let sql = AssertSqlSafe(format!("{REPORT_SELECT} WHERE id = $1"));
     let row: ReportRow = sqlx::query_as(sql).bind(id).fetch_one(&state.pool).await?;
     to_report(state, row).await
+}
+
+/// Resolves a report about a comment: removing the comment works as a
+/// direct removal does, with the report named in the log.
+async fn resolve_comment_report(
+    conn: &mut PgConnection,
+    admin: Uuid,
+    id: Uuid,
+    comment: Option<Uuid>,
+    reason: &str,
+    hash: &[u8],
+    action: Resolution,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        "UPDATE reports SET resolved_at = now(), resolution = $2, resolved_by = $3 WHERE id = $1",
+    )
+    .bind(id)
+    .bind(action.as_str())
+    .bind(admin)
+    .execute(&mut *conn)
+    .await?;
+    let reason = parse_reason(reason)?;
+    match (action, comment) {
+        (Resolution::Delete, Some(comment)) => {
+            crate::comments::remove_locked(conn, admin, comment, reason, Some(id)).await
+        }
+        // The author deleted it already: nothing left to remove.
+        (Resolution::Delete, None) => Err(ApiError::Conflict(
+            "The comment was deleted by its author; discard the report instead.".into(),
+        )),
+        (Resolution::Discard, _) => {
+            let log_id: i64 = sqlx::query_scalar(
+                "INSERT INTO admin_log
+                     (action, report_id, comment_id, prompt_hash, reason, admin_id, actor, admin_login)
+                 VALUES ('discard', $1, $2, $3, $4::report_reason, $5, 'admin',
+                         (SELECT login_name FROM accounts WHERE id = $5))
+                 RETURNING id",
+            )
+            .bind(id)
+            .bind(comment)
+            .bind(hash)
+            .bind(reason.as_str())
+            .bind(admin)
+            .fetch_one(&mut *conn)
+            .await?;
+            let affected = match comment {
+                Some(c) => notices::affected_by_comment(conn, c).await?,
+                None => Vec::new(),
+            };
+            log_targets(conn, log_id, &affected).await
+        }
+    }
 }
 
 /// Records an administrator's change to something other than a report.
@@ -371,6 +595,7 @@ struct LogRow {
     action: String,
     report_id: Option<Uuid>,
     prompt_id: Option<Uuid>,
+    comment_id: Option<Uuid>,
     prompt_hash: Option<Vec<u8>>,
     reason: Option<String>,
     subject: Option<String>,
@@ -378,6 +603,7 @@ struct LogRow {
     admin_id: Option<Uuid>,
     actor: String,
     admin_login: Option<String>,
+    script_name: Option<String>,
     targets: Vec<String>,
     target_count: i64,
 }
@@ -392,6 +618,7 @@ impl LogRow {
             })?,
             report_id: self.report_id,
             prompt_id: self.prompt_id,
+            comment_id: self.comment_id,
             prompt_hash: self.prompt_hash.as_deref().map(hex),
             reason: self.reason.as_deref().map(parse_reason).transpose()?,
             subject: self.subject,
@@ -399,6 +626,7 @@ impl LogRow {
             admin: self.admin_id,
             actor: crate::prompts::parse_enum(&self.actor)?,
             admin_login: self.admin_login,
+            script_name: self.script_name,
             targets: self.targets,
             target_count: u64::try_from(self.target_count).unwrap_or(0),
         })
@@ -453,8 +681,8 @@ async fn fetch_log(
         .map(str::trim)
         .filter(|s| !s.is_empty());
     let rows: Vec<LogRow> = sqlx::query_as(
-        "SELECT l.id, l.at, l.action, l.report_id, l.prompt_id, l.prompt_hash,
-                l.reason::text AS reason, l.subject, l.detail, l.admin_id, l.actor, l.admin_login,
+        "SELECT l.id, l.at, l.action, l.report_id, l.prompt_id, l.comment_id, l.prompt_hash,
+                l.reason::text AS reason, l.subject, l.detail, l.admin_id, l.actor, l.admin_login, l.script_name,
                 ARRAY(SELECT t.login FROM admin_log_targets t WHERE t.log_id = l.id
                       ORDER BY t.login = lower($4) DESC, t.login LIMIT $6) AS targets,
                 (SELECT count(*) FROM admin_log_targets t WHERE t.log_id = l.id) AS target_count

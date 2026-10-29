@@ -45,11 +45,14 @@ docker compose down        # stop; add -v to also delete the database
 For a board full of test data instead, seed the empty database:
 
 ```sh
-docker compose --profile demo run --rm seed
+docker compose --profile demo run --build --rm seed
 ```
 
 This creates 6 accounts (including `admin`), 1 to 3 personas each, 150
-prompts and a few reports, and prints the logins. Every demo account's
+prompts and a few reports, and prints the logins. It also sets up demo
+automated moderation: common data, scripts from the templates in a chain
+for every hook, and a few posts the scripts refuse, flag or log (leave it
+out with `--no-automod`). Every demo account's
 password is `quill demo password`. Options such as `--prompts 300` or
 `--seed 7` go after `seed`. The seeder only fills an empty database: to
 start over, run `docker compose down -v` and start again.

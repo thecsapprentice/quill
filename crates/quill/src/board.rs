@@ -8,7 +8,7 @@ use clap::{Args, Subcommand};
 use quill_core::Client;
 use quill_proto::board::{
     AdminTagQuery, CreateNamespace, CreatePrompt, CreateReport, CreateTag, Maturity, Prompt,
-    PromptQuery, PromptState, ReportReason, Resolution, TagPolicy, TagQuery, TagStatus,
+    PromptQuery, PromptState, ReportKind, ReportReason, Resolution, TagPolicy, TagQuery, TagStatus,
     UpdateAccountSettings, UpdateNamespace, UpdatePrompt, UpdateServerSettings, UpdateTag,
 };
 use uuid::Uuid;
@@ -24,6 +24,14 @@ pub enum AccountCommand {
         /// Highest maturity rating to show on the board.
         #[arg(long)]
         maturity: Option<Maturity>,
+        /// Administrators only: the public name to comment under as staff.
+        /// An empty string clears it.
+        #[arg(long)]
+        staff_name: Option<String>,
+        /// Suggest tags on the post form from all your personas (on), or
+        /// only the one posting (off).
+        #[arg(long, value_parser = clap::builder::BoolishValueParser::new())]
+        suggest_all_personas: Option<bool>,
     },
     /// Show what administrators have done to your prompts and tags, and mark
     /// it read.
@@ -44,7 +52,7 @@ pub struct BodyArgs {
 }
 
 impl BodyArgs {
-    fn read(&self) -> Result<Option<String>> {
+    pub(crate) fn read(&self) -> Result<Option<String>> {
         match (&self.body, &self.body_file) {
             (Some(b), _) => Ok(Some(b.clone())),
             (None, Some(path)) if path == "-" => {
@@ -146,6 +154,12 @@ pub enum TagCommand {
     },
     /// Create a tag (if the server allows user tags).
     Create { namespace: String, name: String },
+    /// The tags you use most, as the post form suggests them.
+    Frequent {
+        /// The persona posting (handle or id); all of yours if left out.
+        #[arg(long = "as")]
+        persona: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -153,6 +167,21 @@ pub enum AdminCommand {
     /// Storage used by each login's sessions (sizes only), or one login's
     /// sessions.
     Storage { account: Option<Uuid> },
+    /// Post, edit and delete announcements.
+    #[command(subcommand)]
+    Announce(crate::announce_cmd::AnnounceCommand),
+    /// Write the server rules: saves the next version.
+    RulesSet {
+        #[command(flatten)]
+        body: BodyArgs,
+        /// A typo or wording fix: accounts aren't asked to accept it again.
+        #[arg(long)]
+        minor: bool,
+    },
+    /// Moderation scripts, their chains, common data, templates and dry
+    /// runs.
+    #[command(subcommand)]
+    Automod(crate::automod_cmd::AutomodCommand),
     /// Show open reports (or all with --all).
     Reports {
         #[arg(long)]
@@ -190,21 +219,32 @@ pub enum AdminCommand {
         /// Curated tags only: writers can't create new ones.
         #[arg(long)]
         locked: bool,
-        /// Every prompt saved must have a tag of this type.
+        /// How many tags of this type every prompt needs (0: optional).
+        #[arg(long, default_value_t = 0)]
+        min: u32,
+        /// How many a prompt may have. No limit if left out.
         #[arg(long)]
-        required: bool,
+        max: Option<u32>,
         #[command(flatten)]
         color: ColorArgs,
     },
-    /// Change a tag type's name, or whether it is curated-only or required.
+    /// Change a tag type's name, whether it is curated-only, its limits or
+    /// its colours.
     NamespaceSet {
         name: String,
         #[arg(long)]
         display: Option<String>,
         #[arg(long)]
         locked: Option<bool>,
+        /// How many tags of this type every prompt needs (0: optional).
         #[arg(long)]
-        required: Option<bool>,
+        min: Option<u32>,
+        /// How many a prompt may have.
+        #[arg(long, conflicts_with = "no_max")]
+        max: Option<u32>,
+        /// Remove the maximum.
+        #[arg(long)]
+        no_max: bool,
         #[command(flatten)]
         color: ColorArgs,
         /// Remove the chip colours.
@@ -228,6 +268,14 @@ pub enum AdminCommand {
         /// Whether sessions take attachments: on or off.
         #[arg(long, value_parser = clap::builder::BoolishValueParser::new())]
         attachments: Option<bool>,
+        /// Who can read comments on announcements: public, or signed-in
+        /// (signed-in writers only).
+        #[arg(long)]
+        comments: Option<quill_proto::announcements::CommentVisibility>,
+        /// When accounts accept the server rules: none, on-join, on-change
+        /// or both.
+        #[arg(long)]
+        rules_acceptance: Option<quill_proto::rules::RulesAcceptance>,
     },
     /// List tags with how many prompts use them, aliases included.
     Tags {
@@ -306,7 +354,7 @@ fn print_prompt(p: &Prompt, full: bool) {
     }
 }
 
-async fn persona_id(client: &Client, persona: &str) -> Result<Uuid> {
+pub(crate) async fn persona_id(client: &Client, persona: &str) -> Result<Uuid> {
     if let Ok(id) = persona.parse() {
         return Ok(id);
     }
@@ -357,10 +405,16 @@ pub async fn account(ctx: &Ctx, cmd: AccountCommand) -> Result<()> {
     let settings = match cmd {
         AccountCommand::Notices { .. } => unreachable!("handled above"),
         AccountCommand::Show => client.account().await?,
-        AccountCommand::Set { maturity } => {
+        AccountCommand::Set {
+            maturity,
+            staff_name,
+            suggest_all_personas,
+        } => {
             client
                 .update_account(&UpdateAccountSettings {
                     maturity_max: maturity,
+                    staff_name,
+                    suggest_all_personas,
                 })
                 .await?
         }
@@ -368,7 +422,18 @@ pub async fn account(ctx: &Ctx, cmd: AccountCommand) -> Result<()> {
     ctx.print(&settings, |s| {
         println!("maturity cap: {}", s.maturity_max);
         println!("administrator: {}", s.is_admin);
+        if let Some(name) = &s.staff_name {
+            println!("staff name: {name}");
+        }
         println!("unread notices: {}", s.unread_notices);
+        println!(
+            "tag suggestions from: {}",
+            if s.suggest_all_personas {
+                "all personas"
+            } else {
+                "the persona posting"
+            }
+        );
     })
 }
 
@@ -493,9 +558,10 @@ pub async fn tags(ctx: &Ctx, cmd: TagCommand) -> Result<()> {
             ctx.print(&list, |l| {
                 for n in l {
                     println!(
-                        "{:<20} {}{}",
+                        "{:<20} {}: {} per prompt{}",
                         n.name,
                         n.display,
+                        n.limit_label(),
                         if n.locked { "  (curated only)" } else { "" }
                     );
                 }
@@ -528,6 +594,21 @@ pub async fn tags(ctx: &Ctx, cmd: TagCommand) -> Result<()> {
                 .await?;
             ctx.print(&tag, |t| println!("{}  {}", t.key(), t.display))
         }
+        TagCommand::Frequent { persona } => {
+            let persona = match persona {
+                Some(p) => Some(persona_id(&client, &p).await?),
+                None => None,
+            };
+            let list = client.frequent_tags(persona).await?;
+            ctx.print(&list, |l| {
+                if l.is_empty() {
+                    println!("no tags yet: post a prompt first");
+                }
+                for t in l {
+                    println!("{:<36} {}", t.key(), t.display);
+                }
+            })
+        }
     }
 }
 
@@ -550,6 +631,9 @@ pub async fn report(
 pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
     let client = ctx.client()?;
     match cmd {
+        AdminCommand::Announce(cmd) => crate::announce_cmd::announce(ctx, cmd).await,
+        AdminCommand::RulesSet { body, minor } => crate::rules_cmd::set(ctx, &body, minor).await,
+        AdminCommand::Automod(cmd) => crate::automod_cmd::automod(ctx, cmd).await,
         AdminCommand::Reports { all } => {
             let reports = client.admin_reports(all).await?;
             ctx.print(&reports, |list| {
@@ -557,10 +641,14 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     println!("no reports");
                 }
                 for r in list {
-                    let title = r
-                        .prompt
-                        .as_ref()
-                        .map_or("(prompt deleted by its author)", |p| p.title.as_str());
+                    let title = match (r.kind, &r.prompt, &r.comment) {
+                        (ReportKind::Prompt, Some(p), _) => p.title.clone(),
+                        (ReportKind::Prompt, None, _) => "(prompt deleted by its author)".into(),
+                        (ReportKind::Comment, _, Some(c)) => {
+                            format!("comment {} by {}", c.id, c.speaker())
+                        }
+                        (ReportKind::Comment, _, None) => "(comment deleted by its author)".into(),
+                    };
                     let status = match (r.resolution, r.resolved_at) {
                         (Some(res), _) => format!("resolved: {res}"),
                         _ => "open".to_owned(),
@@ -673,7 +761,8 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
             name,
             display,
             locked,
-            required,
+            min,
+            max,
             color,
         } => {
             let ns = client
@@ -681,7 +770,8 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     name,
                     display,
                     locked,
-                    required,
+                    min,
+                    max,
                     color: color.chip(),
                 })
                 .await?;
@@ -714,7 +804,9 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
             name,
             display,
             locked,
-            required,
+            min,
+            max,
+            no_max,
             color,
             clear_color,
         } => {
@@ -724,7 +816,9 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                     &UpdateNamespace {
                         display,
                         locked,
-                        required,
+                        min,
+                        max,
+                        clear_max: no_max,
                         color: color.chip(),
                         clear_color,
                     },
@@ -732,8 +826,11 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                 .await?;
             ctx.print(&ns, |n| {
                 println!(
-                    "{} ({}): curated only {}, required {}",
-                    n.name, n.display, n.locked, n.required
+                    "{} ({}): curated only {}, {} per prompt",
+                    n.name,
+                    n.display,
+                    n.locked,
+                    n.limit_label()
                 );
             })
         }
@@ -769,12 +866,20 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
         AdminCommand::Settings {
             new_tags,
             attachments,
+            comments,
+            rules_acceptance,
         } => {
-            let settings = if new_tags.is_some() || attachments.is_some() {
+            let settings = if new_tags.is_some()
+                || attachments.is_some()
+                || comments.is_some()
+                || rules_acceptance.is_some()
+            {
                 client
                     .admin_update_settings(&UpdateServerSettings {
                         new_tags,
                         attachments,
+                        comment_visibility: comments,
+                        rules_acceptance,
                     })
                     .await?
             } else {
@@ -790,6 +895,8 @@ pub async fn admin(ctx: &Ctx, cmd: AdminCommand) -> Result<()> {
                         "not allowed"
                     }
                 );
+                println!("who can read comments: {}", s.comment_visibility);
+                println!("accounts accept the rules: {}", s.rules_acceptance);
             })
         }
         AdminCommand::Reserved { search } => {

@@ -19,6 +19,13 @@
   --closed: #6b7480;
   --warn: #fff4d6;
   --warn-line: #d9b45a;
+  /* Sticky announcements: a tint of the action colour. */
+  --sticky: #e3f2ef;
+  --sticky-line: #a9d3cc;
+  /* Administrators speaking as staff: a soft red. */
+  --staff: #b03a32;
+  --staff-bg: #fbeae8;
+  --staff-line: #eab3ad;
   --danger: #a3302b;
   --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino,
     "URW Palladio L", "P052", Georgia, serif;
@@ -45,6 +52,11 @@
     --closed: #8f9aa6;
     --warn: #2c2716;
     --warn-line: #8a7230;
+    --sticky: #182d2b;
+    --sticky-line: #2c534e;
+    --staff: #f2a19a;
+    --staff-bg: #3a2220;
+    --staff-line: #7a3d38;
     --danger: #f08a82;
   }
 }
@@ -186,6 +198,85 @@ h1 {
 
 .notice.error {
   border-left-color: var(--danger);
+}
+
+/* The newest announcement, one line above the board. */
+.announcement-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.6rem 0.9rem;
+  margin: 0 0 1.5rem;
+}
+
+/* Sticky banners stack above the newest one, closer together. */
+.announcement-banner + .announcement-banner {
+  margin-top: -1rem;
+}
+
+.announcement-banner.sticky {
+  background: var(--sticky);
+  border-color: var(--sticky-line);
+  border-left-color: var(--act);
+}
+
+.announcement-banner a {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.banner-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.announcement-banner form {
+  margin-left: auto;
+}
+
+/* Comments under an announcement: flat, oldest first. */
+.comments {
+  margin: 2rem 0 0;
+}
+
+.comment-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.comment {
+  border-top: 1px solid var(--line);
+  padding: 0.75rem 0;
+}
+
+.comment-body p {
+  margin: 0 0 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.comment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+.comment-actions form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0;
 }
 
 .warning {
@@ -445,6 +536,32 @@ button.chip {
   cursor: pointer;
 }
 
+/* A type that has as many tags as it may: its other tags can't be picked. */
+button.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  text-decoration: none;
+}
+
+/* A tag type's count against its limit, beside its name in the picker. */
+.limit-count {
+  font-weight: 600;
+  font-size: 0.8rem;
+  margin-left: 0.25rem;
+}
+
+.limit-count.ok {
+  color: var(--act);
+}
+
+.limit-count.full {
+  color: var(--busy);
+}
+
+.limit-count.short {
+  color: var(--danger);
+}
+
 button.chip:hover {
   text-decoration: underline;
 }
@@ -528,6 +645,36 @@ input[type="color"] {
   border: 1px solid var(--line);
   border-radius: 2px;
   padding: 0 0.35em;
+}
+
+/* Tags on an announcement: sticky, comments closed. */
+.flag {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 0 0.35em;
+}
+
+/* Comments written as the administrators: their name in a soft red. */
+.staff-name {
+  color: var(--staff);
+  font-weight: 600;
+}
+
+.flag-admin {
+  color: var(--staff);
+  border-color: var(--staff-line);
+  background: var(--staff-bg);
+}
+
+.comment.staff {
+  border-left: 3px solid var(--staff-line);
+  padding-left: 0.75rem;
+}
+
+.flag-sticky {
+  color: var(--act);
+  border-color: var(--act);
+  background: var(--sticky);
 }
 
 .removed {
@@ -642,6 +789,46 @@ textarea.short {
   min-height: 6rem;
   font-family: var(--sans);
   font-size: 1rem;
+}
+
+/* The server rules: one long document. */
+textarea.tall {
+  min-height: 26rem;
+}
+
+/* Moderation scripts and common data: code and lists, not prose. */
+textarea.code {
+  min-height: 22rem;
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  tab-size: 4;
+}
+
+pre.code {
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.automated {
+  font-weight: 600;
+}
+
+.decision-reject,
+.decision-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.decision-flag,
+.decision-dismiss {
+  font-weight: 600;
+}
+
+input.position {
+  width: 4.5rem;
 }
 
 .form-card {
@@ -891,5 +1078,814 @@ textarea.short {
 
   .prompt-card .card-title {
     font-size: 1.45rem;
+  }
+}
+
+/* ---- Layout (#51) ----
+   Three widths: phones (under 47.5rem) get a tab bar fixed to the bottom
+   and one column; tablets a top bar and one column; wide screens panes side
+   by side. See docs/plan.md, "Board layout". */
+
+.site-header .wrap,
+.site-footer .wrap,
+main.wrap.wide {
+  max-width: 90rem;
+}
+
+.site-nav .short,
+.site-nav .nav-icon,
+.site-nav .more-link {
+  display: none;
+}
+
+.site-nav .tab .count {
+  margin-left: 0.3em;
+}
+
+/* ---- The board: a list of prompts and a reading pane ---- */
+
+.board-head h1 {
+  margin-bottom: 0.25rem;
+}
+
+.board-head .lede {
+  margin: 0 0 0.75rem;
+}
+
+.board-head .filters {
+  margin-bottom: 0.75rem;
+}
+
+/* The filters in force: two lines at most, however many there are. */
+.filter-summary {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.filter-summary p {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.filter-summary .chip {
+  margin: 0 0.25rem 0 0;
+  padding: 0 0.5rem;
+  font-size: 0.8rem;
+}
+
+.chip.chip-hide {
+  text-decoration: line-through;
+}
+
+.summary-rest {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--muted);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.row {
+  padding: 0.7rem 0.25rem 0.75rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid transparent;
+}
+
+.row.current {
+  background: var(--card);
+  border-left-color: var(--rule);
+}
+
+.row-title {
+  display: block;
+  color: var(--ink);
+  font: 700 1.1rem/1.3 var(--serif);
+  text-decoration: none;
+}
+
+.row-title:hover {
+  text-decoration: underline;
+}
+
+.row .card-meta {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+}
+
+.row-excerpt,
+.row-tags {
+  margin: 0.15rem 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.875rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.row-tags a {
+  color: var(--muted);
+}
+
+.reading-pane .back-link {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+}
+
+.pane-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  margin: 1.25rem 0 0;
+}
+
+.empty-pane {
+  color: var(--muted);
+}
+
+/* Wide: list and pane side by side, each scrolling with the page. */
+@media (min-width: 75rem) {
+  .board-layout {
+    display: grid;
+    grid-template-columns: minmax(22rem, 34rem) minmax(0, 1fr);
+    gap: 2rem;
+    align-items: start;
+  }
+
+  .reading-pane {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+  }
+
+  .reading-pane .back-link {
+    display: none;
+  }
+
+  .empty-pane {
+    padding: 4rem 1rem;
+    text-align: center;
+  }
+}
+
+/* Narrower: the list, or the open prompt in its place. */
+@media (max-width: 74.99rem) {
+  .board-layout.has-open .board-list,
+  .empty-pane {
+    display: none;
+  }
+}
+
+/* ---- The filter builder: tag types, one type's tags, the filter ---- */
+
+.all-filters {
+  margin: -0.25rem 0 1rem;
+}
+
+.back-row {
+  margin: 0 0 0.5rem;
+}
+
+.filter-types {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.type-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0.35rem 0.75rem;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 0 4px 4px 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.type-btn:hover {
+  background: var(--chip);
+}
+
+.type-btn[aria-current="true"] {
+  background: var(--card);
+  border-left-color: var(--rule);
+  font-weight: 600;
+}
+
+.filter-panel,
+.filter-chosen {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1rem 1.25rem;
+  min-width: 0;
+}
+
+.filter-panel h2,
+.filter-chosen h2 {
+  margin: 0 0 0.75rem;
+  font: 700 1.3rem/1.25 var(--serif);
+}
+
+.muted {
+  color: var(--muted);
+  font: 400 0.875rem var(--sans);
+}
+
+.tag-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.tag-search input {
+  flex: 1;
+  min-width: 10rem;
+}
+
+.letters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  margin: 0 0 0.75rem;
+}
+
+.letters button {
+  min-width: 1.9rem;
+  min-height: 1.9rem;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--act);
+  font: 600 0.8rem var(--sans);
+  cursor: pointer;
+}
+
+.letters button[aria-current="true"] {
+  background: var(--ink);
+  color: var(--card);
+}
+
+.tag-choices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.tag-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.tag-choice .uses {
+  white-space: nowrap;
+}
+
+/* Any / Has / Hide: three radios drawn as one segmented control. */
+.tri {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.tri label {
+  position: relative;
+  display: flex;
+}
+
+.tri input {
+  position: absolute;
+  opacity: 0;
+}
+
+.tri span {
+  min-width: 3.25rem;
+  padding: 0.3rem 0.6rem;
+  border-left: 1px solid var(--line);
+  font-size: 0.85rem;
+  text-align: center;
+  cursor: pointer;
+}
+
+.tri label:first-of-type span {
+  border-left: 0;
+}
+
+.tri input:focus-visible + span {
+  outline: 2px solid var(--act);
+  outline-offset: -2px;
+}
+
+.tri input:checked + span {
+  font-weight: 600;
+}
+
+.tri-any input:checked + span {
+  background: var(--chip);
+}
+
+.tri-has input:checked + span {
+  background: var(--sticky);
+  color: var(--act);
+}
+
+.tri-hide input:checked + span {
+  background: var(--staff-bg);
+  color: var(--danger);
+}
+
+.chosen-group {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.875rem;
+}
+
+.chosen-tags .chip,
+.chosen-rest span {
+  margin: 0 0.3rem 0.3rem 0;
+}
+
+.chosen-rest {
+  display: flex;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+@media (min-width: 64rem) {
+  .filter-layout {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr) 20rem;
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .filter-chosen {
+    position: sticky;
+    top: 1rem;
+  }
+}
+
+/* Narrower: types as a strip that scrolls sideways, then the tags, then
+   the filter with its button. */
+@media (max-width: 63.99rem) {
+  .filter-types {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 0.4rem;
+    margin: 0 -1rem 1rem;
+    padding: 0 1rem 0.5rem;
+  }
+
+  .type-btn {
+    flex: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .type-btn[aria-current="true"] {
+    border-color: var(--ink);
+  }
+
+  .filter-chosen {
+    margin-top: 1rem;
+  }
+
+  .tag-choice {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .tag-choice .tri {
+    grid-column: 1 / -1;
+  }
+
+  .tri label {
+    flex: 1;
+  }
+
+  .tri span {
+    flex: 1;
+    min-height: 2.5rem;
+    padding: 0.55rem 0.6rem;
+  }
+}
+
+/* ---- My prompts ---- */
+
+.mine-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+}
+
+.persona-pick {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.mine-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+}
+
+.row-actions {
+  display: flex;
+  gap: 1rem;
+  margin: 0;
+}
+
+/* ---- Posting and editing: the form beside its tags and preview ---- */
+
+/* "You often use": the writer's own frequent tags in the tag panel. */
+.frequent {
+  margin: 0.75rem 0 0;
+}
+
+.frequent .label {
+  margin: 0 0 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.post-side .form-card,
+.preview-card {
+  margin-bottom: 1rem;
+}
+
+.preview-card .card-title {
+  margin-top: 0.25rem;
+}
+
+.browse-more summary {
+  margin: 0.25rem 0;
+  color: var(--act);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+@media (min-width: 64rem) {
+  .post-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 28rem);
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .post-form .post-main {
+    margin: 0;
+  }
+
+  .post-form textarea#body {
+    min-height: 22rem;
+  }
+}
+
+/* ---- Admin lists: a table, and the chosen row in full beside it ---- */
+
+.report-table,
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+  border: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.report-table th,
+.report-table td,
+.admin-table th,
+.admin-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.report-table th,
+.admin-table th {
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.report-table tr.selected td,
+.admin-table tr.selected td {
+  background: var(--staff-bg);
+}
+
+.row-open {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.detail-panel {
+  margin: 0;
+}
+
+.detail-panel .decide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.detail-panel .decide form {
+  margin: 0;
+}
+
+@media (min-width: 75rem) {
+  .master-detail {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .master-detail .detail-panel {
+    position: sticky;
+    top: 1rem;
+  }
+}
+
+/* Search, status and order above the admin tags table, on one line. */
+.tag-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.tag-toolbar select,
+.tag-toolbar input {
+  width: auto;
+}
+
+.tag-toolbar input[type="search"] {
+  flex: 1;
+  min-width: 10rem;
+}
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+/* Narrower: the chosen row in full first, then the table. */
+@media (max-width: 74.99rem) {
+  .master-detail {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 1rem;
+  }
+}
+
+/* The administrators' pages: a sidebar beside the page on wide screens. */
+.admin-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.925rem;
+}
+
+.admin-side a {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.admin-side a:hover {
+  background: var(--chip);
+}
+
+.admin-side a[aria-current="page"] {
+  background: var(--staff-bg);
+  font-weight: 600;
+}
+
+.admin-side-title {
+  margin: 0 0 0.25rem;
+  padding: 0 0.6rem;
+  font: 700 1.05rem/1.3 var(--serif);
+}
+
+.admin-group {
+  margin: 0.9rem 0 0.2rem;
+  padding: 0 0.6rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.admin-main {
+  min-width: 0;
+}
+
+@media (min-width: 64rem) {
+  main.admin-layout {
+    display: grid;
+    grid-template-columns: 13rem minmax(0, 1fr);
+    gap: 2.5rem;
+    align-items: start;
+  }
+
+  .admin-side {
+    position: sticky;
+    top: 1rem;
+  }
+}
+
+/* Narrower: the sidebar becomes a strip of links that scrolls sideways. */
+@media (max-width: 63.99rem) {
+  .admin-side {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 0.4rem;
+    margin: 0 -1rem 1.25rem;
+    padding: 0 1rem 0.5rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .admin-side a {
+    flex: none;
+    min-height: 2.25rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .admin-side-title,
+  .admin-group {
+    display: none;
+  }
+}
+
+/* The More page: grouped lists of links, big enough to tap. */
+.list-group {
+  margin: 1.5rem 0 0.4rem;
+  color: var(--muted);
+  font: 700 0.78rem/1.4 var(--sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.list-group.admin {
+  color: var(--staff);
+}
+
+.link-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.link-list li {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.link-list li:last-child {
+  border-bottom: 0;
+}
+
+.link-list a {
+  flex: 1;
+  display: block;
+  min-height: 2.9rem;
+  padding: 0.7rem 1rem;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.link-list .count {
+  margin-right: 1rem;
+}
+
+/* Phones: the main nav becomes a tab bar fixed to the bottom, showing only
+   the links marked `tab`; the rest are on the More page. */
+@media (max-width: 47.49rem) {
+  body {
+    padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+  }
+
+  .site-header .wrap {
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+  }
+
+  .site-nav {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 10;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0;
+    padding: 0 0 env(safe-area-inset-bottom);
+    background: var(--card);
+    border-top: 1px solid var(--line);
+  }
+
+  .site-nav a {
+    display: none;
+  }
+
+  .site-nav a.tab {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.15rem;
+    min-height: 3.5rem;
+    font-size: 0.72rem;
+    text-decoration: none;
+  }
+
+  .site-nav a.tab[aria-current="page"] {
+    color: var(--act);
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .site-nav .nav-icon {
+    display: block;
+    width: 1.4rem;
+    height: 1.4rem;
+  }
+
+  .site-nav .short {
+    display: inline;
+  }
+
+  .site-nav .long {
+    display: none;
+  }
+
+  .site-nav .tab .count {
+    position: absolute;
+    top: 0.35rem;
+    left: 55%;
+    margin: 0;
+    background: var(--rule);
+    color: #ffffff;
+  }
+
+  /* Compact rows: title, details and tags. */
+  .row-excerpt {
+    display: none;
+  }
+
+  /* Sign out lives on the More page. */
+  .site-header.member .sign-out {
+    display: none;
   }
 }

@@ -140,6 +140,10 @@ Server policy is a config switch: `curated_only`, `user_created`, or `both`. Cur
 
 Servers can enforce mandatory tag namespaces. For example, if Server A enforces the presence of a `genre` namespace, all prompts submitted to that server must include that facet or be rejected. Prompts shown via federation are allowed to violate that rule, but servers should mark any missing mandated tags on federated prompts. Alternatively, servers may supply a default for a mandatory facet to be used only in cases of federated prompts without the facet defined. In this case, the supplied default is never transmitted to the prompt's origin server, but used exclusively on the local server to provide searching and filtering by the local mandatory facets.
 
+Each tag type has a minimum and an optional maximum number of tags per prompt (#52), so a server can ask for exactly one Length, at least one Genre, or up to three Themes. Limits are checked whenever a prompt is posted or its content edited, never applied to prompts already saved: a prompt that breaks a new limit keeps its tags until its author next edits it, and admin tag changes (aliasing, merging) go through even if they push a prompt over a maximum. The admin page counts and lists the prompts outside a type's limits, and asks before saving new limits that leave prompts outside. Administrators can't set limits nobody could meet: a curated-only type can't need more tags than it has visible, and the minimums together can't exceed the per-prompt tag cap.
+
+The post form suggests the tags a writer uses most (#55): up to 8 visible tags from their 50 newest prompts on the board, most used first, ties to the most recently used, aliases counted as their target. They're worked out on each request, so nothing new is stored, and only the writer sees them. By default only the persona posting counts, because some writers keep personas apart on purpose (a horror persona and a romance persona); an account setting widens it to all their personas. The form can't reload suggestions when the persona is changed without JavaScript, so it says which persona they're for.
+
 ### Search and filtering
 
 - **Store:** PostgreSQL with a `prompts` table, a `tags` table, and a `prompt_tags` join. A GIN index on a `tag_ids int[]` column makes "must include all of" and "must exclude any of" filters fast; a `tsvector` column with a GIN index covers full-text search on title and body.
@@ -151,6 +155,91 @@ Servers can enforce mandatory tag namespaces. For example, if Server A enforces 
 ### Sanitization
 
 Prompt bodies are written in Markdown (decided Phase 1). The server renders them with `pulldown-cmark`, escapes any raw HTML, turns images into plain links (so viewing a prompt never contacts a third-party host), and sanitizes the result with `ammonia` to a small allowlist. Remote prompts (Phase 5) arrive as HTML and get the same sanitizer, size caps and tag normalization on ingest.
+
+### Automated moderation
+
+Administrators can write scripts that check what writers post before it's saved (#43). The code is in `quill-server`'s `moderation` module; the scripting reference for admins is [automod.md](automod.md).
+
+- **Only public board content reaches scripts.** Hooks sit in the board's write paths: a prompt posted or edited, a comment on an announcement, a new tag, a writer's report. Session content never exists in plaintext on the server, so no hook could see it. Scripts are never given a login name, a reporter's identity or anything from a session, which keeps "moderation without prying".
+- **Scripts act only through the server.** A script returns `reject`, `flag` or `dismiss`; the server carries it out through the same reports, inbox, admin log and account notices as an administrator's own action. A script can't write anything, call out, or keep state between runs.
+- **Administrators' own writing isn't checked.** They set the rules; checking them would only get in the way of announcements and their own prompts.
+
+#### Choosing the engine
+
+A throwaway spike, not kept in the repo, ran the same four sample scripts through rule files (TOML), Rhai, Luau, Starlark and JavaScript (QuickJS), with a WebAssembly version written out for comparison. Speed didn't separate them (1–15 µs a post), and the shared `text` API made the scripts look alike in every language. Rhai won on its limits: it stopped every hostile script with a built-in operation count and string cap, not only the clock, so a runaway script stops at the same point however busy the server is. It is pure Rust with few crates, so it fits `cargo vet` without a C toolchain. Starlark read most like Python and had the best errors, but has no memory limit and needs an internal hook to be stopped; WebAssembly needs admins to compile their scripts. For admins who don't write code, the server ships templates (below) rather than a second, simpler language: a rule format needed server code for every new kind of condition. Decided 2026-10-26.
+
+#### The engine
+
+Each script is compiled into its own `rhai::Engine`, once per version of its source (`ScriptCache`, keyed by id and source hash).
+
+- **Limits.** An operation count (`QUILL_AUTOMOD_MAX_OPERATIONS`, default 1,000,000) and a wall-clock cap (`QUILL_AUTOMOD_TIME_MS`, default 100 ms) as a backstop; caps on string, array and map sizes, call depth and expression depth. The string cap is at least the largest common data entry, so a full entry can always be read.
+- **Sandbox.** Rhai has no file, network or process functions. Two defaults are turned off: `import` (Rhai's default module resolver reads script files from disk) and `eval` (scripts run only their own uploaded source).
+- **Catching mistakes at upload.** Undeclared variables (`pots.title`) are refused by strict-variables mode; patterns written out in `text::` calls are compiled; common data names are found by walking the syntax tree, which needs Rhai's `internals` feature and so an exact version pin. A misspelled field (`post.titel`) can only be found by running the script, so every upload runs it on a sample post for each hook whose chain uses it, with `fail_on_invalid_map_property` making the typo an error rather than a silent `()`.
+- **What a script returns.** Ending with nothing is "not handled". The action functions return a type only they can make, so a script can't hand back a look-alike map; any other value is an error, which catches mistakes like `if bad { "spam" }`.
+- **One run's state.** A script runs on a blocking thread. What the run needs (its clock, its data snapshot, the data names it may read, its `print` output for dry runs) sits in a thread-local for the length of the run and is cleared however the run ends.
+
+#### The `text` API
+
+Scripts mostly inspect text, so they get native Rust functions rather than string handling written in Rhai (`moderation::text`, unit-tested without the engine):
+
+- regular expressions from Rust's `regex` crate, which matches in linear time for every pattern, so an admin's pattern can't hang the server on a crafted post. Patterns are case-insensitive by default, size-capped, and compiled once per script in a bounded cache (`TextCache`).
+- `find_words`: a word list as one Aho-Corasick automaton over *folded* text, so a list of thousands costs one pass. Folding normalizes (NFKC, lower case, no accents or invisible characters), squashes (joins "s p a m" and "s.p.a.m", then collapses repeats) and takes the Unicode TS #39 skeleton (lookalike letters to one prototype). Squashing comes before the skeleton because a skeleton can turn one letter into two (`m` → `rn`), and joining before collapsing so "f r e e" and "free" fold the same. The search is overlapping, so a longer entry failing the whole-word check can't hide a shorter one at the same place.
+- links from both Markdown links and bare text (`linkify`), with hosts lower-cased and `www.` dropped; plain text, words and sentences by Unicode segmentation; similarity, capitals, repeats, emoji and the writing systems used.
+
+#### Common data
+
+Named strings administrators keep for scripts, such as a list of blocked words, so the same list isn't copied into every script and drifting apart (decided 2026-10-26).
+
+- **Read-only to scripts**, through `common::text(name)` and `common::lines(name)`. Lines are parsed on the server (one entry per line, trimmed, blanks and `#` lines left out), once per version, so scripts don't spend their operation budget splitting a large list on every post, and every script reads lists the same way.
+- **Shared, not copied.** Each version is held once (`DataCache` in the app state) as Rhai shared strings; `lines` hands scripts a `DataList` that indexes, loops and answers `in` without copying, and `find_words` on it reuses one matcher per version. Each snapshot is warmed (parsed and its matchers built) before any script's clock starts, so the one-off build of a large list never counts against a script's time limit; folding 50,000 entries takes seconds in a debug build. Repeats are collapsed for letters only, since "100" and "10" are different numbers.
+- **Names are checked at upload.** A name must be written out in the script, so the server knows every entry a script reads (`moderation_script_data`). An upload naming a missing entry is refused, and the foreign key from that table refuses deleting an entry while any script reads it.
+- **One post sees one version.** The data a chain reads is snapshotted when the chain starts, by exact version from the history table, so a save landing mid-chain can't give two scripts different lists.
+- **Edits are protected like scripts are:** every save is a new version in `moderation_data_versions` and an admin-log entry; undo saves an old version again as a new one, so the history keeps what was undone; a save started from an older version is refused rather than overwriting someone else's change; size caps per entry and in total (`QUILL_AUTOMOD_DATA_ENTRY_BYTES`, `_TOTAL_BYTES`).
+
+#### Context
+
+Every hook gives the script the same `post` record, so one script can serve several chains: content (title, Markdown body, tag keys, maturity), the previous version for an edit, the tag for a tag request, the reason and details for a report, the author (handle, account age, removals, rejections) and posting history. Fields a hook has nothing for are empty, not missing, so a script reading `post.previous.title` works in every chain.
+
+History is counted per account across its personas, since personas are only names on one account: prompts and comments by hour, day and week, recent post times, the account's own recent prompts and the most alike prompts on the board in the last 30 days. Similarity comes from one query on a trigram index over prompt text (`prompts_text_trgm_idx`); the board-wide search uses the index's similarity threshold to stay cheap. For a report, the history is the reported writer's; the reporter is never given to scripts. The context is gathered once, with fixed caps, before the chain runs, so scripts never touch the database.
+
+#### Running a chain
+
+Each hook has one chain: an ordered list of scripts and an `on_error` setting.
+
+- **When.** Before the change is saved, and outside its transaction, so locks such as the row lock an edit takes aren't held while scripts run. A new tag in a prompt runs the `tag_requested` chain first, then the prompt's own chain.
+- **Order.** Scripts run in order; the first to reject, flag or dismiss decides and the chain stops. Log-only scripts are logged (`log only, would have done: …`) and never stop it; scripts switched off don't run.
+- **Failure.** A script that errors or reaches a limit is always logged (`automod_error`), then the chain's setting applies: `continue` with the next script, `reject` with a generic "couldn't be checked" message, or `flag` with the failure as the reason. Admins choose, because only they know whether a missed check or a refused post is worse for their server.
+- **Reject** happens before anything is saved. The writer sees the script's message on the form with their text kept (the board treats it like a validation error; the API returns a `content-rejected` problem, HTTP 422). The script's name isn't shown, so writers can't work out the rules from it. A `content_rejected` notice records it on the writer's account, already read, holding the title and message but never the refused text, so the server doesn't keep what it refused.
+- **Flag** is silent to the writer: once the change is saved, the server files a report like a writer's, without a reporter, marked "Automated: <script>" in the inbox, at most one per script per version of a prompt or comment (a unique index) so an edit loop can't flood the inbox. On a requested tag it marks the pending tag instead; a tag created without needing approval has no queue, so the flag goes on the prompt. A flag that fails to file is logged and doesn't undo the writer's change.
+- **Dismiss** (`prompt_reported` only) files the writer's report already closed, so the record stays complete, and logs it as `automod_dismiss`.
+
+#### Templates
+
+Seven commented scripts ship with the server (`moderation/templates/`): blocked words, links to outside sites, contact details, mixed alphabets, new accounts, shouting, and posting the same prompt again. What an admin is likely to change sits at the top or in common data, so most never edit the logic. Using one copies it into a new script, creating the common data it reads if missing; the copy is the admin's from then on, so a later server version can't change rules under them. Each template is tested against sample posts it should and shouldn't catch.
+
+### Board layout
+
+The web board fits the screen it's on (#51); the mockups and the review behind them are in [design/board-layout](design/board-layout/README.md). It still loads no JavaScript and nothing from other sites, and the CSP still forbids inline styles, so every layout is plain HTML and `board.css`.
+
+- **Three widths.** Phones (under 47.5rem) get one column and a tab bar fixed to the bottom; tablets a top bar and one column; wide screens (75rem and up) put panes side by side. The admin sidebar sits beside the page from 64rem and becomes a strip of links that scrolls sideways below that.
+- **One nav.** The header's nav is the desktop top bar and, restyled, the phone's tab bar: links marked `tab` show there (Board, Post, Mine, Notices, More) with a short label and an icon, the rest only on wide screens and on the More page. Rendering two navs would mean two sets of counts and links to keep in step.
+- **Each page picks a layout** (`Layout` in `quill-board-ui`): one reading column for forms and single prompts, the full width for pages with panes, or the admin sidebar.
+- **The reading pane without JavaScript.** Opening a prompt from the board's list links to the same board URL plus `open=<id>`; the server renders the list and that prompt together. Wide screens show both; narrower ones hide the list while a prompt is open and show a link back. A prompt rated above the visitor's cap isn't opened in the pane: its own page asks first. Admin reports and tags use the same pattern (`open=`) for the chosen row's panel.
+- **The filter builder is one GET form** at `/filters`. Hidden fields carry the filter so far; the tags on screen have Any / Has / Hide radios and are named in a `shown` field; type, letter and page are submit buttons. On every request the server drops what the hidden fields said about the shown tags and applies their radios, so switching type or page never loses a choice, and only tags the page showed can be set. Show prompts redirects to the board with the usual `include`, `exclude`, `maturity`, `state` and `q`. Tag counts come from one query per page over the `tag_ids` GIN index.
+- **The filter summary** above the list shows a few tags of each kind and "+N", and never grows, so a long filter can't push the list off the screen.
+- **The stylesheet's URL carries a fingerprint of its contents**, because it's cached for a day: a changed stylesheet must reach browsers at once, even within one release.
+
+### Server rules
+
+Administrators keep one Markdown page of server rules (#42), read at `/rules` and `GET /rules` by anyone. The code is `quill-server`'s `rules` module.
+
+- **Storage.** A `server_pages` row named `rules`, kept apart from `server_settings` because it's a document, not a switch, and so an "about" page can follow without a migration. It's rendered with the prompt sanitizer, so the admin's `#` becomes the page's first section heading (`h3`).
+- **Versions, not history.** Every save gets the next version. The admin log records each save with the version and a SHA-256 of the text, which is an accountable record of who changed the rules and when without keeping every version's text (decided 2026-10-26; revisit if admins ask to see old versions).
+- **Accepting is an administrators' setting** (`rules_acceptance`): never (the default, the lowest-friction choice), on joining, after a change, or both (decided 2026-10-26). Accepting always names the version the person read; an older version is refused, because accepting rules you didn't see means nothing.
+- **What counts as a change.** A save is a change unless the admin marks it a minor edit, so fixing a typo doesn't stop everyone. The first save always counts. The version to accept and when it was saved (`accept_version`, `accept_since`) only move on a change.
+- **Who must accept after a change.** An account must accept before posting, editing, commenting or reporting if the setting includes changes, it existed before `accept_since`, and it hasn't accepted `accept_version` or later. Reading, deleting its own prompts and changing a prompt's open/busy/closed status still work. Accounts created after the change joined under those rules, so they aren't stopped. Turning the setting on asks existing accounts that haven't accepted the current version to do so. The admin who saves the rules has accepted them.
+- **How it's refused.** The API returns a `rules-not-accepted` problem (HTTP 403) that clients turn into a prompt to read and accept; the board shows a banner on every page instead of only an error.
+- **The footer link** appears only once rules exist. Pages are rendered without a database round trip for it: the app state keeps a flag, set at startup and whenever rules are read or saved. Rules can't be deleted, so the flag only ever goes from false to true; another server process sees new rules at its next read or restart.
 
 ## Writing session cryptography
 

@@ -1,15 +1,18 @@
 //! Quill server library: builds the axum application so the binary and the
 //! end-to-end tests share one code path.
 
+pub mod announcements;
 pub mod auth;
 pub mod backups;
 pub mod blobs;
+pub mod comments;
 pub mod config;
 pub mod error;
 pub mod events;
 pub mod groups;
 pub mod keys;
 mod markdown;
+pub mod moderation;
 pub mod notices;
 pub mod openapi;
 pub mod prompts;
@@ -19,13 +22,14 @@ pub mod requests;
 pub mod reserved;
 pub mod retention;
 pub mod routes;
+pub mod rules;
 pub mod server_settings;
 pub mod sessions;
 pub mod storage;
 pub mod tag_admin;
 mod web;
 
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result};
 use axum::{Router, extract::DefaultBodyLimit};
@@ -43,6 +47,13 @@ pub struct AppState {
     limiter: Arc<ratelimit::RateLimiter>,
     /// Live notices for `GET /events`.
     pub events: events::Events,
+    /// Common data as moderation scripts read it, parsed once per version.
+    pub(crate) automod_data: Arc<moderation::data::DataCache>,
+    /// Moderation scripts, compiled once per version.
+    pub(crate) automod_scripts: Arc<moderation::scripts::ScriptCache>,
+    /// Whether the server rules exist, so every board page can link them
+    /// without asking the database. See `docs/plan.md`, "Server rules".
+    pub(crate) rules_published: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -61,12 +72,18 @@ impl AppState {
         reserved::init(&pool, &config)
             .await
             .context("loading reserved handles")?;
+        let rules_published = rules::published(&pool)
+            .await
+            .context("checking for server rules")?;
         Ok(Self {
             pool,
             config: Arc::new(config),
             dummy_hash: Arc::new(dummy),
             limiter: Arc::default(),
             events: events::Events::default(),
+            automod_data: Arc::default(),
+            automod_scripts: Arc::default(),
+            rules_published: Arc::new(AtomicBool::new(rules_published)),
         })
     }
 }
