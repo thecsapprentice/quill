@@ -1077,6 +1077,8 @@ unchanged in content.
 
 ## Phase 3: Desktop GUI
 
+Epic: [#36](https://github.com/thecsapprentice/quill/issues/36). Each step is a sub-issue of it, with its scope and "done when"; this table stays the summary.
+
 `quill-gui`, on Dioxus desktop ([plan](plan.md#future-clients-gui-framework-options)):
 the app logic, `quill-core` included, runs as native Rust and only DOM
 updates reach the webview, so keys never enter webview JavaScript. Views
@@ -1130,14 +1132,14 @@ part of its "done when".
 | Sub-phase | Scope | Status |
 | --- | --- | --- |
 | 3a | Spike: the session view (channels, the long-form editor with Markdown live preview, an image attachment) in Dioxus on desktop and in the browser, at narrow and wide window sizes; IME, spellcheck and screen readers; confirm Dioxus or fall back to Leptos + Tauri 2 | done (#23) |
-| 3b | `quill-ui` and the `quill-gui` shell: first run (sign up or in, a persona, keys made and published without being asked), unlocking the store, personas, settings, advanced mode | next |
-| 3c | The board in the GUI: browse, search, post and edit prompts, through the board's shared components | planned |
-| 3d | Keys and devices: identity keys, linking by QR code or words, the device list, revoking, safety numbers | planned |
-| 3e | Requests: sending with a pitch, the inbox, accepting and declining, status | planned |
-| 3f | Sessions: the session list, reading and writing, channels, replies, edits and deletions with their history, live updates | planned |
-| 3g | Attachments: attaching, opening and saving files; images shown inline, with metadata stripped before sending (deferred from 2i); storage use | planned |
-| 3h | Backup and recovery, history sync and rejoining, notices; anything the CLI does that the GUI doesn't yet | planned |
-| 3i | Packaging for Windows, macOS and Linux | planned |
+| 3b | [#25](https://github.com/thecsapprentice/quill/issues/25) `quill-ui` and the `quill-gui` shell: first run (sign up or in, a persona, keys made and published without being asked), unlocking the store, personas, settings, advanced mode, the server rules | in review (#63) |
+| 3c | [#26](https://github.com/thecsapprentice/quill/issues/26) The board in the GUI: browse, search, post and edit prompts, through the board's shared components | planned |
+| 3d | [#27](https://github.com/thecsapprentice/quill/issues/27) Keys and devices: identity keys, linking by QR code or words, the device list, revoking, safety numbers | planned |
+| 3e | [#28](https://github.com/thecsapprentice/quill/issues/28) Requests: sending with a pitch, the inbox, accepting and declining, status | planned |
+| 3f | [#29](https://github.com/thecsapprentice/quill/issues/29) Sessions: the session list, reading and writing, channels, replies, edits and deletions with their history, live updates | planned |
+| 3g | [#30](https://github.com/thecsapprentice/quill/issues/30) Attachments: attaching, opening and saving files; images shown inline, with metadata stripped before sending (deferred from 2i); storage use | planned |
+| 3h | [#31](https://github.com/thecsapprentice/quill/issues/31) Backup and recovery, history sync and rejoining, notices; anything the CLI does that the GUI doesn't yet | planned |
+| 3i | [#32](https://github.com/thecsapprentice/quill/issues/32) Packaging for Windows, macOS and Linux | planned |
 
 Gate: the GUI does everything the CLI does, and the end-to-end tests that
 drive `quill-core` pass unchanged. A new user can go from installing to

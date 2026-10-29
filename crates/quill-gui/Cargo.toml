@@ -1,0 +1,49 @@
+[package]
+name = "quill-gui"
+description = "Quill's desktop app: quill-ui's views on Dioxus desktop over the native quill-core (encrypted store, OS keychain). Never linked by the server."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["app"]
+# The window itself. Without it the crate is just the native backend, which
+# the end-to-end tests drive without a webview.
+app = ["dep:dioxus-desktop", "dep:webkit2gtk"]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "quill-gui"
+path = "src/main.rs"
+required-features = ["app"]
+
+[dependencies]
+quill-certs.workspace = true
+quill-core.workspace = true
+quill-proto.workspace = true
+quill-ui.workspace = true
+
+anyhow.workspace = true
+directories.workspace = true
+dioxus.workspace = true
+dioxus-desktop = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync"] }
+uuid.workspace = true
+zeroize.workspace = true
+
+# WebKitGTK checks spelling only when asked (3a); wry's version.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "=2.0.1", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

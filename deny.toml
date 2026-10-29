@@ -37,6 +37,24 @@ ignore = [
   # Client-only. The fix (0.7.6) needs elliptic-curve 0.14, which
   # openmls_rust_crypto 0.6 doesn't use yet; remove when it does.
   { id = "RUSTSEC-2026-0387", reason = "crypto-bigint, used only by NIST curves Quill's one ciphersuite never uses; client-only" },
+  # The desktop GUI's stack (3b): Dioxus desktop, wry and tao, and on Linux
+  # the gtk-rs 0.18 bindings they're built on. Client-only (quill-gui);
+  # check-server-deps.sh keeps all of it out of the server. Remove each when
+  # the crate above it moves on.
+  # fxhash: a fast non-cryptographic hash, unmaintained; used by wry's HTML
+  # parser (kuchikiki, via selectors) for hash tables.
+  { id = "RUSTSEC-2025-0057", reason = "fxhash unmaintained; wry's HTML parser hash tables; desktop GUI only" },
+  # paste: an unmaintained proc macro, build time only (image's codecs).
+  { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; build-time proc macro in image's codecs; desktop GUI only" },
+  # proc-macro-error: unmaintained, build time only (gtk-rs 0.18's macros).
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error unmaintained; build-time, gtk-rs 0.18 macros; desktop GUI on Linux" },
+  # glib 0.18: VariantStrIter's iterators are unsound; neither Quill nor
+  # wry or tao use GVariant string arrays. Fixed in glib 0.20, which tao's
+  # GTK backend hasn't moved to.
+  { id = "RUSTSEC-2024-0429", reason = "glib 0.18 VariantStrIter, unused; desktop GUI on Linux" },
+  # rand 0.7: unsound only with a custom logger calling rand::rng(); used at
+  # build time by phf_generator for wry's HTML parser tables.
+  { id = "RUSTSEC-2026-0097", reason = "rand 0.7, build-time phf generation for wry's HTML parser; desktop GUI only" },
   # smartstring: archived, so marked unmaintained; not a vulnerability. Rhai
   # (moderation scripts, #43) uses it for its strings and has no feature to
   # drop it. It runs on the server, but only holds text that scripts build,
@@ -66,6 +84,13 @@ allow = [
   "Zlib",
 ]
 
+# NCSA is permissive (the University of Illinois/NCSA licence), and only
+# rav1e's fuzzing helper carries it (image's AVIF encoder, under Dioxus
+# desktop).
+[[licenses.exceptions]]
+crate = "libfuzzer-sys"
+allow = ["NCSA"]
+
 [licenses.private]
 # Workspace crates are not published; their own licence is set at the root.
 ignore = true
@@ -77,8 +102,12 @@ wildcards = "deny"
 allow-wildcard-paths = true
 deny = [
   # OpenSSL bindings: we use rustls and pure-Rust or aws-lc-rs crypto only.
-  { name = "openssl" },
-  { name = "openssl-sys" },
+  # One exception: Dioxus desktop's tungstenite pulls in native-tls (OpenSSL
+  # on Linux) although its edit channel is plain ws:// on 127.0.0.1, so no
+  # TLS code runs. Allowed only through that path (see docs/plan.md, "The
+  # desktop GUI's webview channel").
+  { name = "openssl", wrappers = ["native-tls"] },
+  { name = "openssl-sys", wrappers = ["openssl", "native-tls"] },
   # Marvin timing attack (RUSTSEC-2023-0071); HTTP signatures will use
   # aws-lc-rs instead.
   { name = "rsa" },

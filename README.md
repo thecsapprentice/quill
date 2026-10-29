@@ -60,6 +60,24 @@ start over, run `docker compose down -v` and start again.
 The compose setup is for local testing only: it serves plain HTTP, which
 browsers accept for the board's Secure session cookie only on `localhost`.
 
+### Trying the desktop GUI
+
+`scripts/dev-gui.py` (Python 3.8 or later, standard library only, so it runs
+on Windows, macOS and Linux) does all of this in one go. It starts a fresh,
+seeded server in Docker and opens the desktop GUI at its first run. When you
+close the window, it stops the server and deletes its database.
+
+```sh
+python scripts/dev-gui.py                   # server on localhost:8090, then the GUI
+python scripts/dev-gui.py --rules on-join   # sign-up asks to accept server rules
+python scripts/dev-gui.py --help            # the other options
+```
+
+It needs Docker and Rust. It uses its own Compose project (`quill-gui-dev`),
+so the database from `docker compose up` above is left alone. In the GUI,
+type `localhost:8090` as the server, then make a login or sign in as one of
+the demo accounts it lists.
+
 ## Development
 
 Requirements: the Rust toolchain pinned in `rust-toolchain.toml` (rustup

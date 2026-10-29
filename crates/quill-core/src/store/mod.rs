@@ -269,6 +269,24 @@ impl Store {
         Ok(Header::read_region(&read_region(&mut file)?)?.source)
     }
 
+    /// Deletes the store at `path` and, for a keychain store, its key in
+    /// `vault`. The file must not be open. A missing file is already gone.
+    pub fn destroy(path: &Path, vault: Option<&dyn Vault>) -> Result<(), StoreError> {
+        let mut file = match File::options().read(true).write(true).open(path) {
+            Ok(f) => f,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        lock(&file)?;
+        let header = Header::read_region(&read_region(&mut file)?)?;
+        if let (KeySource::Keychain, Some(vault)) = (header.source, vault) {
+            vault.delete(&keychain_name(&header.file_id, header.seq))?;
+        }
+        drop(file);
+        fs::remove_file(path)?;
+        Ok(())
+    }
+
     /// Opens and unlocks the store at `path`.
     pub fn open(path: &Path, unlock: Unlock<'_>) -> Result<Self, StoreError> {
         let mut file = File::options().read(true).write(true).open(path)?;

@@ -39,6 +39,23 @@
   any unexpected or edge-case scenarios that shaped the code. A code comment
   that needs a complex explanation points to the relevant section of that
   document instead of repeating it.
+- **Test the GUI the way people use it.** Model and rendering tests aren't
+  enough on their own; screens must also be driven through clicks and typing.
+  `docs/plan.md` ("Testing the desktop app") describes the layers.
+  - Every GUI feature or change comes with interaction tests in
+    `crates/quill-ui/tests/`. They drive the app with `quill_ui::testing::Driver`
+    against the simulated server (`testing::Sim`), by labels and field ids,
+    covering the main path and what can go wrong on the way (refusals, taken
+    names, outages, settings changed mid-flow).
+  - The flows that matter most also run on the native backend against a real
+    server, in `crates/quill-e2e/tests/gui_flows.rs`.
+  - When a feature needs server behaviour `Sim` doesn't have, extend `Sim`,
+    keeping it faithful to the real backend.
+  - Every bug found by hand gets an interaction test that fails before the
+    fix, committed with the fix.
+  - Hand checks (with `scripts/dev-gui.py`) are for what the driver can't
+    see: the webview itself, such as focus, input methods, rendering and
+    platform quirks.
 
 ## User experience principles
 

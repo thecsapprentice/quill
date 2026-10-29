@@ -1,0 +1,38 @@
+[package]
+name = "quill-ui"
+description = "The writing client's views and app state (Dioxus), shared by the desktop GUI and the future web client. No platform code; talks to quill-core through the Backend trait."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+quill-proto.workspace = true
+
+dioxus = { workspace = true, features = ["hooks", "document"] }
+# Markdown is parsed here and shown as elements (never as HTML strings).
+pulldown-cmark = { workspace = true, default-features = false }
+# The interaction-test driver (`testing`), for this crate's tests and
+# quill-e2e: events go in as the webview's JSON.
+dioxus-core = { version = "=0.7.10", optional = true }
+dioxus-html = { version = "=0.7.10", default-features = false, features = ["serialize"], optional = true }
+serde_json = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["time"], optional = true }
+time = { workspace = true, optional = true }
+serde.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[features]
+testing = ["dep:dioxus-core", "dep:dioxus-html", "dep:serde_json", "dep:time", "dep:tokio"]
+
+[dev-dependencies]
+quill-ui = { path = ".", features = ["testing"] }
+dioxus-ssr.workspace = true
+time.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "time"] }
+
+[lints]
+workspace = true

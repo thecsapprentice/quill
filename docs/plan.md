@@ -620,13 +620,56 @@ Posting is part of `quill-board-ui`, so the server's board and every client use 
 - Decrypted HTML sanitized (`ammonia`) before rendering, exactly as in the web client.
 - Sign and notarize desktop release builds per platform; reproducible builds where the toolchain allows.
 
+### The desktop GUI's webview channel
+
+Dioxus desktop runs the app in native Rust and sends DOM changes to the webview, and events back, over a WebSocket on `127.0.0.1` (since 0.7; before, wry's custom protocol). This matters because decrypted text crosses that channel:
+
+- **Who can connect.** The socket listens on loopback only. Each window has a random client key and server key, handed to the page by the webview's initialization script rather than the page's own code; the server refuses connections without the key, and the page refuses a server that doesn't prove its key. Another local program can find the port but can't read edits or inject events without the keys.
+- **What it doesn't protect against.** The traffic is plain `ws://` on loopback. Anything able to watch loopback traffic or read the app's memory (an administrator, or malware running as the user) can read what's on screen anyway; that's outside the threat model for any local client.
+- **TLS that isn't used.** The WebSocket library is built with `native-tls`, which means OpenSSL on Linux, although the channel never uses TLS. `deny.toml` allows OpenSSL only through that path; the rest of the project stays OpenSSL-free. Drop the exception if Dioxus makes the TLS feature optional.
+
+### How the desktop app is built (3b)
+
+- **Three layers.** `quill-gui`'s `NativeBackend` does the work: stores, the keychain, and `quill-core` on its own Tokio runtime, so the window never waits on it. `quill-ui` holds the views and an app model. The two meet only at the `Backend` trait, whose errors are already in plain words (`Problem`); raw errors show only in advanced mode. The web client will supply its own `Backend`.
+- **The model moves on results, not awaits.** A view makes a backend call and hands the result to a `Model` method, which decides the next screen (first run, unlock, keys elsewhere, the frame). The end-to-end tests drive the same methods against a real server. A result for a server no longer in view is dropped, so switching quickly never shows stale data.
+- **One store per server, kept open for the session.** Each server's store lives in the GUI's own folder, apart from the CLI's, because two programs on one store would fight over its file lock. A store unlocked once stays open until the app closes, so switching back is instant even with a passphrase. Opening a server shows the frame at once and fills it in when the server answers.
+- **Offline is a state, not an error.** The frame stays up with what's known. The status line says the server can't be reached and offers Try now, while upkeep retries with backoff (5 seconds, doubling to 2 minutes). Upkeep otherwise runs on start, every 5 minutes, and on each live notice from `GET /events`.
+- **First persona: pushed, not forced.** A login made or signed into during this run goes to "Make your first persona", which has a quiet Not now. Later starts with no persona go straight to the frame, which keeps a gentle prompt on Home.
+- **No keychain.** Where the OS has none (some Linux setups), adding a server asks for a passphrase (12 characters or more, as in the CLI), and opening it asks for it once per session.
+
+### Testing the desktop app
+
+Bugs found by hand in 3b were all in how screens react to clicks and typing: work dropped when its screen went away, and a sign-up screen that never learned the rules had become required. The tests then in place rendered static HTML or called the backend directly, so they couldn't catch these. The GUI is now tested in four layers:
+
+| Layer | Where | What it drives |
+| --- | --- | --- |
+| Model | `quill-ui/src/model.rs` tests | The model's transitions, one backend result at a time |
+| Views | `quill-ui/src/view_tests.rs` | Static HTML: labels, roles, input hints, no ids outside advanced mode |
+| Interactions | `quill-ui/tests/flows.rs` | The whole app, clicked and typed by label, against `testing::Sim` |
+| Interactions, real | `quill-e2e/tests/gui_flows.rs` | The same driver on the native backend against a real server |
+
+- **The driver (`quill_ui::testing::Driver`)** runs the app headless. Its document is built from the same mutations the webview applies, and events enter as the webview's JSON, through dioxus-desktop's own path. So handlers, tasks and the model run as they do in the window. A disabled button can't be clicked, and a failed wait prints what the window shows.
+- **The simulated server (`testing::Sim`)** keeps state like the real one: logins, personas and keys, rules with versions and acceptance settings, closed registration, outages and passphrase stores. Tests change it mid-flow. The real-server interaction tests check that it stays faithful for the paths that matter most.
+- **What the driver can't see:** the webview itself (focus, input methods, rendering, platform quirks). Those stay hand checks; `scripts/dev-gui.py` sets up a seeded server and a fresh GUI for them.
+- **Every bug found by hand gets an interaction test** that fails before the fix.
+
+### Server text in the desktop webview
+
+The server is trusted to run the board but not to read sessions. In the desktop app, the webview shows decrypted session text, and script in that page can read it and send events to the app. So the client never puts server-made HTML or script into the page, even HTML the server says it sanitized:
+
+- **Markdown is rendered by the client, as elements.** The server rules (#42), and later prompts, announcements and notes, arrive as Markdown. `quill-ui`'s `markdown` module parses them with `pulldown-cmark` and builds Dioxus elements directly. Nothing is ever an HTML string, so there's no `dangerous_inner_html` to get wrong. Raw HTML in the source is shown as text. The server's `bodyHtml` fields are ignored.
+- **Links open only for `https`, `http` and `mailto`.** Anything else (`javascript:`, `file:`, app-internal schemes) is shown as plain text.
+- **Headings sit under the page.** Markdown `#` becomes `h3`, as on the board, so a page's own headings stay above the server's text.
+
+A hostile or compromised server can still say misleading things in its text, but it can't run code next to a writer's sessions.
+
 ### Workspace additions
 
 | Crate | Role | Built in |
 | --- | --- | --- |
 | `quill-board-ui` | Prompt board components (list, filters, prompt view, tags, prompt posting and editing, persona picker); depends only on `quill-proto` | Phase 1 |
-| `quill-ui` | Session, editor, channel and attachment components; depends on `quill-core` | GUI phase |
-| `quill-gui` | Desktop binary: both UI crates + native `quill-core` (encrypted store, keychain) | GUI phase |
+| `quill-ui` | The client's views and app state; reaches `quill-core` only through its `Backend` trait, so the web client can supply its own | GUI phase (3b) |
+| `quill-gui` | Desktop binary and the native `Backend`: `quill-ui` + native `quill-core` (encrypted stores, keychain) | GUI phase (3b) |
 | `quill-web` | Wasm entry point: both UI crates + web `quill-core` (IndexedDB, RustCrypto) | Web-client phase |
 
 Phase 1 builds the board on Dioxus fullstack, which validates the SSR path early. A one-week spike at the start of the GUI phase should then build the session view (channels, long-form editor, image attachment) in Dioxus on both targets and test IME, spellcheck and screen-reader behavior before committing.

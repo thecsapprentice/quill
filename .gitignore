@@ -2,3 +2,4 @@
 **/*.rs.bk
 .env
 *.local.toml
+__pycache__/
