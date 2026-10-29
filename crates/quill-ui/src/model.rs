@@ -439,6 +439,8 @@ impl Model {
     }
 
     pub fn signed_out(&mut self) {
+        // Signing in again lands on Home.
+        self.section = Section::Home;
         self.standing = Some(Standing::SignedOut);
         self.status = Status::SignedOut;
         self.persona = None;

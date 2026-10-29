@@ -273,9 +273,9 @@ pub fn AccountStep() -> Element {
     let mut taken = use_signal(|| false);
     let mut busy = use_signal(|| false);
     let mut problem = use_signal(|| model.peek().problem.clone());
-    // The server's rules, and whether joining means accepting them.
+    // The server's rules, and whether a new login must accept them.
     let mut rules = use_signal(|| None::<ServerRules>);
-    let mut rules_on_join = use_signal(|| false);
+    let mut rules_to_accept = use_signal(|| false);
     let mut accepted = use_signal(|| false);
     let (name, adding, known) = {
         let m = model.read();
@@ -300,7 +300,7 @@ pub fn AccountStep() -> Element {
                         open_for_new.set(false);
                         returning.set(true);
                     }
-                    rules_on_join.set(info.rules_to_accept);
+                    rules_to_accept.set(info.rules_to_accept);
                     if info.has_rules
                         && let Ok(r) = b.rules().await
                     {
@@ -310,6 +310,17 @@ pub fn AccountStep() -> Element {
             });
         }
     });
+    // Loading them again, if that failed when they must be accepted.
+    let b = backend.clone();
+    let reload_rules = move |_| {
+        let b = b.clone();
+        spawn(async move {
+            match b.rules().await {
+                Ok(r) => rules.set(r),
+                Err(p) => problem.set(Some(p)),
+            }
+        });
+    };
 
     let b = backend.clone();
     let submit = use_callback(move |()| {
@@ -320,7 +331,7 @@ pub fn AccountStep() -> Element {
         let bad = checks::login_name(&login()).invalid
             || login().trim().is_empty()
             || (new && (checks::password(&password()).invalid || password().is_empty()))
-            || (new && rules_on_join() && !accepted());
+            || (new && rules_to_accept() && !accepted());
         if busy() || bad {
             return;
         }
@@ -340,7 +351,10 @@ pub fn AccountStep() -> Element {
                 Ok(standing) => model.write().signed_in_now(&*b, id, standing),
                 Err(Problem::Taken) => taken.set(true),
                 Err(Problem::RulesNotAccepted(text)) => {
-                    // They changed while signing up: show the new version.
+                    // The server wants the rules accepted: set since this
+                    // screen asked, or changed while signing up. Show the
+                    // current version, with the box to tick.
+                    rules_to_accept.set(true);
                     accepted.set(false);
                     if let Ok(r) = b.rules().await {
                         rules.set(r);
@@ -463,9 +477,17 @@ pub fn AccountStep() -> Element {
                 if new && let Some(r) = rules() {
                     SignUpRules {
                         rules: r,
-                        required: rules_on_join(),
+                        required: rules_to_accept(),
                         accepted: accepted(),
                         on_accept: move |yes| accepted.set(yes),
+                    }
+                } else if new && rules_to_accept() {
+                    // Never a dead end: the box can't show without the rules.
+                    div { class: "notice", role: "status",
+                        "{name} asks new logins to accept its rules, and Quill couldn't load them."
+                    }
+                    div { class: "actions",
+                        button { class: "secondary", onclick: reload_rules, "Load the rules" }
                     }
                 }
                 if let Some(p) = problem() {
@@ -474,7 +496,7 @@ pub fn AccountStep() -> Element {
                 div { class: "actions",
     button {
                         class: "primary",
-                        disabled: busy() || (new && rules_on_join() && !accepted()),
+                        disabled: busy() || (new && rules_to_accept() && !accepted()),
                         onclick: move |_| submit.call(()),
                         match (busy(), new) {
                             (true, _) => "One moment…",
