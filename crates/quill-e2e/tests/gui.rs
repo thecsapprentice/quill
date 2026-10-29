@@ -403,3 +403,50 @@ async fn a_server_without_rules_says_so() {
     assert_eq!(app.rules().await.unwrap(), None);
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn switching_back_needs_no_passphrase_in_the_same_session() {
+    let (Some(a), Some(b)) = (
+        TestServer::start().await.unwrap(),
+        TestServer::start().await.unwrap(),
+    ) else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let app = backend(dir.path(), &None);
+    let first = app
+        .add_server(&a.url(), Some("first long passphrase"))
+        .await
+        .unwrap();
+    app.register("ink", PASSWORD, None).await.unwrap();
+    let second = app
+        .add_server(&b.url(), Some("second long passphrase"))
+        .await
+        .unwrap();
+    app.register("quill", PASSWORD, None).await.unwrap();
+
+    // Both were unlocked this session: switching asks for nothing.
+    for _ in 0..2 {
+        assert!(matches!(
+            app.open_server(first.id).await.unwrap(),
+            Standing::SignedIn { login, .. } if login == "ink"
+        ));
+        assert!(matches!(
+            app.open_server(second.id).await.unwrap(),
+            Standing::SignedIn { login, .. } if login == "quill"
+        ));
+    }
+    // Signing out of one is remembered when switching back.
+    app.sign_out().await.unwrap();
+    app.open_server(first.id).await.unwrap();
+    assert_eq!(
+        app.open_server(second.id).await.unwrap(),
+        Standing::SignedOut
+    );
+    // A new session asks again.
+    drop(app);
+    let again = backend(dir.path(), &None);
+    assert_eq!(again.open_server(first.id).await.unwrap(), Standing::Locked);
+    a.stop().await.unwrap();
+    b.stop().await.unwrap();
+}

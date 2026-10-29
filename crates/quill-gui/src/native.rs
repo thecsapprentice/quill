@@ -3,6 +3,7 @@
 //! never waits on it.
 
 use std::{
+    collections::HashMap,
     future::Future,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
@@ -53,6 +54,9 @@ pub struct NativeBackend {
     runtime: Handle,
     settings: Mutex<Settings>,
     open: Mutex<Option<Open>>,
+    /// Every store unlocked this session, kept open so switching back to
+    /// its server is instant (no passphrase or keychain prompt again).
+    unlocked: Mutex<HashMap<Uuid, Open>>,
     locked: Mutex<Option<Locked>>,
     upkeep_log: Mutex<Vec<String>>,
 }
@@ -160,6 +164,7 @@ impl NativeBackend {
             runtime,
             settings: Mutex::new(settings),
             open: Mutex::new(None),
+            unlocked: Mutex::new(HashMap::new()),
             locked: Mutex::new(None),
             upkeep_log: Mutex::new(Vec::new()),
         })
@@ -214,6 +219,7 @@ impl NativeBackend {
             client,
         };
         *lock(&self.open) = Some(open.clone());
+        lock(&self.unlocked).insert(id, open.clone());
         *lock(&self.locked) = None;
         lock(&self.settings).current = Some(id);
         self.save_settings()?;
@@ -223,7 +229,10 @@ impl NativeBackend {
     /// Replaces the open server's client (after signing in or out).
     fn set_client(&self, client: Client) {
         if let Some(open) = lock(&self.open).as_mut() {
-            open.client = client;
+            open.client = client.clone();
+            if let Some(kept) = lock(&self.unlocked).get_mut(&open.id) {
+                kept.client = client;
+            }
         }
     }
 
@@ -406,6 +415,14 @@ impl Backend for NativeBackend {
             if lock(&self.open).as_ref().is_some_and(|o| o.id == id) {
                 return self.standing_now().await;
             }
+            let kept = lock(&self.unlocked).get(&id).cloned();
+            if let Some(open) = kept {
+                *lock(&self.open) = Some(open);
+                *lock(&self.locked) = None;
+                lock(&self.settings).current = Some(id);
+                self.save_settings()?;
+                return self.standing_now().await;
+            }
             let path = self.store_path(id);
             if !path.exists() {
                 return Err(failed(format!("no store at {}", path.display())));
@@ -459,6 +476,7 @@ impl Backend for NativeBackend {
             if lock(&self.open).as_ref().is_some_and(|o| o.id == id) {
                 *lock(&self.open) = None;
             }
+            lock(&self.unlocked).remove(&id);
             if lock(&self.locked).as_ref().is_some_and(|l| l.id == id) {
                 *lock(&self.locked) = None;
             }
@@ -494,6 +512,9 @@ impl Backend for NativeBackend {
         if let Some(open) = lock(&self.open).as_mut().filter(|o| o.id == id) {
             open.name = name.to_owned();
         }
+        if let Some(kept) = lock(&self.unlocked).get_mut(&id) {
+            kept.name = name.to_owned();
+        }
         self.save_settings()
     }
 
@@ -520,6 +541,7 @@ impl Backend for NativeBackend {
             let open = lock(&self.open)
                 .take()
                 .ok_or_else(|| failed("no server is open"))?;
+            lock(&self.unlocked).remove(&open.id);
             let Open {
                 id,
                 name,
@@ -529,12 +551,14 @@ impl Backend for NativeBackend {
             let store = match Arc::try_unwrap(store) {
                 Ok(s) => s,
                 Err(store) => {
-                    *lock(&self.open) = Some(Open {
+                    let open = Open {
                         id,
                         name,
                         store,
                         client,
-                    });
+                    };
+                    lock(&self.unlocked).insert(id, open.clone());
+                    *lock(&self.open) = Some(open);
                     return Err(busy());
                 }
             };
@@ -560,12 +584,14 @@ impl Backend for NativeBackend {
                     Ok((store, result))
                 })
                 .await?;
-            *lock(&self.open) = Some(Open {
+            let open = Open {
                 id,
                 name,
                 store: Arc::new(store),
                 client,
-            });
+            };
+            lock(&self.unlocked).insert(id, open.clone());
+            *lock(&self.open) = Some(open);
             result
         })
     }
@@ -933,8 +959,9 @@ impl Backend for NativeBackend {
                     )));
                 }
             }
-            // Close the open store while its file moves.
+            // Close the stores while their files move.
             let current = lock(&self.open).take().map(|o| o.id);
+            lock(&self.unlocked).clear();
             std::fs::create_dir_all(&to).map_err(failed)?;
             for id in &ids {
                 let source = from.join(format!("{id}.quill"));
