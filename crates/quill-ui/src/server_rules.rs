@@ -15,6 +15,7 @@ pub fn RulesPage() -> Element {
     let (backend, mut model) = use_ui();
     let mut busy = use_signal(|| false);
     let mut problem = use_signal(|| None::<Problem>);
+    let mut accepted = use_signal(|| false);
     let (name, rules) = {
         let m = model.read();
         (m.server_name(), m.rules.clone())
@@ -31,6 +32,7 @@ pub fn RulesPage() -> Element {
             match result {
                 Ok(()) => {
                     problem.set(None);
+                    accepted.set(true);
                     model.write().rules_accepted();
                 }
                 Err(p) => {
@@ -67,6 +69,9 @@ pub fn RulesPage() -> Element {
                     }
                 }
             },
+        }
+        if accepted() {
+            p { class: "hint", role: "status", "Accepted. Thank you." }
         }
         if let Some(p) = problem() {
             ProblemLine { problem: p }

@@ -37,19 +37,19 @@ pub fn Frame() -> Element {
         div { class: "frame",
             Nav {}
             main { class: "main", id: "main",
-                if rules_banner {
-                    div { class: "nudge", role: "status",
-                        p { "The server rules have changed. Read and accept them to keep posting, editing, commenting and reporting." }
-                        button { class: "primary", onclick: move |_| model.write().go(Section::Rules), "Read the rules" }
-                    }
-                }
-                if let Some(text) = notice {
-                    div { class: "notice", role: "status", "{text}" }
-                }
-                if let Some(p) = problem {
-                    ProblemLine { problem: p }
-                }
                 div { class: "page",
+                    if rules_banner {
+                        div { class: "nudge", role: "status",
+                            p { "The server rules have changed. Read and accept them to keep posting, editing, commenting and reporting." }
+                            button { class: "primary", onclick: move |_| model.write().go(Section::Rules), "Read the rules" }
+                        }
+                    }
+                    if let Some(text) = notice {
+                        div { class: "notice", role: "status", "{text}" }
+                    }
+                    if let Some(p) = problem {
+                        ProblemLine { problem: p }
+                    }
                     match section {
                         Section::Home => rsx! { Home {} },
                         Section::Board => rsx! {

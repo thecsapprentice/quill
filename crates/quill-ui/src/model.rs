@@ -466,6 +466,7 @@ impl Model {
     /// A server was added and opened (its store is new: nobody's signed in).
     pub fn added(&mut self, backend: &dyn Backend, server: &ServerEntry) {
         self.refresh_servers(backend);
+        self.section = Section::Home;
         self.opening(server.id);
         self.opened(server.id, Ok(Standing::SignedOut));
     }

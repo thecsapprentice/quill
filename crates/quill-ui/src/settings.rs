@@ -33,11 +33,16 @@ pub fn SettingsPage() -> Element {
     let has_store = m.standing.is_some();
     let has_rules = matches!(m.rules, Some(Some(_)));
     let name = m.server_name();
+    // Keys the parts that load from the open server, so they load again
+    // after switching servers.
+    let server = m.current.map(|c| c.to_string()).unwrap_or_default();
     drop(m);
     rsx! {
         h1 { "Settings" }
         if signed_in {
-            BoardFieldset {}
+            for k in [server.clone()] {
+                BoardFieldset { key: "{k}" }
+            }
         }
         AppearanceFieldset {}
         ServersFieldset {}
@@ -53,7 +58,9 @@ pub fn SettingsPage() -> Element {
             }
         }
         if has_store {
-            StoreFieldset {}
+            for k in [server] {
+                StoreFieldset { key: "{k}" }
+            }
         }
         if signed_in {
             SignOutFieldset {}
