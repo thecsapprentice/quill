@@ -216,6 +216,9 @@ impl Model {
             }
             Err(Problem::SignedOut) => self.set_standing(Standing::SignedOut),
             Err(Problem::Unreachable(name)) => {
+                // Not known now (even if it was, say, locked a moment ago):
+                // the upkeep loop loads it once the server answers.
+                self.standing = None;
                 self.status = Status::Offline;
                 if self.login_known() {
                     self.screen = Screen::Frame;
@@ -418,9 +421,9 @@ impl Model {
         }
     }
 
+    /// Restarts the upkeep loop, which tries the server at once.
     pub fn try_now(&mut self) {
         self.upkeep_round = self.upkeep_round.wrapping_add(1);
-        self.status = Status::Connecting;
     }
 
     pub fn go(&mut self, section: Section) {
@@ -582,6 +585,22 @@ mod tests {
         // Signed out while in the frame: the status line says so.
         m.upkept(id, Err(Problem::SignedOut));
         assert_eq!((m.screen, m.status), (Screen::Frame, Status::SignedOut));
+    }
+
+    #[test]
+    fn unlocking_while_offline_leaves_the_standing_to_load() {
+        let fake = Fake::signed_in(vec![persona("ink_fox", Keys::Ready)]);
+        let mut m = Model::load(&fake);
+        let id = m.current.unwrap();
+        m.opening(id);
+        m.opened(id, Ok(Standing::Locked));
+        assert_eq!(m.screen, Screen::Unlock);
+        // Unlocked here, but the server didn't answer.
+        m.opened(id, Err(Problem::Unreachable("w".into())));
+        assert_eq!((m.screen, m.status), (Screen::Frame, Status::Offline));
+        assert_eq!(m.standing, None, "the loop must load it again");
+        m.try_now();
+        assert_eq!(m.status, Status::Offline);
     }
 
     #[test]

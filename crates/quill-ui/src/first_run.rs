@@ -120,6 +120,7 @@ pub fn ServerStep() -> Element {
             false,
         ),
         Some(p) => (p.to_string(), true),
+        None if found().is_some() => ("Found it.".to_owned(), false),
         None => ("It looks like writers.example.".to_owned(), false),
     };
     let pass_check = checks::passphrase(&passphrase());
@@ -165,6 +166,7 @@ pub fn ServerStep() -> Element {
                     label: "Passphrase for this computer",
                     id: "store-passphrase",
                     kind: Kind::NewPassword,
+                    autofocus: true,
                     hint: pass_check.hint,
                     invalid: pass_check.invalid,
                     oninput: move |t| passphrase.set(t),

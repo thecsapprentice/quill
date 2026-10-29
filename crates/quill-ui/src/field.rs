@@ -63,6 +63,7 @@ pub fn Field(props: FieldProps) -> Element {
     let hint_id = format!("{}-hint", props.id);
     let key = format!("{}-{}", props.id, props.generation);
     let onenter = props.onenter;
+    let autofocus = props.autofocus;
     rsx! {
         div { class: if props.invalid { "field invalid" } else { "field" },
             label { r#for: "{props.id}", "{props.label}" }
@@ -80,6 +81,16 @@ pub fn Field(props: FieldProps) -> Element {
                     spellcheck: spellcheck,
                     autocapitalize: if props.kind == Kind::Text { "sentences" } else { "off" },
                     autofocus: props.autofocus,
+                    // `autofocus` acts only on page load; a field that
+                    // appears or remounts later takes focus itself.
+                    onmounted: move |e: MountedEvent| {
+                        if autofocus {
+                            let el = e.data();
+                            spawn(async move {
+                                let _ = el.set_focus(true).await;
+                            });
+                        }
+                    },
                     aria_invalid: if props.invalid { "true" } else { "false" },
                     aria_describedby: "{hint_id}",
                     oninput: move |e| props.oninput.call(e.value()),

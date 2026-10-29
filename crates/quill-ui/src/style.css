@@ -194,6 +194,8 @@ button:disabled { opacity: 0.55; cursor: progress; }
 .details { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 .details th, .details td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 .details td { font-family: var(--mono); word-break: break-all; }
+fieldset > .hint { margin-bottom: 0.6rem; }
+.details th { width: 11rem; }
 fieldset { border: 1px solid var(--line); border-radius: var(--radius-m); padding: 0.8rem 1rem 0.4rem; margin: 0 0 1.2rem; }
 legend { font-weight: 600; padding: 0 0.3rem; }
 .choice { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.6rem; }

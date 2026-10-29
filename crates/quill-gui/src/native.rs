@@ -94,6 +94,15 @@ fn problem(server: &str, e: CoreError) -> Problem {
     }
 }
 
+/// Whether a typed address without a scheme names this computer.
+fn is_local(address: &str) -> bool {
+    let host = match address.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None => address.split([':', '/']).next().unwrap_or(""),
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
+}
+
 /// A typed address as a URL, `https://` assumed when there's no scheme.
 fn normalize(address: &str) -> Result<String, Problem> {
     let trimmed = address.trim().trim_end_matches('/');
@@ -102,6 +111,9 @@ fn normalize(address: &str) -> Result<String, Problem> {
     }
     let with_scheme = if trimmed.contains("://") {
         trimmed.to_owned()
+    } else if is_local(trimmed) {
+        // A server on this computer (development) has no certificate.
+        format!("http://{trimmed}")
     } else {
         format!("https://{trimmed}")
     };
@@ -1021,5 +1033,37 @@ impl Backend for NativeBackend {
             }
             Ok(Details { rows })
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    #[test]
+    fn typed_addresses_get_the_right_scheme() {
+        assert_eq!(
+            normalize("writers.example/").unwrap(),
+            "https://writers.example"
+        );
+        assert_eq!(
+            normalize("localhost:8088").unwrap(),
+            "http://localhost:8088"
+        );
+        assert_eq!(normalize("127.0.0.1").unwrap(), "http://127.0.0.1");
+        assert_eq!(normalize("[::1]:8080").unwrap(), "http://[::1]:8080");
+        assert_eq!(
+            normalize("https://localhost:8088").unwrap(),
+            "https://localhost:8088"
+        );
+        // Only this computer gets plain http.
+        assert_eq!(
+            normalize("localhost.example").unwrap(),
+            "https://localhost.example"
+        );
+        assert!(normalize("http://writers.example").is_err());
+        assert!(normalize(" ").is_err());
     }
 }
