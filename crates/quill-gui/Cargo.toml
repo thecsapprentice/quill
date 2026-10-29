@@ -23,6 +23,7 @@ path = "src/main.rs"
 required-features = ["app"]
 
 [dependencies]
+quill-certs.workspace = true
 quill-core.workspace = true
 quill-proto.workspace = true
 quill-ui.workspace = true

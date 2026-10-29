@@ -1038,7 +1038,19 @@ impl Backend for NativeBackend {
                     if let Ok(personas) = o.client.personas().await {
                         for p in personas {
                             rows.push((format!("@{} id", p.handle), p.id.to_string()));
+                            if let Ok(Some(identity)) = keys::load_identity(&o.store, p.id) {
+                                rows.push((
+                                    format!("@{} identity key", p.handle),
+                                    identity.fingerprint(),
+                                ));
+                            }
                             let device = keys::load_device(&o.store, p.id).ok().flatten();
+                            if let Some(d) = &device {
+                                rows.push((
+                                    format!("@{} device key", p.handle),
+                                    quill_certs::fingerprint(&d.public()),
+                                ));
+                            }
                             if let Some(dev) = device.and_then(|d| d.id) {
                                 rows.push((format!("@{} device", p.handle), dev.to_string()));
                                 if let Ok(s) = o.client.key_package_status(p.id, dev).await {

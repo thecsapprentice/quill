@@ -105,6 +105,16 @@ async fn a_new_writer_gets_from_nothing_to_a_ready_persona() {
             .iter()
             .any(|(k, v)| k == "@ink_fox id" && *v == fox.id.to_string())
     );
+    for label in [
+        "@ink_fox identity key",
+        "@ink_fox device key",
+        "@ink_fox KeyPackages",
+    ] {
+        assert!(
+            details.rows.iter().any(|(k, _)| k == label),
+            "{label} missing"
+        );
+    }
     server.stop().await.unwrap();
 }
 
