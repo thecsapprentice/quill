@@ -8,7 +8,7 @@
 use uuid::Uuid;
 
 use crate::backend::{
-    AppSettings, Backend, Keys, Persona, PersonaState, Problem, ServerEntry, Standing,
+    AppSettings, Backend, Keys, Persona, PersonaState, Problem, ServerEntry, ServerRules, Standing,
 };
 
 /// What fills the window.
@@ -41,6 +41,9 @@ pub enum Section {
     Sessions,
     Personas,
     Settings,
+    /// The server rules: reached from Settings and the "rules changed"
+    /// banner, not the sidebar.
+    Rules,
 }
 
 impl Section {
@@ -61,6 +64,7 @@ impl Section {
             Section::Sessions => "Sessions",
             Section::Personas => "Personas",
             Section::Settings => "Settings",
+            Section::Rules => "Server rules",
         }
     }
 }
@@ -92,6 +96,8 @@ pub struct Model {
     pub problem: Option<Problem>,
     /// What upkeep says needs the writer.
     pub notice: Option<String>,
+    /// The server's rules, once fetched (`None` inside: it has none).
+    pub rules: Option<Option<ServerRules>>,
     pub settings: AppSettings,
     /// Adding a server: the one to go back to if the writer cancels.
     pub adding: Option<Option<Uuid>>,
@@ -129,6 +135,7 @@ impl Model {
             status: Status::Connecting,
             problem: None,
             notice: None,
+            rules: None,
             settings: backend.app_settings(),
             adding: None,
             fresh_login: false,
@@ -184,6 +191,7 @@ impl Model {
         if self.current != Some(id) {
             self.persona = None;
             self.notice = None;
+            self.rules = None;
         }
         self.current = Some(id);
         self.standing = None;
@@ -390,6 +398,26 @@ impl Model {
         }
     }
 
+    /// The rules for server `id`, fetched by the upkeep loop.
+    pub fn rules_loaded(&mut self, id: Uuid, result: Result<Option<ServerRules>, Problem>) {
+        if self.current == Some(id)
+            && let Ok(rules) = result
+        {
+            self.rules = Some(rules);
+        }
+    }
+
+    /// Whether the login must accept the rules before writing again.
+    pub fn rules_to_accept(&self) -> bool {
+        matches!(&self.rules, Some(Some(r)) if r.must_accept)
+    }
+
+    pub fn rules_accepted(&mut self) {
+        if let Some(Some(r)) = &mut self.rules {
+            r.must_accept = false;
+        }
+    }
+
     pub fn try_now(&mut self) {
         self.upkeep_round = self.upkeep_round.wrapping_add(1);
         self.status = Status::Connecting;
@@ -583,5 +611,25 @@ mod tests {
         assert_eq!(m.screen, Screen::Server);
         assert_eq!(m.cancel_add(), first);
         assert_eq!(m.screen, Screen::Frame);
+    }
+
+    #[test]
+    fn rules_to_accept_follow_the_server_in_view() {
+        let fake = Fake::signed_in(vec![persona("ink_fox", Keys::Ready)]);
+        let mut m = opened(&fake);
+        let id = m.current.unwrap();
+        let rules = ServerRules {
+            markdown: "Be kind.".into(),
+            version: 3,
+            must_accept: true,
+        };
+        m.rules_loaded(Uuid::new_v4(), Ok(Some(rules.clone())));
+        assert!(!m.rules_to_accept());
+        m.rules_loaded(id, Ok(Some(rules)));
+        assert!(m.rules_to_accept());
+        m.rules_accepted();
+        assert!(!m.rules_to_accept());
+        m.opening(Uuid::new_v4());
+        assert_eq!(m.rules, None);
     }
 }

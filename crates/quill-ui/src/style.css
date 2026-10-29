@@ -209,3 +209,16 @@ legend { font-weight: 600; padding: 0 0.3rem; }
 @media (prefers-reduced-motion: no-preference) {
   .section, .primary, .secondary { transition: background-color 120ms; }
 }
+
+/* ---- Markdown from the server, and the rules ---- */
+.markdown { line-height: 1.6; font-family: var(--write); }
+.markdown h3, .markdown h4, .markdown h5, .markdown h6 { margin: 1.2rem 0 0.4rem; }
+.markdown blockquote { margin: 0.6rem 0; padding-left: 0.9rem; border-left: 3px solid var(--line); color: var(--muted); }
+.markdown pre { background: var(--paper); padding: 0.6rem 0.8rem; border-radius: var(--radius-s); overflow-x: auto; }
+.markdown code { font-family: var(--mono); font-size: 0.9em; }
+.markdown ul { list-style: disc; padding-left: 1.4rem; }
+.markdown ol { list-style: decimal; padding-left: 1.4rem; }
+.markdown a { color: var(--accent); }
+.rules-box { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 0.5rem 0.8rem; margin-bottom: 0.8rem; }
+.rules-box summary { cursor: pointer; font-weight: 600; }
+.rules-box .markdown { max-height: 16rem; overflow-y: auto; font-size: 0.92rem; }

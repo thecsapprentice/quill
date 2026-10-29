@@ -11,6 +11,7 @@ use crate::{
     backend::{Backend, Keys},
     model::{Section, Status},
     personas::PersonasPage,
+    server_rules::RulesPage,
     settings::SettingsPage,
 };
 
@@ -23,9 +24,10 @@ const NEW: &str = "new";
 
 #[component]
 pub fn Frame() -> Element {
-    let (_, model) = use_ui();
+    let (_, mut model) = use_ui();
     let m = model.read();
     let section = m.section;
+    let rules_banner = m.rules_to_accept() && section != Section::Rules;
     let key = format!("{}-{}", m.current.unwrap_or_default(), m.upkeep_round);
     let server = m.current;
     let notice = m.notice.clone();
@@ -35,6 +37,12 @@ pub fn Frame() -> Element {
         div { class: "frame",
             Nav {}
             main { class: "main", id: "main",
+                if rules_banner {
+                    div { class: "nudge", role: "status",
+                        p { "The server rules have changed. Read and accept them to keep posting, editing, commenting and reporting." }
+                        button { class: "primary", onclick: move |_| model.write().go(Section::Rules), "Read the rules" }
+                    }
+                }
                 if let Some(text) = notice {
                     div { class: "notice", role: "status", "{text}" }
                 }
@@ -64,6 +72,7 @@ pub fn Frame() -> Element {
                         },
                         Section::Personas => rsx! { PersonasPage {} },
                         Section::Settings => rsx! { SettingsPage {} },
+                        Section::Rules => rsx! { RulesPage {} },
                     }
                 }
             }
@@ -238,6 +247,15 @@ fn Upkeep(server: Uuid) -> Element {
                 } else if signed_in {
                     let result = b.upkeep().await;
                     model.write().upkept(server, result);
+                }
+                // The rules too, to notice a change that needs accepting.
+                let reachable = {
+                    let m = model.peek();
+                    m.standing.is_some() && m.status != Status::Offline
+                };
+                if reachable {
+                    let rules = b.rules().await;
+                    model.write().rules_loaded(server, rules);
                 }
                 let (status, signed_in) = {
                     let m = model.peek();

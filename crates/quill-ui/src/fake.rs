@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::backend::{
     AppSettings, Backend, BoardSettings, Call, Details, Keys, Persona, PersonaState, Problem,
-    Protection, ServerEntry, ServerInfo, Standing, Step, Theme,
+    Protection, ServerEntry, ServerInfo, ServerRules, Standing, Step, Theme,
 };
 
 pub struct Fake {
@@ -82,6 +82,8 @@ impl Backend for Fake {
             address: address.into(),
             domain: address.into(),
             registration_open: true,
+            has_rules: true,
+            rules_on_join: true,
             software: "quill".into(),
             version: "0.0.0".into(),
         }))
@@ -113,13 +115,23 @@ impl Backend for Fake {
     fn standing(&self) -> Call<'_, Standing> {
         ready(Ok(self.standing.borrow().clone()))
     }
-    fn register<'a>(&'a self, _: &'a str, _: &'a str) -> Call<'a, Standing> {
+    fn register<'a>(&'a self, _: &'a str, _: &'a str, _: Option<u32>) -> Call<'a, Standing> {
         ready(Err(Problem::Taken))
     }
     fn sign_in<'a>(&'a self, _: &'a str, _: &'a str) -> Call<'a, Standing> {
         ready(Ok(self.standing.borrow().clone()))
     }
     fn sign_out(&self) -> Call<'_, ()> {
+        ready(Ok(()))
+    }
+    fn rules(&self) -> Call<'_, Option<ServerRules>> {
+        ready(Ok(Some(ServerRules {
+            markdown: "# Be kind\n\nNo <b>spam</b>.".into(),
+            version: 2,
+            must_accept: true,
+        })))
+    }
+    fn accept_rules(&self, _: u32) -> Call<'_, ()> {
         ready(Ok(()))
     }
     fn create_persona<'a>(&'a self, _: &'a str, _: &'a str) -> Call<'a, Persona> {

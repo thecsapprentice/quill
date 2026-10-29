@@ -6,9 +6,10 @@ use dioxus::prelude::*;
 
 use crate::{
     app::{ProblemLine, open_server, use_ui},
-    backend::{Keys, Persona, Problem, ServerInfo, Step},
+    backend::{Keys, Persona, Problem, ServerInfo, ServerRules, Step},
+    checks,
     field::{Field, Kind},
-    rules,
+    server_rules::SignUpRules,
 };
 
 /// How long typing must pause before the address is checked.
@@ -86,7 +87,7 @@ pub fn ServerStep() -> Element {
         let pass = need_passphrase().then(|| passphrase.read().clone());
         if pass
             .as_deref()
-            .is_some_and(|p| rules::passphrase(p).invalid || p.is_empty())
+            .is_some_and(|p| checks::passphrase(p).invalid || p.is_empty())
         {
             return;
         }
@@ -121,7 +122,7 @@ pub fn ServerStep() -> Element {
         Some(p) => (p.to_string(), true),
         None => ("It looks like writers.example.".to_owned(), false),
     };
-    let pass_check = rules::passphrase(&passphrase());
+    let pass_check = checks::passphrase(&passphrase());
     let (title, lede) = if adding {
         ("Add a server", "Which other server do you use?")
     } else {
@@ -270,6 +271,10 @@ pub fn AccountStep() -> Element {
     let mut taken = use_signal(|| false);
     let mut busy = use_signal(|| false);
     let mut problem = use_signal(|| model.peek().problem.clone());
+    // The server's rules, and whether joining means accepting them.
+    let mut rules = use_signal(|| None::<ServerRules>);
+    let mut rules_on_join = use_signal(|| false);
+    let mut accepted = use_signal(|| false);
     let (name, adding, known) = {
         let m = model.read();
         (
@@ -279,7 +284,7 @@ pub fn AccountStep() -> Element {
         )
     };
 
-    // Ask once whether the server takes new logins.
+    // Ask once whether the server takes new logins, and for its rules.
     let b = backend.clone();
     use_hook(move || {
         if known {
@@ -288,11 +293,17 @@ pub fn AccountStep() -> Element {
         let address = model.peek().server().map(|s| s.address.clone());
         if let Some(address) = address {
             spawn(async move {
-                if let Ok(info) = b.check_server(&address).await
-                    && !info.registration_open
-                {
-                    open_for_new.set(false);
-                    returning.set(true);
+                if let Ok(info) = b.check_server(&address).await {
+                    if !info.registration_open {
+                        open_for_new.set(false);
+                        returning.set(true);
+                    }
+                    rules_on_join.set(info.rules_on_join);
+                    if info.has_rules
+                        && let Ok(r) = b.rules().await
+                    {
+                        rules.set(r);
+                    }
                 }
             });
         }
@@ -304,9 +315,10 @@ pub fn AccountStep() -> Element {
             return;
         };
         let new = !returning();
-        let bad = rules::login_name(&login()).invalid
+        let bad = checks::login_name(&login()).invalid
             || login().trim().is_empty()
-            || (new && (rules::password(&password()).invalid || password().is_empty()));
+            || (new && (checks::password(&password()).invalid || password().is_empty()))
+            || (new && rules_on_join() && !accepted());
         if busy() || bad {
             return;
         }
@@ -315,8 +327,9 @@ pub fn AccountStep() -> Element {
         taken.set(false);
         let b = b.clone();
         spawn(async move {
+            let version = accepted().then(|| rules.peek().as_ref().map(|r| r.version));
             let result = if new {
-                b.register(&login(), &password()).await
+                b.register(&login(), &password(), version.flatten()).await
             } else {
                 b.sign_in(&login(), &password()).await
             };
@@ -324,6 +337,14 @@ pub fn AccountStep() -> Element {
             match result {
                 Ok(standing) => model.write().signed_in_now(&*b, id, standing),
                 Err(Problem::Taken) => taken.set(true),
+                Err(Problem::RulesNotAccepted(text)) => {
+                    // They changed while signing up: show the new version.
+                    accepted.set(false);
+                    if let Ok(r) = b.rules().await {
+                        rules.set(r);
+                    }
+                    problem.set(Some(Problem::RulesNotAccepted(text)));
+                }
                 Err(p) => problem.set(Some(p)),
             }
         });
@@ -342,24 +363,24 @@ pub fn AccountStep() -> Element {
     };
 
     let login_check = if taken() {
-        rules::Check {
+        checks::Check {
             hint: "That login name is taken. Try another.".into(),
             invalid: true,
         }
     } else {
-        rules::login_name(&login())
+        checks::login_name(&login())
     };
     let new = !returning();
     let pass_check = if new {
-        rules::password(&password())
+        checks::password(&password())
     } else {
-        rules::Check {
+        checks::Check {
             hint: String::new(),
             invalid: false,
         }
     };
     let suggestions = if taken() {
-        rules::suggestions(&login())
+        checks::suggestions(&login())
     } else {
         Vec::new()
     };
@@ -375,87 +396,98 @@ pub fn AccountStep() -> Element {
         )
     };
     rsx! {
-        Card { title, lede,
-            if open_for_new() {
-                div { class: "tabs", role: "group", aria_label: "New or returning",
-                    button {
-                        aria_pressed: if new { "true" } else { "false" },
-                        onclick: move |_| { returning.set(false); problem.set(None); },
-                        "I'm new here"
-                    }
-                    button {
-                        aria_pressed: if new { "false" } else { "true" },
-                        onclick: move |_| { returning.set(true); problem.set(None); },
-                        "I have a login"
-                    }
-                }
-            } else {
-                div { class: "notice",
-                    "{name} isn't taking new logins right now. If you have one, sign in."
-                }
-            }
-            Field {
-                label: "Login name",
-                id: "login-name",
-                kind: Kind::Name,
-                autofocus: true,
-                initial: login.peek().clone(),
-                generation: generation(),
-                hint: login_check.hint,
-                invalid: login_check.invalid,
-                oninput: move |t| { login.set(t); taken.set(false); },
-                onenter: submit,
-            }
-            if !suggestions.is_empty() {
-                div { class: "suggestions", role: "group", aria_label: "Names to try",
-                    for s in suggestions {
+            Card { title, lede,
+                if open_for_new() {
+                    div { class: "tabs", role: "group", aria_label: "New or returning",
                         button {
-                            key: "{s}",
-                            onclick: {
-                                let s = s.clone();
-                                move |_| {
-                                    login.set(s.clone());
-                                    taken.set(false);
-                                    generation += 1;
-                                }
-                            },
-                            "{s}"
+                            aria_pressed: if new { "true" } else { "false" },
+                            onclick: move |_| { returning.set(false); problem.set(None); },
+                            "I'm new here"
+                        }
+                        button {
+                            aria_pressed: if new { "false" } else { "true" },
+                            onclick: move |_| { returning.set(true); problem.set(None); },
+                            "I have a login"
+                        }
+                    }
+                } else {
+                    div { class: "notice",
+                        "{name} isn't taking new logins right now. If you have one, sign in."
+                    }
+                }
+                Field {
+                    label: "Login name",
+                    id: "login-name",
+                    kind: Kind::Name,
+                    autofocus: true,
+                    initial: login.peek().clone(),
+                    generation: generation(),
+                    hint: login_check.hint,
+                    invalid: login_check.invalid,
+                    oninput: move |t| { login.set(t); taken.set(false); },
+                    onenter: submit,
+                }
+                if !suggestions.is_empty() {
+                    div { class: "suggestions", role: "group", aria_label: "Names to try",
+                        for s in suggestions {
+                            button {
+                                key: "{s}",
+                                onclick: {
+                                    let s = s.clone();
+                                    move |_| {
+                                        login.set(s.clone());
+                                        taken.set(false);
+                                        generation += 1;
+                                    }
+                                },
+                                "{s}"
+                            }
                         }
                     }
                 }
-            }
-            // Keyed by tab: switching remounts it with the right hints.
-            for k in [new] {
-            Field {
-                key: "{k}",
-                label: "Password",
-                id: "login-password",
-                kind: if new { Kind::NewPassword } else { Kind::Password },
-                hint: pass_check.hint.clone(),
-                invalid: pass_check.invalid,
-                oninput: move |t| password.set(t),
-                onenter: submit,
-            }
-            }
-            if let Some(p) = problem() {
-                ProblemLine { problem: p }
-            }
-            div { class: "actions",
-                button { class: "primary", disabled: busy(), onclick: move |_| submit.call(()),
-                    match (busy(), new) {
-                        (true, _) => "One moment…",
-                        (false, true) => "Make my login",
-                        (false, false) => "Sign in",
+                // Keyed by tab: switching remounts it with the right hints.
+                for k in [new] {
+                Field {
+                    key: "{k}",
+                    label: "Password",
+                    id: "login-password",
+                    kind: if new { Kind::NewPassword } else { Kind::Password },
+                    hint: pass_check.hint.clone(),
+                    invalid: pass_check.invalid,
+                    oninput: move |t| password.set(t),
+                    onenter: submit,
+                }
+                }
+                if new && let Some(r) = rules() {
+                    SignUpRules {
+                        rules: r,
+                        required: rules_on_join(),
+                        accepted: accepted(),
+                        on_accept: move |yes| accepted.set(yes),
                     }
                 }
-                if adding {
-                    button { class: "quiet", onclick: back, "Cancel" }
-                } else if known {
-                    button { class: "quiet", onclick: back, "Not now" }
+                if let Some(p) = problem() {
+                    ProblemLine { problem: p }
+                }
+                div { class: "actions",
+    button {
+                        class: "primary",
+                        disabled: busy() || (new && rules_on_join() && !accepted()),
+                        onclick: move |_| submit.call(()),
+                        match (busy(), new) {
+                            (true, _) => "One moment…",
+                            (false, true) => "Make my login",
+                            (false, false) => "Sign in",
+                        }
+                    }
+                    if adding {
+                        button { class: "quiet", onclick: back, "Cancel" }
+                    } else if known {
+                        button { class: "quiet", onclick: back, "Not now" }
+                    }
                 }
             }
         }
-    }
 }
 
 /// Handle and display name for a new persona; used by first run and the
@@ -476,9 +508,9 @@ pub fn PersonaForm(
     let mut problem = use_signal(|| None::<Problem>);
 
     let create = use_callback(move |()| {
-        let bad = rules::handle(&handle()).invalid
+        let bad = checks::handle(&handle()).invalid
             || handle().trim().is_empty()
-            || rules::display_name(&display()).invalid;
+            || checks::display_name(&display()).invalid;
         if busy() || bad {
             return;
         }
@@ -497,14 +529,14 @@ pub fn PersonaForm(
     });
 
     let handle_check = match taken() {
-        Some(t) => rules::Check {
+        Some(t) => checks::Check {
             hint: format!("@{t} is taken. Try one of these, or another."),
             invalid: true,
         },
-        None => rules::handle(&handle()),
+        None => checks::handle(&handle()),
     };
-    let display_check = rules::display_name(&display());
-    let suggestions = taken().map(|t| rules::suggestions(&t)).unwrap_or_default();
+    let display_check = checks::display_name(&display());
+    let suggestions = taken().map(|t| checks::suggestions(&t)).unwrap_or_default();
     rsx! {
         Field {
             label: "Handle",

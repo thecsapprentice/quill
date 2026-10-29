@@ -5,9 +5,9 @@ use dioxus::prelude::*;
 use crate::{
     app::{ProblemLine, use_ui},
     backend::{Keys, PersonaState, Problem},
+    checks,
     field::{Area, Field, Kind},
     first_run::PersonaForm,
-    rules,
 };
 
 #[component]
@@ -81,7 +81,7 @@ fn PersonaItem(state: PersonaState) -> Element {
 
     let b = backend.clone();
     let save = move |_| {
-        if busy() || rules::display_name(&display()).invalid {
+        if busy() || checks::display_name(&display()).invalid {
             return;
         }
         busy.set(true);
@@ -112,7 +112,7 @@ fn PersonaItem(state: PersonaState) -> Element {
             }
         });
     };
-    let display_check = rules::display_name(&display());
+    let display_check = checks::display_name(&display());
     rsx! {
         li { class: "item",
             header {

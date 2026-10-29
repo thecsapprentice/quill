@@ -82,14 +82,28 @@ pub fn App() -> Element {
 /// A problem, said plainly; the raw error too in advanced mode.
 #[component]
 pub fn ProblemLine(problem: Problem) -> Element {
-    let (_, model) = use_ui();
-    let advanced = model.read().settings.advanced;
+    let (_, mut model) = use_ui();
+    let (advanced, in_frame) = {
+        let m = model.read();
+        (m.settings.advanced, m.screen == Screen::Frame)
+    };
+    // A refusal for unaccepted rules becomes the way to accept them.
+    let to_rules = in_frame && matches!(problem, Problem::RulesNotAccepted(_));
     rsx! {
         p { class: "problem", role: "alert",
             "{problem}"
             if advanced && let Some(detail) = problem.detail() {
                 br {}
                 span { class: "detail", "{detail}" }
+            }
+        }
+        if to_rules {
+            div { class: "actions",
+                button {
+                    class: "secondary",
+                    onclick: move |_| model.write().go(crate::model::Section::Rules),
+                    "Read the rules"
+                }
             }
         }
     }

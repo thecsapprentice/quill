@@ -196,3 +196,72 @@ fn the_uuid_check_finds_uuids() {
     assert!(has_uuid("id 67e55044-10b1-426f-9247-bb680e5fe0c8 here"));
     assert!(!has_uuid("ink_fox 2026-10-26"));
 }
+
+fn rules(must_accept: bool) -> crate::backend::ServerRules {
+    crate::backend::ServerRules {
+        markdown: "# Be kind\n\nNo <b>spam</b>.".into(),
+        version: 2,
+        must_accept,
+    }
+}
+
+#[test]
+fn changed_rules_show_a_banner_and_an_accept_button() {
+    let fake = Fake::signed_in(vec![persona("ink_owl", Keys::Ready)]);
+    let mut m = opened(&fake);
+    let id = m.current.unwrap();
+    m.rules_loaded(id, Ok(Some(rules(true))));
+    let html = render(Fake::signed_in(vec![]), Some(m.clone()));
+    assert!(html.contains("The server rules have changed"), "{html}");
+
+    m.go(Section::Rules);
+    let html = render(fake, Some(m));
+    assert!(html.contains("<h3>Be kind</h3>"), "{html}");
+    assert!(html.contains("I accept the rules"));
+    // The banner isn't repeated on the rules page itself.
+    assert!(!html.contains("The server rules have changed"));
+    // The source's HTML stays text.
+    assert!(!html.contains("<b>spam"));
+}
+
+#[test]
+fn accepted_rules_are_only_there_to_read() {
+    let fake = Fake::signed_in(vec![persona("ink_owl", Keys::Ready)]);
+    let mut m = opened(&fake);
+    let id = m.current.unwrap();
+    m.rules_loaded(id, Ok(Some(rules(false))));
+    m.go(Section::Settings);
+    let html = render(Fake::signed_in(vec![]), Some(m.clone()));
+    assert!(html.contains("Server rules"), "{html}");
+    m.go(Section::Rules);
+    let html = render(fake, Some(m));
+    assert!(!html.contains("I accept the rules"));
+    assert!(!html.contains("The server rules have changed"));
+}
+
+#[component]
+fn SignUpBox(required: bool) -> Element {
+    rsx! {
+        crate::server_rules::SignUpRules {
+            rules: rules(false),
+            required,
+            accepted: false,
+            on_accept: |_| {},
+        }
+    }
+}
+
+#[test]
+fn sign_up_asks_to_accept_only_when_the_server_requires_it() {
+    let render_box = |required| {
+        let mut dom = VirtualDom::new_with_props(SignUpBox, SignUpBoxProps { required });
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    };
+    let required = render_box(true);
+    assert!(required.contains("Read the server rules"), "{required}");
+    assert!(required.contains(r#"id="accept-rules""#));
+    let optional = render_box(false);
+    assert!(!optional.contains(r#"id="accept-rules""#));
+    assert!(optional.contains("you agree to follow the server rules"));
+}

@@ -13,12 +13,12 @@ use quill_core::{
     store::{KdfParams, KeySetup, KeySource, Unlock, vault::Vault},
 };
 use quill_proto::{
-    api::{CreatePersona, Credentials, Persona, UpdatePersona},
+    api::{CreatePersona, Credentials, Persona, Registration, UpdatePersona},
     board::UpdateAccountSettings,
 };
 use quill_ui::backend::{
     AppSettings, Backend, BoardSettings, Call, Details, Keys, PASSPHRASE_MIN_CHARS, PersonaState,
-    Problem, Protection, ServerEntry, ServerInfo, Standing, Step, Theme,
+    Problem, Protection, ServerEntry, ServerInfo, ServerRules, Standing, Step, Theme,
 };
 use tokio::runtime::Handle;
 use uuid::Uuid;
@@ -78,6 +78,11 @@ fn problem(server: &str, e: CoreError) -> Problem {
         CoreError::NotLoggedIn => Problem::SignedOut,
         CoreError::Api(p) if p.status == 401 => Problem::SignedOut,
         CoreError::Api(p) if p.status == 409 => Problem::Taken,
+        CoreError::Api(p) if p.kind.ends_with("/rules-not-accepted") => Problem::RulesNotAccepted(
+            p.detail
+                .clone()
+                .unwrap_or_else(|| "Read and accept the server rules to continue.".into()),
+        ),
         CoreError::Api(p) if (400..500).contains(&p.status) => {
             Problem::Refused(p.detail.clone().unwrap_or_else(|| p.title.clone()))
         }
@@ -332,6 +337,9 @@ impl Backend for NativeBackend {
                         address,
                         domain: info.domain,
                         registration_open: info.registration_open,
+                        has_rules: info.rules_updated_at.is_some(),
+                        rules_on_join: info.rules_updated_at.is_some()
+                            && info.rules_acceptance.on_join(),
                         software: info.software,
                         version: info.software_version,
                     })
@@ -559,19 +567,25 @@ impl Backend for NativeBackend {
         })
     }
 
-    fn register<'a>(&'a self, login: &'a str, password: &'a str) -> Call<'a, Standing> {
+    fn register<'a>(
+        &'a self,
+        login: &'a str,
+        password: &'a str,
+        accept_rules: Option<u32>,
+    ) -> Call<'a, Standing> {
         Box::pin(async move {
             let open = self.opened()?;
-            let creds = Credentials {
+            let body = Registration {
                 username: login.to_owned(),
                 password: password.to_owned(),
+                accept_rules,
             };
             let name = open.name.clone();
             let client = open.client.clone();
             let token = self
                 .run(async move {
                     client
-                        .register(&creds)
+                        .register_with(&body)
                         .await
                         .map(|t| t.token)
                         .map_err(|e| problem(&name, e))
@@ -623,6 +637,45 @@ impl Backend for NativeBackend {
                 .unwrap_or_default();
             self.set_client(Client::new(&address).map_err(failed)?);
             Ok(())
+        })
+    }
+
+    fn rules(&self) -> Call<'_, Option<ServerRules>> {
+        Box::pin(async move {
+            let open = self.opened()?;
+            self.run(async move {
+                match open.client.rules().await {
+                    Ok(r) => Ok(Some(ServerRules {
+                        markdown: r.body,
+                        version: r.version,
+                        must_accept: r.must_accept,
+                    })),
+                    // No rules yet.
+                    Err(e) if e.status() == Some(404) => Ok(None),
+                    Err(e) => Err(problem(&open.name, e)),
+                }
+            })
+            .await
+        })
+    }
+
+    fn accept_rules(&self, version: u32) -> Call<'_, ()> {
+        Box::pin(async move {
+            let open = self.opened()?;
+            self.run(async move {
+                open.client
+                    .accept_rules(version)
+                    .await
+                    .map_err(|e| match e {
+                        // Changed again while being read.
+                        CoreError::Api(p) if p.status == 409 => Problem::RulesNotAccepted(
+                            "The rules changed again while you were reading. Read the new version."
+                                .into(),
+                        ),
+                        e => problem(&open.name, e),
+                    })
+            })
+            .await
         })
     }
 
@@ -807,6 +860,7 @@ impl Backend for NativeBackend {
                 open.client
                     .update_account(&UpdateAccountSettings {
                         maturity_max: Some(settings.maturity_max),
+                        ..Default::default()
                     })
                     .await
                     .map(|a| BoardSettings {

@@ -33,6 +33,10 @@ pub enum Problem {
     /// The name asked for (a login or a handle) isn't available.
     #[error("That name isn't available.")]
     Taken,
+    /// The server rules must be accepted first (read them, then accept):
+    /// on joining, or after they change.
+    #[error("{0}")]
+    RulesNotAccepted(String),
     /// The server refused, with its reason (already in plain words).
     #[error("{0}")]
     Refused(String),
@@ -70,9 +74,24 @@ pub struct ServerInfo {
     pub address: String,
     pub domain: String,
     pub registration_open: bool,
+    /// Whether the server has rules, and whether joining means accepting them.
+    pub has_rules: bool,
+    pub rules_on_join: bool,
     /// For advanced mode.
     pub software: String,
     pub version: String,
+}
+
+/// The open server's rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerRules {
+    /// Markdown, which the client renders itself (never the server's HTML).
+    pub markdown: String,
+    /// Accepting names the version read.
+    pub version: u32,
+    /// Signed in: whether this login must accept this version to keep
+    /// posting, editing, commenting and reporting.
+    pub must_accept: bool,
 }
 
 /// Where the open server's login stands, which decides what the app shows.
@@ -210,9 +229,19 @@ pub trait Backend {
     // ---- The open server's login -----------------------------------------------------
 
     fn standing(&self) -> Call<'_, Standing>;
-    fn register<'a>(&'a self, login: &'a str, password: &'a str) -> Call<'a, Standing>;
+    /// Makes a login. `accept_rules` is the rules version shown at sign-up,
+    /// when the writer accepted it.
+    fn register<'a>(
+        &'a self,
+        login: &'a str,
+        password: &'a str,
+        accept_rules: Option<u32>,
+    ) -> Call<'a, Standing>;
     fn sign_in<'a>(&'a self, login: &'a str, password: &'a str) -> Call<'a, Standing>;
     fn sign_out(&self) -> Call<'_, ()>;
+    /// The open server's rules, or `None` if it has none.
+    fn rules(&self) -> Call<'_, Option<ServerRules>>;
+    fn accept_rules(&self, version: u32) -> Call<'_, ()>;
 
     // ---- Personas ----------------------------------------------------------------------
 

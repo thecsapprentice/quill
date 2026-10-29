@@ -53,7 +53,7 @@ async fn a_new_writer_gets_from_nothing_to_a_ready_persona() {
     assert_eq!(app.current(), Some(added.id));
     assert_eq!(app.standing().await.unwrap(), Standing::SignedOut);
 
-    let standing = app.register("ink", PASSWORD).await.unwrap();
+    let standing = app.register("ink", PASSWORD, None).await.unwrap();
     assert!(
         personas(&standing).is_empty(),
         "skipping the persona is fine"
@@ -116,7 +116,7 @@ async fn signing_in_on_a_second_computer_finds_the_keys_elsewhere() {
     let first_dir = tempfile::tempdir().unwrap();
     let first = backend(first_dir.path(), &keychain());
     first.add_server(&server.url(), None).await.unwrap();
-    first.register("ink", PASSWORD).await.unwrap();
+    first.register("ink", PASSWORD, None).await.unwrap();
     let fox = first.create_persona("ink_fox", "Ink Fox").await.unwrap();
     first.prepare(fox.id, &|_| {}).await.unwrap();
 
@@ -153,14 +153,14 @@ async fn servers_are_added_switched_and_removed() {
     let vault = keychain();
     let app = backend(dir.path(), &vault);
     let first = app.add_server(&a.url(), None).await.unwrap();
-    app.register("ink", PASSWORD).await.unwrap();
+    app.register("ink", PASSWORD, None).await.unwrap();
     app.create_persona("ink_fox", "").await.unwrap();
 
     // The second server takes no new logins: it says so before asking.
     assert!(!app.check_server(&b.url()).await.unwrap().registration_open);
     let second = app.add_server(&b.url(), None).await.unwrap();
     assert_eq!(app.current(), Some(second.id));
-    let closed = app.register("ink", PASSWORD).await.unwrap_err();
+    let closed = app.register("ink", PASSWORD, None).await.unwrap_err();
     assert!(matches!(closed, Problem::Refused(_)), "{closed:?}");
     assert_eq!(app.standing().await.unwrap(), Standing::SignedOut);
     // The same server can't be added twice.
@@ -213,7 +213,7 @@ async fn without_a_keychain_the_store_takes_a_passphrase() {
         .add_server(&server.url(), Some("a long store passphrase"))
         .await
         .unwrap();
-    app.register("ink", PASSWORD).await.unwrap();
+    app.register("ink", PASSWORD, None).await.unwrap();
     drop(app);
 
     let again = backend(dir.path(), &None);
@@ -251,7 +251,7 @@ async fn a_store_moves_between_the_keychain_and_a_passphrase() {
     let vault = keychain();
     let app = backend(dir.path(), &vault);
     let added = app.add_server(&server.url(), None).await.unwrap();
-    app.register("ink", PASSWORD).await.unwrap();
+    app.register("ink", PASSWORD, None).await.unwrap();
     assert_eq!(app.protection(), Some(Protection::Keychain));
 
     app.set_protection(Some("a long store passphrase"))
@@ -283,7 +283,7 @@ async fn a_live_notice_wakes_the_app() {
     let dir = tempfile::tempdir().unwrap();
     let app = backend(dir.path(), &keychain());
     app.add_server(&server.url(), None).await.unwrap();
-    app.register("ink", PASSWORD).await.unwrap();
+    app.register("ink", PASSWORD, None).await.unwrap();
     let fox = app.create_persona("ink_fox", "").await.unwrap();
     app.prepare(fox.id, &|_| {}).await.unwrap();
 
@@ -325,4 +325,81 @@ async fn an_unreachable_or_mistyped_server_is_said_plainly() {
         app.check_server("  ").await.unwrap_err(),
         Problem::Refused(_)
     ));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_rules_are_accepted_on_joining_and_after_a_change() {
+    use quill_proto::{
+        board::UpdateServerSettings,
+        rules::{RulesAcceptance, UpdateRules},
+    };
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let admin = server.admin_account("boss").await.unwrap();
+    let rules = |body: &str| UpdateRules {
+        body: body.into(),
+        minor: false,
+    };
+    admin
+        .admin_update_rules(&rules("# Be kind\n\nNo spam."))
+        .await
+        .unwrap();
+    admin
+        .admin_update_settings(&UpdateServerSettings {
+            rules_acceptance: Some(RulesAcceptance::Both),
+            ..UpdateServerSettings::default()
+        })
+        .await
+        .unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let app = backend(dir.path(), &keychain());
+    let info = app.check_server(&server.url()).await.unwrap();
+    assert!(info.has_rules && info.rules_on_join);
+    app.add_server(&server.url(), None).await.unwrap();
+    // Signed out, the rules can still be read.
+    let shown = app.rules().await.unwrap().unwrap();
+    assert!(shown.markdown.contains("Be kind"));
+    assert!(!shown.must_accept);
+
+    // Joining without accepting is refused as such; accepting works.
+    let refused = app.register("ink", PASSWORD, None).await.unwrap_err();
+    assert!(
+        matches!(refused, Problem::RulesNotAccepted(_)),
+        "{refused:?}"
+    );
+    app.register("ink", PASSWORD, Some(shown.version))
+        .await
+        .unwrap();
+    assert!(!app.rules().await.unwrap().unwrap().must_accept);
+
+    // A change must be accepted again, naming the version read.
+    admin
+        .admin_update_rules(&rules("# Be kind\n\nNo spam. No bots."))
+        .await
+        .unwrap();
+    let changed = app.rules().await.unwrap().unwrap();
+    assert!(changed.must_accept);
+    assert!(matches!(
+        app.accept_rules(changed.version + 5).await.unwrap_err(),
+        Problem::RulesNotAccepted(_)
+    ));
+    app.accept_rules(changed.version).await.unwrap();
+    assert!(!app.rules().await.unwrap().unwrap().must_accept);
+    server.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_server_without_rules_says_so() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let app = backend(dir.path(), &keychain());
+    let info = app.check_server(&server.url()).await.unwrap();
+    assert!(!info.has_rules && !info.rules_on_join);
+    app.add_server(&server.url(), None).await.unwrap();
+    assert_eq!(app.rules().await.unwrap(), None);
+    server.stop().await.unwrap();
 }

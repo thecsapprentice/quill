@@ -8,9 +8,9 @@ use uuid::Uuid;
 use crate::{
     app::{ProblemLine, open_server, use_ui},
     backend::{AppSettings, BoardSettings, Details, Problem, Protection, ServerEntry, Theme},
+    checks,
     field::{Field, Kind},
     model::Model,
-    rules,
 };
 
 const TEXT_SIZES: [u16; 5] = [90, 100, 115, 130, 150];
@@ -26,11 +26,13 @@ fn maturity_label(m: Maturity) -> &'static str {
 
 #[component]
 pub fn SettingsPage() -> Element {
-    let (_, model) = use_ui();
+    let (_, mut model) = use_ui();
     let m = model.read();
     let signed_in = m.signed_in();
     let advanced = m.settings.advanced;
     let has_store = m.standing.is_some();
+    let has_rules = matches!(m.rules, Some(Some(_)));
+    let name = m.server_name();
     drop(m);
     rsx! {
         h1 { "Settings" }
@@ -39,6 +41,17 @@ pub fn SettingsPage() -> Element {
         }
         AppearanceFieldset {}
         ServersFieldset {}
+        if has_rules {
+            fieldset {
+                legend { "Server rules" }
+                p { class: "hint", "What {name} asks of everyone who writes there." }
+                button {
+                    class: "secondary",
+                    onclick: move |_| model.write().go(crate::model::Section::Rules),
+                    "Read the rules"
+                }
+            }
+        }
         if has_store {
             StoreFieldset {}
         }
@@ -314,7 +327,7 @@ fn StoreFieldset() -> Element {
         if busy()
             || pass
                 .as_deref()
-                .is_some_and(|p| rules::passphrase(p).invalid || p.is_empty())
+                .is_some_and(|p| checks::passphrase(p).invalid || p.is_empty())
         {
             return;
         }
@@ -333,7 +346,7 @@ fn StoreFieldset() -> Element {
             }
         });
     });
-    let check = rules::passphrase(&passphrase());
+    let check = checks::passphrase(&passphrase());
     let said = match protection() {
         Some(Protection::Keychain) => {
             "Locked with this computer's keychain, so there's nothing to type."
