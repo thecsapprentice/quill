@@ -265,3 +265,55 @@ fn sign_up_asks_to_accept_only_when_the_server_requires_it() {
     assert!(!optional.contains(r#"id="accept-rules""#));
     assert!(optional.contains("you agree to follow the server rules"));
 }
+
+/// Opens the fake's server from a component that goes away at once, as
+/// the add-server screen does when Cancel reopens the previous server.
+#[component]
+fn OpenThenLeave(status: Rc<std::cell::Cell<Option<crate::model::Status>>>) -> Element {
+    let ui = use_context::<Ui>();
+    let model = use_context_provider(|| Signal::new(Model::load(&*ui.0)));
+    let mut showing = use_signal(|| true);
+    let seen = status.clone();
+    use_effect(move || seen.set(Some(model.read().status)));
+    rsx! {
+        if showing() {
+            Leaving { on_left: move |_| showing.set(false) }
+        }
+    }
+}
+
+#[component]
+fn Leaving(on_left: EventHandler<()>) -> Element {
+    let (backend, model) = crate::app::use_ui();
+    use_hook(move || {
+        let id = model.peek().current.unwrap();
+        crate::app::open_server(backend, model, id);
+        on_left.call(());
+    });
+    rsx! {}
+}
+
+#[tokio::test]
+async fn opening_a_server_finishes_after_its_screen_has_gone() {
+    let status = Rc::new(std::cell::Cell::new(None));
+    let mut dom = VirtualDom::new_with_props(
+        OpenThenLeave,
+        OpenThenLeaveProps {
+            status: status.clone(),
+        },
+    );
+    dom.provide_root_context(Ui(Rc::new(Fake::signed_in(vec![persona(
+        "ink_owl",
+        Keys::Ready,
+    )]))));
+    dom.rebuild_in_place();
+    for _ in 0..20 {
+        if status.get() == Some(crate::model::Status::Connected) {
+            break;
+        }
+        let _ =
+            tokio::time::timeout(std::time::Duration::from_millis(50), dom.wait_for_work()).await;
+        dom.render_immediate(&mut dioxus::dioxus_core::NoOpMutations);
+    }
+    assert_eq!(status.get(), Some(crate::model::Status::Connected));
+}

@@ -29,9 +29,11 @@ pub fn use_ui() -> (Rc<dyn Backend>, Signal<Model>) {
 }
 
 /// Opens server `id`: the frame stays up and fills in when it's open.
+/// The work belongs to the app, not the caller: the screen that asked
+/// (Cancel on adding a server, say) is usually gone before it finishes.
 pub fn open_server(backend: Rc<dyn Backend>, mut model: Signal<Model>, id: Uuid) {
     model.write().opening(id);
-    spawn(async move {
+    dioxus::dioxus_core::spawn_forever(async move {
         let result = backend.open_server(id).await;
         model.write().opened(id, result);
     });

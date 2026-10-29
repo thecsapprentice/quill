@@ -21,7 +21,7 @@ uuid.workspace = true
 [dev-dependencies]
 dioxus-ssr.workspace = true
 time.workspace = true
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "macros", "time"] }
 
 [lints]
 workspace = true

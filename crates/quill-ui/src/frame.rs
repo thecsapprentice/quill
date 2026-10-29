@@ -235,12 +235,15 @@ fn Upkeep(server: Uuid) -> Element {
         let b: Rc<dyn Backend> = backend.clone();
         spawn(async move {
             let mut retry = RETRY_FIRST_MS;
+            // An open in flight gets one short wait before the loop loads
+            // the server itself, so a lost reply can't leave it connecting.
+            let mut opening_waited = false;
             loop {
                 let (loaded, signed_in, status) = {
                     let m = model.peek();
                     (m.standing.is_some(), m.signed_in(), m.status)
                 };
-                if !loaded && status != Status::Connecting {
+                if !loaded && (status != Status::Connecting || opening_waited) {
                     // Opened while offline: load where the login stands.
                     let result = b.standing().await;
                     model.write().opened(server, result);
@@ -267,7 +270,10 @@ fn Upkeep(server: Uuid) -> Element {
                         retry = (retry * 2).min(RETRY_MOST_MS);
                     }
                     // Still opening: look again shortly.
-                    Status::Connecting => wait(&*b, RETRY_FIRST_MS, false).await,
+                    Status::Connecting => {
+                        wait(&*b, RETRY_FIRST_MS, false).await;
+                        opening_waited = true;
+                    }
                     _ => {
                         retry = RETRY_FIRST_MS;
                         wait(&*b, UPKEEP_EVERY_MS, signed_in).await;
