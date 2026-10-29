@@ -637,6 +637,22 @@ Dioxus desktop runs the app in native Rust and sends DOM changes to the webview,
 - **First persona: pushed, not forced.** A login made or signed into during this run goes to "Make your first persona", which has a quiet Not now. Later starts with no persona go straight to the frame, which keeps a gentle prompt on Home.
 - **No keychain.** Where the OS has none (some Linux setups), adding a server asks for a passphrase (12 characters or more, as in the CLI), and opening it asks for it once per session.
 
+### Testing the desktop app
+
+Bugs found by hand in 3b were all in how screens react to clicks and typing: work dropped when its screen went away, and a sign-up screen that never learned the rules had become required. The tests then in place rendered static HTML or called the backend directly, so they couldn't catch these. The GUI is now tested in four layers:
+
+| Layer | Where | What it drives |
+| --- | --- | --- |
+| Model | `quill-ui/src/model.rs` tests | The model's transitions, one backend result at a time |
+| Views | `quill-ui/src/view_tests.rs` | Static HTML: labels, roles, input hints, no ids outside advanced mode |
+| Interactions | `quill-ui/tests/flows.rs` | The whole app, clicked and typed by label, against `testing::Sim` |
+| Interactions, real | `quill-e2e/tests/gui_flows.rs` | The same driver on the native backend against a real server |
+
+- **The driver (`quill_ui::testing::Driver`)** runs the app headless. Its document is built from the same mutations the webview applies, and events enter as the webview's JSON, through dioxus-desktop's own path. So handlers, tasks and the model run as they do in the window. A disabled button can't be clicked, and a failed wait prints what the window shows.
+- **The simulated server (`testing::Sim`)** keeps state like the real one: logins, personas and keys, rules with versions and acceptance settings, closed registration, outages and passphrase stores. Tests change it mid-flow. The real-server interaction tests check that it stays faithful for the paths that matter most.
+- **What the driver can't see:** the webview itself (focus, input methods, rendering, platform quirks). Those stay hand checks; `scripts/dev-gui.py` sets up a seeded server and a fresh GUI for them.
+- **Every bug found by hand gets an interaction test** that fails before the fix.
+
 ### Server text in the desktop webview
 
 The server is trusted to run the board but not to read sessions. In the desktop app, the webview shows decrypted session text, and script in that page can read it and send events to the app. So the client never puts server-made HTML or script into the page, even HTML the server says it sanitized:
