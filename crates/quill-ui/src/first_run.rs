@@ -300,7 +300,7 @@ pub fn AccountStep() -> Element {
                         open_for_new.set(false);
                         returning.set(true);
                     }
-                    rules_on_join.set(info.rules_on_join);
+                    rules_on_join.set(info.rules_to_accept);
                     if info.has_rules
                         && let Ok(r) = b.rules().await
                     {

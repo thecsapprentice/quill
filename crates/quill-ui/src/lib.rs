@@ -16,6 +16,8 @@ pub mod model;
 mod personas;
 mod server_rules;
 mod settings;
+#[cfg(feature = "testing")]
+pub mod testing;
 #[cfg(test)]
 mod view_tests;
 

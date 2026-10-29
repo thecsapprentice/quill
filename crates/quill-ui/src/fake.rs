@@ -83,7 +83,7 @@ impl Backend for Fake {
             domain: address.into(),
             registration_open: true,
             has_rules: true,
-            rules_on_join: true,
+            rules_to_accept: true,
             software: "quill".into(),
             version: "0.0.0".into(),
         }))

@@ -366,7 +366,7 @@ async fn the_rules_are_accepted_on_joining_and_after_a_change() {
     let dir = tempfile::tempdir().unwrap();
     let app = backend(dir.path(), &keychain());
     let info = app.check_server(&server.url()).await.unwrap();
-    assert!(info.has_rules && info.rules_on_join);
+    assert!(info.has_rules && info.rules_to_accept);
     app.add_server(&server.url(), None).await.unwrap();
     // Signed out, the rules can still be read.
     let shown = app.rules().await.unwrap().unwrap();
@@ -408,7 +408,7 @@ async fn a_server_without_rules_says_so() {
     let dir = tempfile::tempdir().unwrap();
     let app = backend(dir.path(), &keychain());
     let info = app.check_server(&server.url()).await.unwrap();
-    assert!(!info.has_rules && !info.rules_on_join);
+    assert!(!info.has_rules && !info.rules_to_accept);
     app.add_server(&server.url(), None).await.unwrap();
     assert_eq!(app.rules().await.unwrap(), None);
     server.stop().await.unwrap();

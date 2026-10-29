@@ -74,9 +74,11 @@ pub struct ServerInfo {
     pub address: String,
     pub domain: String,
     pub registration_open: bool,
-    /// Whether the server has rules, and whether joining means accepting them.
+    /// Whether the server has rules.
     pub has_rules: bool,
-    pub rules_on_join: bool,
+    /// Whether a new login must accept them: the server asks on joining,
+    /// or will ask before its first post. Sign-up asks either way.
+    pub rules_to_accept: bool,
     /// For advanced mode.
     pub software: String,
     pub version: String,

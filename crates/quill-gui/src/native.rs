@@ -359,8 +359,9 @@ impl Backend for NativeBackend {
                         domain: info.domain,
                         registration_open: info.registration_open,
                         has_rules: info.rules_updated_at.is_some(),
-                        rules_on_join: info.rules_updated_at.is_some()
-                            && info.rules_acceptance.on_join(),
+                        rules_to_accept: info.rules_updated_at.is_some()
+                            && (info.rules_acceptance.on_join()
+                                || info.rules_acceptance.on_change()),
                         software: info.software,
                         version: info.software_version,
                     })
