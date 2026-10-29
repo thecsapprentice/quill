@@ -12,6 +12,8 @@ repository.workspace = true
 quill-proto.workspace = true
 
 dioxus = { workspace = true, features = ["hooks", "document"] }
+# Markdown is parsed here and shown as elements (never as HTML strings).
+pulldown-cmark = { workspace = true, default-features = false }
 serde.workspace = true
 thiserror.workspace = true
 uuid.workspace = true

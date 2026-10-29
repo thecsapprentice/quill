@@ -10,6 +10,7 @@ mod fake;
 pub mod field;
 mod first_run;
 mod frame;
+pub mod markdown;
 pub mod model;
 mod personas;
 pub mod rules;

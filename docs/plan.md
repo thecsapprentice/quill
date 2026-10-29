@@ -628,6 +628,16 @@ Dioxus desktop runs the app in native Rust and sends DOM changes to the webview,
 - **What it doesn't protect against.** The traffic is plain `ws://` on loopback. Anything able to watch loopback traffic or read the app's memory (an administrator, or malware running as the user) can read what's on screen anyway; that's outside the threat model for any local client.
 - **TLS that isn't used.** The WebSocket library is built with `native-tls`, which means OpenSSL on Linux, although the channel never uses TLS. `deny.toml` allows OpenSSL only through that path; the rest of the project stays OpenSSL-free. Drop the exception if Dioxus makes the TLS feature optional.
 
+### Server text in the desktop webview
+
+The server is trusted to run the board but not to read sessions. In the desktop app, the webview shows decrypted session text, and script in that page can read it and send events to the app. So the client never puts server-made HTML or script into the page, even HTML the server says it sanitized:
+
+- **Markdown is rendered by the client, as elements.** The server rules (#42), and later prompts, announcements and notes, arrive as Markdown. `quill-ui`'s `markdown` module parses them with `pulldown-cmark` and builds Dioxus elements directly. Nothing is ever an HTML string, so there's no `dangerous_inner_html` to get wrong. Raw HTML in the source is shown as text. The server's `bodyHtml` fields are ignored.
+- **Links open only for `https`, `http` and `mailto`.** Anything else (`javascript:`, `file:`, app-internal schemes) is shown as plain text.
+- **Headings sit under the page.** Markdown `#` becomes `h3`, as on the board, so a page's own headings stay above the server's text.
+
+A hostile or compromised server can still say misleading things in its text, but it can't run code next to a writer's sessions.
+
 ### Workspace additions
 
 | Crate | Role | Built in |
