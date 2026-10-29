@@ -450,3 +450,62 @@ async fn switching_back_needs_no_passphrase_in_the_same_session() {
     a.stop().await.unwrap();
     b.stop().await.unwrap();
 }
+
+/// The first run as the views drive it: each backend result handed to
+/// quill-ui's model, which decides the next screen.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_first_run_moves_through_the_apps_screens() {
+    use quill_ui::model::{Model, Screen, Status};
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let vault = keychain();
+    let app = backend(dir.path(), &vault);
+    let mut m = Model::load(&app);
+    assert_eq!(m.screen, Screen::Server);
+
+    let added = app.add_server(&server.url(), None).await.unwrap();
+    m.added(&app, &added);
+    assert_eq!(m.screen, Screen::Account);
+    let standing = app.register("ink", PASSWORD, None).await.unwrap();
+    m.signed_in_now(&app, added.id, standing);
+    assert_eq!(m.screen, Screen::FirstPersona);
+
+    let fox = app.create_persona("ink_fox", "Ink Fox").await.unwrap();
+    m.persona_created(fox.clone());
+    assert_eq!(m.screen, Screen::Preparing { persona: fox.id });
+    let done = app.prepare(fox.id, &|_| {}).await;
+    m.prepared(fox.id, done);
+    assert_eq!((m.screen, m.status), (Screen::Frame, Status::Connected));
+    assert_eq!(m.persona, Some(fox.id));
+    let notice = app.upkeep().await;
+    m.upkept(added.id, notice);
+    assert_eq!(m.notice, None);
+
+    // Next time the app opens straight into the frame, persona in use.
+    drop(app);
+    let again = backend(dir.path(), &vault);
+    let mut m = Model::load(&again);
+    assert_eq!(m.screen, Screen::Starting);
+    let id = m.current.unwrap();
+    m.opening(id);
+    let opened = again.open_server(id).await;
+    m.opened(id, opened);
+    assert_eq!(m.screen, Screen::Frame);
+    assert_eq!(m.persona, Some(fox.id));
+
+    // Another computer signing in to the same login is told the keys are
+    // elsewhere, once.
+    let other_dir = tempfile::tempdir().unwrap();
+    let other = backend(other_dir.path(), &keychain());
+    let mut m = Model::load(&other);
+    let added = other.add_server(&server.url(), None).await.unwrap();
+    m.added(&other, &added);
+    let standing = other.sign_in("ink", PASSWORD).await.unwrap();
+    m.signed_in_now(&other, added.id, standing);
+    assert_eq!(m.screen, Screen::Elsewhere);
+    m.elsewhere_seen();
+    assert_eq!((m.screen, m.persona), (Screen::Frame, None));
+    server.stop().await.unwrap();
+}
