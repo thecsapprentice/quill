@@ -628,6 +628,15 @@ Dioxus desktop runs the app in native Rust and sends DOM changes to the webview,
 - **What it doesn't protect against.** The traffic is plain `ws://` on loopback. Anything able to watch loopback traffic or read the app's memory (an administrator, or malware running as the user) can read what's on screen anyway; that's outside the threat model for any local client.
 - **TLS that isn't used.** The WebSocket library is built with `native-tls`, which means OpenSSL on Linux, although the channel never uses TLS. `deny.toml` allows OpenSSL only through that path; the rest of the project stays OpenSSL-free. Drop the exception if Dioxus makes the TLS feature optional.
 
+### How the desktop app is built (3b)
+
+- **Three layers.** `quill-gui`'s `NativeBackend` does the work: stores, the keychain, and `quill-core` on its own Tokio runtime, so the window never waits on it. `quill-ui` holds the views and an app model. The two meet only at the `Backend` trait, whose errors are already in plain words (`Problem`); raw errors show only in advanced mode. The web client will supply its own `Backend`.
+- **The model moves on results, not awaits.** A view makes a backend call and hands the result to a `Model` method, which decides the next screen (first run, unlock, keys elsewhere, the frame). The end-to-end tests drive the same methods against a real server. A result for a server no longer in view is dropped, so switching quickly never shows stale data.
+- **One store per server, kept open for the session.** Each server's store lives in the GUI's own folder, apart from the CLI's, because two programs on one store would fight over its file lock. A store unlocked once stays open until the app closes, so switching back is instant even with a passphrase. Opening a server shows the frame at once and fills it in when the server answers.
+- **Offline is a state, not an error.** The frame stays up with what's known. The status line says the server can't be reached and offers Try now, while upkeep retries with backoff (5 seconds, doubling to 2 minutes). Upkeep otherwise runs on start, every 5 minutes, and on each live notice from `GET /events`.
+- **First persona: pushed, not forced.** A login made or signed into during this run goes to "Make your first persona", which has a quiet Not now. Later starts with no persona go straight to the frame, which keeps a gentle prompt on Home.
+- **No keychain.** Where the OS has none (some Linux setups), adding a server asks for a passphrase (12 characters or more, as in the CLI), and opening it asks for it once per session.
+
 ### Server text in the desktop webview
 
 The server is trusted to run the board but not to read sessions. In the desktop app, the webview shows decrypted session text, and script in that page can read it and send events to the app. So the client never puts server-made HTML or script into the page, even HTML the server says it sanitized:
