@@ -21,6 +21,8 @@ BANNED=(
   'age'             # backup encryption: only clients do this
   'quill-core'      # client library: holds all session keys
   'quill'           # CLI client
+  'quill-ui'        # the writing client's views (sessions are decrypted there)
+  'quill-gui'       # desktop client
 )
 
 status=0
