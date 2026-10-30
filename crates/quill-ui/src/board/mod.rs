@@ -152,6 +152,10 @@ pub struct BoardState {
     pub policy: TagPolicy,
     /// A line to show after an action ("Prompt posted.").
     pub said: Option<String>,
+    /// The board-wide change count this list last loaded at (`BoardEpoch`).
+    pub seen: u32,
+    /// Prompts newer than the list's, found by a check but not shown yet.
+    pub fresh: usize,
     /// My prompts' persona filter. Applied here rather than by the server,
     /// whose handle filter leaves out removed prompts.
     pub persona: Option<Uuid>,
@@ -172,6 +176,8 @@ impl Default for BoardState {
             types: None,
             policy: TagPolicy::Open,
             said: None,
+            seen: 0,
+            fresh: 0,
             persona: None,
         }
     }
@@ -181,6 +187,29 @@ impl Default for BoardState {
 /// list, filter and open prompt.
 #[derive(Clone, Copy)]
 pub struct MineState(pub Signal<BoardState>);
+
+/// Counts changes the writer made to prompts (posting, editing, a status,
+/// deleting) from either list. A list that last loaded at an older count
+/// loads again on its next visit, so the Board and My prompts agree.
+#[derive(Clone, Copy)]
+pub struct BoardEpoch(pub Signal<u32>);
+
+impl BoardEpoch {
+    /// A change made from `board`, which already shows it.
+    pub fn changed(mut self, mut board: Signal<BoardState>) {
+        let next = self.0.peek().wrapping_add(1);
+        self.0.set(next);
+        board.write().seen = next;
+    }
+
+    pub fn now(&self) -> u32 {
+        *self.0.peek()
+    }
+}
+
+pub fn use_board_epoch() -> BoardEpoch {
+    use_context::<BoardEpoch>()
+}
 
 impl BoardState {
     /// The board of the login's own prompts.
@@ -256,6 +285,7 @@ pub fn reload(backend: std::rc::Rc<dyn Backend>, mut board: Signal<BoardState>) 
             Ok(page) => {
                 b.items = page.items;
                 b.next = page.next_cursor;
+                b.fresh = 0;
                 // Keep the reading pane only if its prompt is still listed.
                 if b.open_prompt().is_none() {
                     b.open = None;
@@ -263,6 +293,36 @@ pub fn reload(backend: std::rc::Rc<dyn Backend>, mut board: Signal<BoardState>) 
             }
             Err(p) => b.problem = Some(p),
         }
+    });
+}
+
+/// Looks for prompts newer than the list's first page without changing
+/// the list (it would move under the reader): the count is offered as
+/// "N new prompts".
+pub fn check_new(backend: std::rc::Rc<dyn Backend>, mut board: Signal<BoardState>) {
+    let (query, round) = {
+        let b = board.peek();
+        if b.loading || !b.loaded {
+            return;
+        }
+        (b.filter.query(None), b.round)
+    };
+    spawn(async move {
+        let Ok(page) = backend.prompts(query).await else {
+            // A failed check says nothing; the next one may work.
+            return;
+        };
+        let mut b = board.write();
+        if b.round != round || b.loading {
+            return;
+        }
+        let newest = b.items.iter().map(|p| p.created_at).max();
+        b.fresh = page
+            .items
+            .iter()
+            .filter(|p| !b.items.iter().any(|q| q.id == p.id))
+            .filter(|p| newest.is_none_or(|n| p.created_at >= n))
+            .count();
     });
 }
 

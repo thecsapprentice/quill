@@ -11,7 +11,7 @@ use quill_proto::board::{
 };
 use uuid::Uuid;
 
-use super::{BoardState, View, reader::Chip, use_board, use_tag_types};
+use super::{BoardState, View, reader::Chip, use_board, use_board_epoch, use_tag_types};
 use crate::{
     app::{ProblemLine, use_ui},
     backend::{Keys, Problem},
@@ -96,6 +96,7 @@ fn typed_tag(text: &str, types: &[TagNamespace]) -> Option<Tag> {
 pub fn PostForm(editing: Option<Uuid>) -> Element {
     let (backend, mut model) = use_ui();
     let mut board = use_board();
+    let epoch = use_board_epoch();
     use_tag_types();
     let original: Option<Prompt> =
         editing.and_then(|id| board.peek().items.iter().find(|p| p.id == id).cloned());
@@ -198,7 +199,11 @@ pub fn PostForm(editing: Option<Uuid>) -> Element {
             };
             busy.set(false);
             match result {
-                Ok(prompt) => posted(board, prompt, editing.is_some()),
+                Ok(prompt) => {
+                    posted(board, prompt, editing.is_some());
+                    // The other list loads again when next shown.
+                    epoch.changed(board);
+                }
                 // The form keeps everything typed, to fix and try again.
                 Err(p) => problem.set(Some(p)),
             }

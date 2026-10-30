@@ -5,8 +5,8 @@ use dioxus::prelude::*;
 use quill_proto::board::Prompt;
 
 use super::{
-    MineState, View, filters::FilterBuilder, more, post::PostForm, reader::Reader, reload,
-    use_board, use_tag_types,
+    MineState, View, check_new, filters::FilterBuilder, more, post::PostForm, reader::Reader,
+    reload, use_board, use_board_epoch, use_tag_types,
 };
 use crate::{
     app::{ProblemLine, use_ui},
@@ -15,24 +15,29 @@ use crate::{
 
 /// How long typing in the search must pause before it searches.
 const SEARCH_AFTER_MS: u64 = 300;
-/// Within this many pixels of the end, scrolling loads the next page.
-const LOAD_NEAR_PX: i32 = 300;
+/// How often the Board looks for new prompts while it's in view.
+const CHECK_EVERY_MS: u64 = 2 * 60 * 1000;
 
 /// The Board section.
 #[component]
 pub fn BoardPage() -> Element {
     let (backend, _) = use_ui();
-    let board = use_board();
+    let mut board = use_board();
+    let epoch = use_board_epoch();
     use_tag_types();
-    // The first visit loads the first page; My prompts loads afresh on
-    // each visit, since they may have changed on the Board.
+    // The first visit loads the first page, and so does a visit after the
+    // writer changed a prompt from the other list. My prompts loads afresh
+    // on every visit; the Board keeps its place and looks for new prompts.
     use_hook(move || {
         let b = board.peek();
-        let again = b.is_mine() || !b.loaded;
+        let again = b.is_mine() || !b.loaded || b.seen != epoch.now();
         let busy = b.loading;
         drop(b);
         if again && !busy {
+            board.write().seen = epoch.now();
             reload(backend, board);
+        } else if !busy {
+            check_new(backend, board);
         }
     });
     let view = board.read().view;
@@ -66,6 +71,7 @@ fn BoardList() -> Element {
     let loaded = b.loaded;
     let next = b.next.is_some();
     let problem = b.problem.clone();
+    let problem_none = problem.is_none();
     let filter = b.filter.clone();
     let said = b.said.clone();
     drop(b);
@@ -90,14 +96,22 @@ fn BoardList() -> Element {
             }
         });
     });
-    let bm = backend.clone();
-    let on_scroll = move |e: ScrollEvent| {
-        let left = e.scroll_height() - e.client_height() - e.scroll_top() as i32;
-        if left < LOAD_NEAR_PX {
-            more(bm.clone(), board);
+    // While the Board is in view, look for new prompts now and then.
+    let bc = backend.clone();
+    use_hook(move || {
+        if board.peek().is_mine() {
+            return;
         }
-    };
+        spawn(async move {
+            loop {
+                bc.sleep(CHECK_EVERY_MS).await;
+                check_new(bc.clone(), board);
+            }
+        });
+    });
     let bm = backend.clone();
+    let br = backend.clone();
+    let fresh = board.read().fresh;
     let count = filter.count();
     let filters_label = if count > 0 {
         format!("Filters ({count})")
@@ -115,6 +129,15 @@ fn BoardList() -> Element {
             section { class: "board-list", aria_label: "Prompts",
                 header { class: "board-head",
                     h1 { if mine { "My prompts" } else { "Board" } }
+                    button {
+                        class: "quiet",
+                        disabled: loading,
+                        onclick: {
+                            let b = br.clone();
+                            move |_| reload(b.clone(), board)
+                        },
+                        "Refresh"
+                    }
                     if can_post {
                         button {
                             class: "primary",
@@ -163,6 +186,19 @@ fn BoardList() -> Element {
                 if let Some(text) = said {
                     p { class: "hint", role: "status", "{text}" }
                 }
+                if fresh > 0 && !loading {
+                    div { class: "fresh", role: "status",
+                        span { if fresh == 1 { "1 new prompt." } else { "{fresh} new prompts." } }
+                        button {
+                            class: "secondary",
+                            onclick: {
+                                let b = br.clone();
+                                move |_| reload(b.clone(), board)
+                            },
+                            "Show them"
+                        }
+                    }
+                }
                 if let Some(p) = problem {
                     ProblemLine { problem: p }
                     div { class: "actions",
@@ -176,13 +212,35 @@ fn BoardList() -> Element {
                         }
                     }
                 }
-                ul { class: "prompts", onscroll: on_scroll,
+                ul { class: "prompts",
                     for p in items.iter() {
                         Row { key: "{p.id}", prompt: p.clone(), open: Some(p.id) == open }
                     }
                 }
+                // Reaching the end loads the next page, whichever box scrolls
+                // (the list when wide, the page when narrow). Keyed by the
+                // count, so a page too short to fill the view loads the next.
+                if next && !loading && problem_none {
+                    for k in [items.len()] {
+                        div {
+                            key: "{k}",
+                            class: "load-more",
+                            aria_hidden: "true",
+                            onvisible: {
+                                let bm = bm.clone();
+                                move |e: VisibleEvent| {
+                                    if e.is_intersecting().unwrap_or(false) {
+                                        more(bm.clone(), board);
+                                    }
+                                }
+                            },
+                        }
+                    }
+                }
                 div { class: "list-end", role: "status",
-                    if loading {
+                    if loading && loaded && !items.is_empty() {
+                        "Loading more prompts…"
+                    } else if loading {
                         "Loading prompts…"
                     } else if mine && loaded && items.is_empty() && !next && persona.is_some() {
                         "No prompts posted as this persona."
@@ -192,13 +250,7 @@ fn BoardList() -> Element {
                         "No prompts match. Try fewer filters, or another search."
                     } else if loaded && items.is_empty() && !next {
                         "No prompts on the board yet."
-                    } else if next {
-                        button {
-                            class: "secondary",
-                            onclick: move |_| more(bm.clone(), board),
-                            "Show more prompts"
-                        }
-                    } else if loaded {
+                    } else if loaded && !next {
                         "That's every prompt."
                     }
                 }

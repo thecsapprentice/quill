@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     app::{ProblemLine, open_server, use_ui},
     backend::{Backend, Keys},
-    board::{BoardPage, BoardState, MineState, MyPromptsPage},
+    board::{BoardEpoch, BoardPage, BoardState, MineState, MyPromptsPage},
     model::{Section, Status},
     notices::NoticesPage,
     personas::PersonasPage,
@@ -72,6 +72,7 @@ pub fn Frame() -> Element {
 fn Sections(section: Section) -> Element {
     use_context_provider(|| Signal::new(BoardState::default()));
     use_context_provider(|| MineState(Signal::new(BoardState::mine())));
+    use_context_provider(|| BoardEpoch(Signal::new(0)));
     rsx! {
                     match section {
                         Section::Home => rsx! { Home {} },
