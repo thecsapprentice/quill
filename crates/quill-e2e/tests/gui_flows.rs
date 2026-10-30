@@ -12,7 +12,11 @@ use quill_core::store::vault::{MemoryVault, Vault};
 use quill_e2e::TestServer;
 use quill_gui::{NativeBackend, settings::Paths};
 use quill_proto::{
-    board::UpdateServerSettings,
+    api::CreatePersona,
+    board::{
+        CreatePrompt, CreateReport, Maturity, ReportReason, Resolution, UpdateNamespace,
+        UpdateServerSettings,
+    },
     rules::{RulesAcceptance, UpdateRules},
 };
 use quill_ui::testing::Driver;
@@ -152,5 +156,217 @@ async fn cancelling_add_a_server_against_a_real_server() {
     d.wait_for_text("Add a server").await;
     d.click("Cancel").await;
     d.wait_for_text("Connected to").await;
+    server.stop().await.unwrap();
+}
+
+/// Signs up as `ink` with persona `@ink_fox` and opens the Board.
+async fn on_the_board(d: &mut Driver, server: &TestServer) {
+    to_sign_up(d, server).await;
+    d.type_into("login-name", "ink").await;
+    d.type_into("login-password", PASSWORD).await;
+    d.click("Make my login").await;
+    d.wait_for_text("Make your first persona").await;
+    d.type_into("persona-handle", "ink_fox").await;
+    d.click("Make this persona").await;
+    d.wait_for_text("Hello, @ink_fox").await;
+    d.click("Board").await;
+    d.wait_until("the board loaded", |d| !d.has_text("Loading prompts"))
+        .await;
+}
+
+/// Another writer's prompt, posted through the API.
+async fn posted_elsewhere(server: &TestServer, login: &str, title: &str) -> uuid::Uuid {
+    let other = server.account(login).await.unwrap();
+    let persona = other
+        .create_persona(&CreatePersona {
+            handle: format!("{login}_pen"),
+            display_name: None,
+            summary: None,
+        })
+        .await
+        .unwrap();
+    other
+        .create_prompt(&CreatePrompt {
+            persona: persona.id,
+            title: title.into(),
+            body: "Somebody else's text.".into(),
+            maturity: Maturity::General,
+            tags: vec!["genre:horror".into()],
+            state: None,
+        })
+        .await
+        .unwrap()
+        .id
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn posting_searching_editing_and_deleting_on_a_real_server() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    posted_elsewhere(&server, "marrow", "The drowned bell").await;
+    // From now on every prompt needs exactly one length tag.
+    let admin = server.admin_account("boss").await.unwrap();
+    admin
+        .admin_update_namespace(
+            "length",
+            &UpdateNamespace {
+                min: Some(1),
+                max: Some(1),
+                ..UpdateNamespace::default()
+            },
+        )
+        .await
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Arc::new(MemoryVault::default());
+    let mut d = app(dir.path(), &vault);
+    on_the_board(&mut d, &server).await;
+    d.wait_for_text("The drowned bell").await;
+
+    d.click("Post a prompt").await;
+    d.wait_for_text("Add tags").await;
+    d.type_into("post-title", "The night porter").await;
+    d.type_into(
+        "post-body",
+        "A hotel with one more *floor* than the lift admits.",
+    )
+    .await;
+    assert!(d.has_text("1 length tag before posting"));
+    assert!(d.button_disabled("Post prompt"));
+    d.wait_until("the length tags", |d| d.has_button("length: Short"))
+        .await;
+    d.click("length: Short").await;
+    d.click("Post prompt").await;
+    d.wait_for_text("Prompt posted.").await;
+
+    // Search as you type finds it, and only it.
+    d.type_into("board-search", "porter").await;
+    d.wait_until("the search", |d| !d.has_text("The drowned bell"))
+        .await;
+    assert!(d.has_text("The night porter"));
+
+    d.click("Edit").await;
+    d.wait_for_text("Edit your prompt").await;
+    d.type_into("post-title", "The night porter, again").await;
+    d.click("Save changes").await;
+    d.wait_for_text("Changes saved.").await;
+    d.choose("prompt-state", "closed").await;
+    d.wait_until("the status", |d| d.has_text("· Closed ·"))
+        .await;
+
+    d.click("Delete…").await;
+    d.click("Delete this prompt").await;
+    d.wait_for_text("Prompt deleted.").await;
+    assert!(!d.has_text("The night porter, again"));
+    server.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn filtering_by_tag_and_reporting_on_a_real_server() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    posted_elsewhere(&server, "marrow", "The drowned bell").await;
+    let other = server.account("wren").await.unwrap();
+    let wren = other
+        .create_persona(&CreatePersona {
+            handle: "wren_pen".into(),
+            display_name: None,
+            summary: None,
+        })
+        .await
+        .unwrap();
+    other
+        .create_prompt(&CreatePrompt {
+            persona: wren.id,
+            title: "A quiet mystery".into(),
+            body: "Who moved the chair?".into(),
+            maturity: Maturity::General,
+            tags: vec!["genre:mystery".into()],
+            state: None,
+        })
+        .await
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Arc::new(MemoryVault::default());
+    let mut d = app(dir.path(), &vault);
+    on_the_board(&mut d, &server).await;
+    d.wait_for_text("A quiet mystery").await;
+
+    d.click("Filters").await;
+    d.click("Genre").await;
+    d.wait_until("the genre tags", |d| d.has_field("hide-genre-horror"))
+        .await;
+    d.click_id("hide-genre-horror").await;
+    d.click("Show prompts").await;
+    d.wait_until("the filter", |d| !d.has_text("The drowned bell"))
+        .await;
+    assert!(d.has_text("A quiet mystery"));
+    assert!(d.has_button("Filters (1)"));
+
+    d.click_containing("A quiet mystery").await;
+    d.click("Report this prompt").await;
+    d.set_checked("reason-spam", true).await;
+    d.click("Send report").await;
+    d.wait_for_text("Thanks. An administrator will look at your report.")
+        .await;
+    let admin = server.admin_account("boss").await.unwrap();
+    let reports = admin.admin_reports(false).await.unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].reason, ReportReason::Spam);
+    server.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_removal_is_a_notice_that_leads_to_the_prompt_on_a_real_server() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Arc::new(MemoryVault::default());
+    let mut d = app(dir.path(), &vault);
+    on_the_board(&mut d, &server).await;
+    d.click("Post a prompt").await;
+    d.wait_for_text("Add tags").await;
+    d.type_into("post-title", "Buy my book").await;
+    d.type_into("post-body", "It's very good.").await;
+    d.click("Post prompt").await;
+    d.wait_for_text("Prompt posted.").await;
+
+    // Reported and removed by an administrator.
+    let bob = server.account("bob").await.unwrap();
+    let mine = bob
+        .prompts(&quill_proto::board::PromptQuery::default())
+        .await
+        .unwrap()
+        .items[0]
+        .id;
+    bob.report(&CreateReport {
+        prompt: mine,
+        reason: ReportReason::Spam,
+        details: None,
+    })
+    .await
+    .unwrap();
+    let admin = server.admin_account("boss").await.unwrap();
+    let report = admin.admin_reports(false).await.unwrap()[0].id;
+    admin
+        .resolve_report(report, Resolution::Delete)
+        .await
+        .unwrap();
+
+    // Opening the app again counts it.
+    drop(d);
+    let mut d = app(dir.path(), &vault);
+    d.wait_until("the count", |d| d.has_button("Notices 1 unread"))
+        .await;
+    d.click("Notices 1 unread").await;
+    d.wait_for_text("An administrator removed your prompt")
+        .await;
+    d.wait_until("read", |d| d.has_button("Notices")).await;
+    d.click("Buy my book").await;
+    d.wait_for_text("It's very good.").await;
+    assert!(d.has_text("· removed"));
     server.stop().await.unwrap();
 }
