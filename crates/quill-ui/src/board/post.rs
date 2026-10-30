@@ -296,6 +296,11 @@ pub fn PostForm(editing: Option<Uuid>) -> Element {
                     h3 { if title().trim().is_empty() { "Your title" } else { "{title}" } }
                     p { class: "reader-meta", "{by} · {maturity_label(maturity())} · {state_label(state())}" }
                     Markdown { source: body() }
+                    div { class: "chips",
+                        for c in chosen.read().iter() {
+                            Chip { key: "{c.tag.key()}", tag: c.tag.clone() }
+                        }
+                    }
                 }
                 TagPanel { chosen, persona: persona() }
             }
@@ -561,7 +566,12 @@ fn TagPanel(chosen: Signal<Vec<Chosen>>, persona: Option<Uuid>) -> Element {
                     } else {
                         ""
                     };
-                    let label = format!("{n} of {}", limit_label(t.min, t.max));
+                    // A type with no limits needs no count until something is picked.
+                    let label = match (t.min, t.max, n) {
+                        (0, None, 0) => String::new(),
+                        (0, None, n) => format!("{n} picked"),
+                        _ => format!("{n} of {}", limit_label(t.min, t.max)),
+                    };
                     let tags = by_type.read().iter().find(|(ns, _)| *ns == t.name).map(|(_, v)| v.clone()).unwrap_or_default();
                     rsx! {
                         div { key: "{t.name}", class: if t.min > n { "tag-type needed" } else { "tag-type" },
@@ -571,7 +581,7 @@ fn TagPanel(chosen: Signal<Vec<Chosen>>, persona: Option<Uuid>) -> Element {
                             }
                             div { class: "chips",
                                 for tag in tags {
-                                    TagButton { key: "{tag.key()}", tag: tag.clone(), on: is_on(&tag), on_add: move |t| add.call((t, false)) }
+                                    TagButton { key: "{tag.key()}", tag: tag.clone(), on: is_on(&tag), short: true, on_add: move |t| add.call((t, false)) }
                                 }
                             }
                         }
@@ -584,15 +594,29 @@ fn TagPanel(chosen: Signal<Vec<Chosen>>, persona: Option<Uuid>) -> Element {
 
 /// A tag to add, or shown as on already.
 #[component]
-fn TagButton(tag: Tag, on: bool, on_add: EventHandler<Tag>) -> Element {
+fn TagButton(
+    tag: Tag,
+    on: bool,
+    /// Under its type's heading: shows the name alone, but is still named
+    /// with its type for screen readers.
+    #[props(default)]
+    short: bool,
+    on_add: EventHandler<Tag>,
+) -> Element {
     let label = format!("{}: {}", tag.namespace, tag.display);
+    let shown = if short {
+        tag.display.clone()
+    } else {
+        label.clone()
+    };
     rsx! {
         button {
             class: if on { "tag-option on" } else { "tag-option" },
+            aria_label: if on { "{label} ✓" } else { "{label}" },
             aria_pressed: if on { "true" } else { "false" },
             disabled: on,
             onclick: move |_| on_add.call(tag.clone()),
-            "{label}"
+            "{shown}"
             if on { " ✓" }
         }
     }

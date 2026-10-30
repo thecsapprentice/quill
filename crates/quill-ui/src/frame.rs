@@ -351,7 +351,7 @@ fn Home() -> Element {
             }
         }
         p { class: "coming",
-            "The prompt board, requests and writing sessions are on their way. For now you can make personas and set Quill up the way you like in Settings."
+            "Find a prompt to write on the Board, or post your own. Requests to write together and writing sessions are on their way."
         }
     }
 }

@@ -262,7 +262,7 @@ legend { font-weight: 600; padding: 0 0.3rem; }
 .slot { font-size: 0.82rem; padding: 0.1rem 0.6rem; border-radius: 999px; border: 1px dashed var(--muted); color: var(--muted); }
 
 /* Filter builder: types, one type's tags, the whole filter. */
-.filters { display: grid; grid-template-columns: 14rem minmax(0, 1fr) 18rem; grid-template-areas: "head head head" "types pane side"; gap: 1rem 1.5rem; align-items: start; }
+.filters { display: grid; grid-template-columns: 10rem minmax(24rem, 1fr) 15rem; grid-template-areas: "head head head" "types pane side"; gap: 1rem 1.5rem; align-items: start; }
 .filters-head { grid-area: head; display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
 .filters-head h1 { margin: 0; font-size: 1.5rem; }
 .filter-types { grid-area: types; display: flex; flex-direction: column; gap: 0.15rem; }
@@ -279,6 +279,8 @@ legend { font-weight: 600; padding: 0 0.3rem; }
 .tag-table { width: 100%; border-collapse: collapse; }
 .tag-table th, .tag-table td { text-align: left; padding: 0.35rem 0.4rem; border-bottom: 1px solid var(--line); font-weight: normal; }
 .tag-table thead th { font-size: 0.8rem; color: var(--muted); }
+.tag-table td:last-child { white-space: nowrap; width: 1%; }
+.reader > .actions { margin-top: 0.4rem; }
 .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius-s); overflow: hidden; }
 .segmented button { border: 0; background: var(--surface); padding: 0.3rem 0.8rem; cursor: pointer; }
 .segmented button + button { border-left: 1px solid var(--line); }
@@ -302,6 +304,11 @@ legend { font-weight: 600; padding: 0 0.3rem; }
 .tag-type-head { display: flex; justify-content: space-between; align-items: baseline; }
 .tag-option { border: 1px solid var(--line); background: none; border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.82rem; cursor: pointer; }
 .tag-option.on { background: var(--accent-soft); cursor: default; }
+
+/* Mid widths: the filter summary moves under the tags. */
+@media (max-width: 1150px) {
+  .filters { grid-template-columns: 10rem minmax(0, 1fr); grid-template-areas: "head head" "types pane" "types side"; }
+}
 
 @media (max-width: 760px) {
   .board { grid-template-columns: minmax(0, 1fr); }
