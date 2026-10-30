@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 use quill_board_ui::{maturity_label, reason_label, short_date, state_label};
 use quill_proto::board::{CreateReport, Prompt, PromptState, ReportReason, Tag, UpdatePrompt};
 
-use super::{View, use_board};
+use super::{View, use_board, use_board_epoch};
 use crate::{
     app::{ProblemLine, use_ui},
     backend::Problem,
@@ -156,6 +156,7 @@ fn CopyLink(id: uuid::Uuid) -> Element {
 fn OwnActions(prompt: Prompt) -> Element {
     let (backend, _) = use_ui();
     let mut board = use_board();
+    let epoch = use_board_epoch();
     let mut deleting = use_signal(|| false);
     let mut busy = use_signal(|| false);
     let mut problem = use_signal(|| None::<Problem>);
@@ -176,6 +177,7 @@ fn OwnActions(prompt: Prompt) -> Element {
                 Ok(p) => {
                     problem.set(None);
                     board.write().replace(p);
+                    epoch.changed(board);
                 }
                 Err(Problem::Gone) => gone(board, id),
                 Err(p) => problem.set(Some(p)),
@@ -191,9 +193,12 @@ fn OwnActions(prompt: Prompt) -> Element {
             busy.set(false);
             match result {
                 Ok(()) | Err(Problem::Gone) => {
-                    let mut s = board.write();
-                    s.forget(id);
-                    s.said = Some("Prompt deleted.".to_owned());
+                    {
+                        let mut s = board.write();
+                        s.forget(id);
+                        s.said = Some("Prompt deleted.".to_owned());
+                    }
+                    epoch.changed(board);
                 }
                 Err(p) => problem.set(Some(p)),
             }
@@ -286,6 +291,8 @@ fn ReportForm(prompt: Prompt) -> Element {
             p { class: "hint", role: "status", "Thanks. An administrator will look at your report." }
         };
     }
+    let details_check =
+        crate::checks::length(&details(), quill_proto::limits::REPORT_DETAILS_MAX_CHARS);
     if !open() {
         return rsx! {
             div { class: "actions",
@@ -312,6 +319,8 @@ fn ReportForm(prompt: Prompt) -> Element {
             Area {
                 label: "Anything to add (optional)",
                 id: "report-details",
+                hint: details_check.hint.clone(),
+                invalid: details_check.invalid,
                 oninput: move |t| details.set(t),
             }
             if let Some(p) = problem() {
@@ -320,7 +329,7 @@ fn ReportForm(prompt: Prompt) -> Element {
             div { class: "actions",
                 button {
                     class: "primary",
-                    disabled: busy() || reason().is_none(),
+                    disabled: busy() || reason().is_none() || details_check.invalid,
                     onclick: send,
                     "Send report"
                 }

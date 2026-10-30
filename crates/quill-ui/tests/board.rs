@@ -109,18 +109,129 @@ async fn searching_narrows_the_list_and_says_when_nothing_matches() {
     d.wait_for_text("Prompt number 5").await;
 }
 
+/// Found by hand (3c): in a narrow window the page scrolls, not the list,
+/// so loading on the list's scroll never happened and a button stood in.
+/// Reaching the end now loads more whichever box scrolls, with no button.
 #[tokio::test]
-async fn more_prompts_come_as_the_list_scrolls_and_the_end_is_said() {
+async fn more_prompts_come_as_the_end_of_the_list_comes_into_view() {
     let sim = sim();
     sim.fill_board(SERVER, 45);
     let mut d = on_the_board(&sim).await;
     assert!(d.has_text("Prompt number 25"));
     assert!(!d.has_text("Prompt number 24"), "one page of 20");
-    d.scroll_to_end("prompts").await;
+    assert!(!d.has_button("Show more prompts"), "no button to press");
+    d.bring_into_view("load-more").await;
     d.wait_for_text("Prompt number 5 ").await;
-    d.click("Show more prompts").await;
+    d.bring_into_view("load-more").await;
     d.wait_for_text("That's every prompt.").await;
     assert!(d.has_text("Prompt number 0"));
+    assert!(
+        !d.has_element_with_class("load-more"),
+        "nothing more to load"
+    );
+}
+
+/// Found by hand (3c): a prompt posted from My prompts didn't show on the
+/// Board, which kept the list it had, until a search or filter reloaded it.
+#[tokio::test]
+async fn a_prompt_posted_from_my_prompts_shows_on_the_board() {
+    let sim = sim();
+    sim.fill_board(SERVER, 3);
+    let mut d = on_the_board(&sim).await;
+    d.click("My prompts").await;
+    d.wait_until("my prompts", |d| !d.has_text("Loading prompts"))
+        .await;
+    write_prompt(&mut d, "Posted from mine", "Text.").await;
+    d.click("Post prompt").await;
+    d.wait_for_text("Prompt posted.").await;
+    d.click("Board").await;
+    d.wait_until("the board's list", |d| {
+        d.has_button_containing("Posted from mine")
+    })
+    .await;
+
+    // Deleting it from My prompts takes it off the Board too.
+    d.click("My prompts").await;
+    d.wait_for_text("Posted from mine").await;
+    d.click_containing("Posted from mine").await;
+    d.click("Delete…").await;
+    d.click("Delete this prompt").await;
+    d.wait_for_text("Prompt deleted.").await;
+    d.click("Board").await;
+    d.wait_until("the board's list", |d| {
+        !d.has_button_containing("Posted from mine") && d.has_text("Prompt number 2")
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn new_prompts_from_others_are_found_by_refresh_and_on_return() {
+    let sim = sim();
+    sim.fill_board(SERVER, 3);
+    let mut d = on_the_board(&sim).await;
+    sim.post_as(
+        SERVER,
+        "marrow",
+        "Fresh from marrow",
+        "Text.",
+        &[],
+        Maturity::General,
+    );
+    assert!(!d.has_text("Fresh from marrow"));
+    d.click("Refresh").await;
+    d.wait_for_text("Fresh from marrow").await;
+
+    // Away and back: the list stays put, and says what's new.
+    d.click_containing("Prompt number 1").await;
+    d.click("Home").await;
+    sim.post_as(
+        SERVER,
+        "marrow",
+        "Another one",
+        "Text.",
+        &[],
+        Maturity::General,
+    );
+    d.click("Board").await;
+    d.wait_for_text("1 new prompt.").await;
+    assert!(
+        !d.has_button_containing("Another one"),
+        "not moved in under the reader"
+    );
+    assert!(d.has_text("The body of prompt number 1."), "still reading");
+    d.click("Show them").await;
+    d.wait_until("shown", |d| d.has_button_containing("Another one"))
+        .await;
+    assert!(!d.has_text("1 new prompt."));
+}
+
+#[tokio::test]
+async fn the_board_looks_for_new_prompts_while_open() {
+    let sim = sim();
+    sim.fill_board(SERVER, 2);
+    let mut d = on_the_board(&sim).await;
+    sim.post_as(
+        SERVER,
+        "marrow",
+        "Arrived meanwhile",
+        "Text.",
+        &[],
+        Maturity::General,
+    );
+    sim.post_as(
+        SERVER,
+        "marrow",
+        "And another",
+        "Text.",
+        &[],
+        Maturity::General,
+    );
+    assert!(!d.has_text("new prompts"), "not until the next look");
+    sim.time_passes();
+    d.wait_for_text("2 new prompts.").await;
+    d.click("Show them").await;
+    d.wait_until("shown", |d| d.has_button_containing("Arrived meanwhile"))
+        .await;
 }
 
 #[tokio::test]
@@ -479,4 +590,51 @@ async fn ids_never_show_on_the_board() {
         .split_whitespace()
         .any(|w| w.len() == 36 && w.matches('-').count() == 4);
     assert!(!looks_like_uuid, "{text}");
+}
+
+/// Found by hand (3c): the title and text limits were only told after
+/// pressing Post. They're said as the writer types, and Post waits.
+#[tokio::test]
+async fn length_limits_are_said_while_typing() {
+    let sim = sim();
+    let mut d = on_the_board(&sim).await;
+    d.click("Post a prompt").await;
+    d.wait_for_text("Add tags").await;
+    assert!(d.has_text("Up to 200 characters."));
+    assert!(d.has_text("Up to 20,000 characters."));
+    d.type_into("post-title", &"t".repeat(201)).await;
+    assert!(d.has_text("201 of 200 characters: 1 too many."));
+    assert_eq!(
+        d.attr("post-title", "aria-invalid").as_deref(),
+        Some("true")
+    );
+    d.type_into("post-body", &"b".repeat(20_005)).await;
+    assert!(d.has_text("20,005 of 20,000 characters: 5 too many."));
+    assert!(d.has_text("Needs a shorter title, shorter text before posting."));
+    assert!(d.button_disabled("Post prompt"));
+    d.type_into("post-title", "A fair title").await;
+    d.type_into("post-body", "A fair body.").await;
+    assert!(d.has_text("12 of 200 characters."));
+    assert!(!d.button_disabled("Post prompt"));
+}
+
+#[tokio::test]
+async fn report_details_say_their_limit_while_typing() {
+    let sim = sim();
+    sim.post_as(
+        SERVER,
+        "marrow",
+        "Something odd",
+        "Text.",
+        &[],
+        Maturity::General,
+    );
+    let mut d = on_the_board(&sim).await;
+    d.click_containing("Something odd").await;
+    d.click("Report this prompt").await;
+    d.set_checked("reason-spam", true).await;
+    assert!(d.has_text("Up to 2,000 characters."));
+    d.type_into("report-details", &"x".repeat(2_001)).await;
+    assert!(d.has_text("2,001 of 2,000 characters: 1 too many."));
+    assert!(d.button_disabled("Send report"));
 }

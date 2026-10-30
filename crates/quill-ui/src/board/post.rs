@@ -11,10 +11,13 @@ use quill_proto::board::{
 };
 use uuid::Uuid;
 
-use super::{BoardState, View, reader::Chip, use_board, use_tag_types};
+use super::{BoardState, View, reader::Chip, use_board, use_board_epoch, use_tag_types};
+use quill_proto::limits::{PROMPT_BODY_MAX_CHARS, PROMPT_TITLE_MAX_CHARS};
+
 use crate::{
     app::{ProblemLine, use_ui},
     backend::{Keys, Problem},
+    checks,
     field::{Area, Field, Kind},
     markdown::Markdown,
     model::Section,
@@ -44,9 +47,13 @@ fn missing(title: &str, body: &str, types: &[TagNamespace], chosen: &[Chosen]) -
     let mut out = Vec::new();
     if title.trim().is_empty() {
         out.push("a title".to_owned());
+    } else if checks::length(title, PROMPT_TITLE_MAX_CHARS).invalid {
+        out.push("a shorter title".to_owned());
     }
     if body.trim().is_empty() {
         out.push("the prompt's text".to_owned());
+    } else if checks::length(body, PROMPT_BODY_MAX_CHARS).invalid {
+        out.push("shorter text".to_owned());
     }
     for t in types {
         let n = u32::try_from(chosen.iter().filter(|c| c.tag.namespace == t.name).count())
@@ -96,6 +103,7 @@ fn typed_tag(text: &str, types: &[TagNamespace]) -> Option<Tag> {
 pub fn PostForm(editing: Option<Uuid>) -> Element {
     let (backend, mut model) = use_ui();
     let mut board = use_board();
+    let epoch = use_board_epoch();
     use_tag_types();
     let original: Option<Prompt> =
         editing.and_then(|id| board.peek().items.iter().find(|p| p.id == id).cloned());
@@ -198,13 +206,20 @@ pub fn PostForm(editing: Option<Uuid>) -> Element {
             };
             busy.set(false);
             match result {
-                Ok(prompt) => posted(board, prompt, editing.is_some()),
+                Ok(prompt) => {
+                    posted(board, prompt, editing.is_some());
+                    // The other list loads again when next shown.
+                    epoch.changed(board);
+                }
                 // The form keeps everything typed, to fix and try again.
                 Err(p) => problem.set(Some(p)),
             }
         });
     };
 
+    // Limits the server keeps, said as the writer types.
+    let title_check = checks::length(&title(), PROMPT_TITLE_MAX_CHARS);
+    let body_check = checks::length(&body(), PROMPT_BODY_MAX_CHARS);
     let heading = if editing.is_some() {
         "Edit your prompt"
     } else {
@@ -230,6 +245,8 @@ pub fn PostForm(editing: Option<Uuid>) -> Element {
                     id: "post-title",
                     kind: Kind::Text,
                     initial: title.peek().clone(),
+                    hint: title_check.hint,
+                    invalid: title_check.invalid,
                     autofocus: editing.is_none(),
                     oninput: move |t| title.set(t),
                 }
@@ -249,7 +266,8 @@ pub fn PostForm(editing: Option<Uuid>) -> Element {
                     label: "Prompt",
                     id: "post-body",
                     initial: body.peek().clone(),
-                    hint: "Markdown: *italic*, **bold**, lists and links.",
+                    hint: format!("Markdown: *italic*, **bold**, lists and links. {}", body_check.hint),
+                    invalid: body_check.invalid,
                     oninput: move |t| body.set(t),
                 }
                 div { class: "field-row",

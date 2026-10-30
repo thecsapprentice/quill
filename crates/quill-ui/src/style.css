@@ -333,6 +333,8 @@ legend { font-weight: 600; padding: 0 0.3rem; }
 .notice-prompts { margin: 0.25rem 0 0; padding-left: 1.2rem; }
 button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; }
 .row-tags { margin-top: 0.3rem; font-size: 0.8rem; }
+.load-more { height: 1px; }
+.fresh { display: flex; gap: 0.8rem; align-items: center; margin: 0.4rem 0; color: var(--muted); }
 
 /* ---- Keys and devices (3d) ---- */
 .link-words { display: grid; grid-template-columns: repeat(3, max-content); gap: 0.4rem 1.8rem; list-style-position: inside; padding: 0; margin: 1rem 0; font-family: var(--mono); font-size: 1.15rem; }
