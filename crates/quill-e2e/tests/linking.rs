@@ -449,3 +449,97 @@ async fn upkeep_refills_low_pools() {
     );
     server.stop().await.unwrap();
 }
+
+/// The words a new device shows, as a person would type them on the device
+/// already in use, with the link found from the login's waiting links.
+#[tokio::test]
+async fn approving_with_the_six_words_alone_finds_the_waiting_link() {
+    let server = server!();
+    let laptop_c = server.account("alice").await.unwrap();
+    let pen = persona(&laptop_c, "ink_fox").await;
+    let laptop = Store::in_memory();
+    keys::init(&laptop, &laptop_c, &pen, false).await.unwrap();
+
+    let desktop = Store::in_memory();
+    let desktop_c = same_login(&server, "alice").await;
+    // Nothing waiting yet.
+    assert_eq!(
+        devices::waiting(&laptop_c).await.unwrap(),
+        devices::Waiting::None
+    );
+    let typed: LinkCode = "one two three four five six".parse().unwrap();
+    let none = devices::approve(&laptop, &laptop_c, &typed)
+        .await
+        .unwrap_err();
+    assert!(
+        none.to_string().contains("no new device is waiting"),
+        "{none}"
+    );
+
+    let pending = devices::start_link(&desktop, &desktop_c).await.unwrap();
+    assert_eq!(
+        devices::waiting(&laptop_c).await.unwrap(),
+        devices::Waiting::One(pending.link_id.clone())
+    );
+    // Another login never sees it.
+    let bob_c = server.account("bob").await.unwrap();
+    assert_eq!(
+        devices::waiting(&bob_c).await.unwrap(),
+        devices::Waiting::None
+    );
+
+    // Wrong words stop, and link nothing.
+    let wrong: LinkCode = "abandon ability able about above absent".parse().unwrap();
+    assert!(devices::approve(&laptop, &laptop_c, &wrong).await.is_err());
+
+    let words: LinkCode = pending.words.join(" ").parse().unwrap();
+    let approved = devices::approve(&laptop, &laptop_c, &words).await.unwrap();
+    let confirm = devices::wait_for_link(
+        &desktop,
+        &desktop_c,
+        &pending.link_id,
+        Duration::from_millis(50),
+        Duration::from_secs(5),
+    )
+    .await
+    .unwrap();
+    assert_eq!(confirm, approved.confirm);
+    devices::finish_link(&desktop, &desktop_c).await.unwrap();
+    // Answered: no longer waiting.
+    assert_eq!(
+        devices::waiting(&laptop_c).await.unwrap(),
+        devices::Waiting::None
+    );
+}
+
+/// Two links waiting at once: words alone approve neither.
+#[tokio::test]
+async fn two_waiting_links_are_not_approved_by_words_alone() {
+    let server = server!();
+    let laptop_c = server.account("alice").await.unwrap();
+    let pen = persona(&laptop_c, "ink_fox").await;
+    let laptop = Store::in_memory();
+    keys::init(&laptop, &laptop_c, &pen, false).await.unwrap();
+    let (a, b) = (Store::in_memory(), Store::in_memory());
+    let (ac, bc) = (
+        same_login(&server, "alice").await,
+        same_login(&server, "alice").await,
+    );
+    let pa = devices::start_link(&a, &ac).await.unwrap();
+    devices::start_link(&b, &bc).await.unwrap();
+    assert_eq!(
+        devices::waiting(&laptop_c).await.unwrap(),
+        devices::Waiting::Several(2)
+    );
+    let words: LinkCode = pa.words.join(" ").parse().unwrap();
+    let refused = devices::approve(&laptop, &laptop_c, &words)
+        .await
+        .unwrap_err();
+    assert!(
+        refused.to_string().contains("someone else may be"),
+        "{refused}"
+    );
+    // The whole code still works: it names its link.
+    let code: LinkCode = pa.code.parse().unwrap();
+    devices::approve(&laptop, &laptop_c, &code).await.unwrap();
+}

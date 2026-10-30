@@ -17,7 +17,7 @@ use quill_mls_envelope::private_message::{self, ContentType};
 use quill_proto::{
     groups::{
         CreateGroup, GroupState, LinkMailbox, LinkReply, LinkStarted, LoggedMessage, Messages,
-        MessagesQuery, PostMessage, Posted, StartLink,
+        MessagesQuery, PostMessage, Posted, StartLink, WaitingLink,
     },
     keys::{b64, unb64},
 };
@@ -43,7 +43,7 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(create_group))
         .routes(routes!(device_group, drop_device_group))
         .routes(routes!(read_messages, post_message))
-        .routes(routes!(start_link))
+        .routes(routes!(start_link, waiting_links))
         .routes(routes!(read_link))
         .routes(routes!(reply_link))
 }
@@ -406,6 +406,39 @@ async fn start_link(
         link_id: b64(&id),
         expires_in_secs: LINK_SECS,
     }))
+}
+
+/// `GET /link`: this login's links that no device has answered yet, so a
+/// device in use can approve one by its words alone. Never another login's.
+#[utoipa::path(
+    get, path = "/link", tag = "groups", security(("bearer" = [])),
+    summary = "List this login's links waiting for an answer",
+    description = "Unanswered, unexpired linking mailboxes opened by this login, soonest to expire first. \
+        A device already in use looks them up when the writer chooses to link, then checks the KeyPackage \
+        against the words the new device shows.",
+    responses((status = 200, body = Vec<WaitingLink>)),
+)]
+async fn waiting_links(
+    State(state): State<AppState>,
+    authed: Authed,
+) -> Result<Json<Vec<WaitingLink>>, ApiError> {
+    drop_expired_links(&state).await?;
+    let rows: Vec<(Vec<u8>, f64)> = sqlx::query_as(
+        "SELECT link_id, EXTRACT(EPOCH FROM expires_at - now())::float8 FROM link_mailbox
+         WHERE account_id = $1 AND welcome IS NULL ORDER BY expires_at",
+    )
+    .bind(authed.account_id)
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(id, left)| WaitingLink {
+                link_id: b64(&id),
+                // Whole seconds; a link about to expire still shows as 0.
+                expires_in_secs: left.max(0.0) as u64,
+            })
+            .collect(),
+    ))
 }
 
 /// `(key_package, welcome, from_seq)`.

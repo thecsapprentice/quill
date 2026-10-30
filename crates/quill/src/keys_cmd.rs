@@ -72,8 +72,8 @@ pub enum DeviceCommand {
         #[arg(long, value_name = "WORDS")]
         expect_words: Option<String>,
     },
-    /// On a device already in use: approve a new one with the code it shows
-    /// (the whole quill-link: code, or its link id and 6 words).
+    /// On a device already in use: approve a new one with the 6 words it
+    /// shows (its waiting link is found), or its whole quill-link: code.
     Approve {
         #[arg(required = true, num_args = 1..)]
         code: Vec<String>,

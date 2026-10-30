@@ -99,6 +99,16 @@ pub struct LinkStarted {
     pub expires_in_secs: u64,
 }
 
+/// One entry of `GET /link`: a link this login opened that no device has
+/// answered yet. The KeyPackage is fetched by id as before.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct WaitingLink {
+    pub link_id: String,
+    pub expires_in_secs: u64,
+}
+
 /// `GET /link/{id}`. Once the reply has been fetched, the mailbox is gone.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

@@ -1004,7 +1004,8 @@ pub fn abandon_link(store: &Store) -> Result<(), CoreError> {
 
 // ---- Linking: the device already in use ----------------------------------------------------
 
-/// A link code as typed: the full code, or the link id and 6 words.
+/// A link code as typed: the full code, the link id and 6 words, or the 6
+/// words alone (the link is then looked up among this login's waiting ones).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkCode {
     pub link_id: String,
@@ -1035,14 +1036,17 @@ impl std::str::FromStr for LinkCode {
                 _ => Err(err("that isn't a complete link code")),
             };
         }
-        let mut parts = s.split_whitespace();
-        let link = parts.next().unwrap_or_default();
-        let typed: Vec<&str> = parts.collect();
-        if link.is_empty() || typed.len() != 6 {
-            return Err(err(
-                "give the whole quill-link: code, or the link id followed by its 6 words",
-            ));
-        }
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        // Six words alone: the link is looked up when approving.
+        let (link, typed) = match parts.len() {
+            6 => ("", parts.as_slice()),
+            7 => (parts[0], &parts[1..]),
+            _ => {
+                return Err(err(
+                    "give the 6 words the new device shows, or its whole quill-link: code",
+                ));
+            }
+        };
         Ok(Self {
             link_id: link.to_owned(),
             check: Check::Words(typed.join(" ")),
@@ -1050,7 +1054,32 @@ impl std::str::FromStr for LinkCode {
     }
 }
 
+/// Links waiting for a device in use to approve them, as [`waiting`] finds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Waiting {
+    None,
+    One(String),
+    /// More than one: someone else may be linking to this login, so none
+    /// is approved by words alone.
+    Several(usize),
+}
+
+/// This login's links that no device has answered yet.
+pub async fn waiting(client: &Client) -> Result<Waiting, CoreError> {
+    let mut links = client.waiting_links().await?;
+    Ok(match links.len() {
+        0 => Waiting::None,
+        1 => Waiting::One(links.remove(0).link_id),
+        n => Waiting::Several(n),
+    })
+}
+
 impl LinkCode {
+    /// Whether the link must be looked up (six words were given alone).
+    pub fn needs_lookup(&self) -> bool {
+        self.link_id.is_empty()
+    }
+
     /// Whether `package`, the KeyPackage the mailbox holds, is the one the
     /// code was made for.
     pub fn matches(&self, package: &[u8]) -> bool {
@@ -1081,6 +1110,7 @@ pub async fn approve(
     client: &Client,
     code: &LinkCode,
 ) -> Result<Approved, CoreError> {
+    let code = &resolve(client, code).await?;
     let gid = ensure_group(store, client).await?;
     let caught = catch_up(store, client).await?;
     if caught.removed {
@@ -1183,6 +1213,26 @@ pub async fn approve(
         confirm,
         granted,
     })
+}
+
+/// Fills in the link id of a code given as six words alone.
+async fn resolve(client: &Client, code: &LinkCode) -> Result<LinkCode, CoreError> {
+    if !code.needs_lookup() {
+        return Ok(code.clone());
+    }
+    match waiting(client).await? {
+        Waiting::One(link_id) => Ok(LinkCode {
+            link_id,
+            check: code.check.clone(),
+        }),
+        Waiting::None => Err(err(
+            "no new device is waiting: start linking on the new device first (links last 10 minutes)",
+        )),
+        Waiting::Several(n) => Err(err(format!(
+            "{n} new devices are waiting to link to this login. If only one is yours, someone else may be \
+             trying to link: change your password, wait 10 minutes for the links to expire, and start again"
+        ))),
+    }
 }
 
 // ---- Listing and removing ------------------------------------------------------------------
@@ -1381,6 +1431,9 @@ mod tests {
         assert_eq!(code.check, Check::Fingerprint(vec![7; 32]));
         let typed: LinkCode = "abc123 one two three four five six".parse().unwrap();
         assert_eq!(typed.link_id, "abc123");
+        let alone: LinkCode = "one two three four five six".parse().unwrap();
+        assert!(alone.needs_lookup());
+        assert!(!typed.needs_lookup());
         for bad in [
             "quill-link:1:host:abc",
             "abc123 one two",

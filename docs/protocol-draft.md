@@ -336,7 +336,7 @@ All structures use TLS presentation language (as in RFC 9420) and are signed wit
 
 1.  The new device creates its device key and a KeyPackage and posts them to `POST /api/v1/link`, getting a random 128-bit `link_id` that expires in 10 minutes.
 
-2.  It displays a QR code `quill-link:1:<server host>:<link_id>:<fp>`, where `fp` = SHA-256 of the serialized KeyPackage, base64url. The typed alternative is the `link_id` plus the first 66 bits of `fp` as 6 words (BIP-39 English list).
+2.  It displays a QR code `quill-link:1:<server host>:<link_id>:<fp>`, where `fp` = SHA-256 of the serialized KeyPackage, base64url. The typed alternative is the first 66 bits of `fp` as 6 words (BIP-39 English list). Typed alone, the existing device finds the `link_id` with `GET /api/v1/link`, which lists the login's unanswered links, and only when the person chooses to link. If more than one is waiting it refuses the words: another may have been started by someone holding the password. The full code, or the `link_id` followed by the words, still names one link. Forging a KeyPackage whose fingerprint shares those 66 bits within the 10 minutes is as hard either way.
 
 3.  The existing device fetches the KeyPackage from the mailbox and checks `fp`; on mismatch it aborts and warns.
 
