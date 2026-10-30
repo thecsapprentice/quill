@@ -560,7 +560,15 @@ impl Driver {
 
     /// An attribute of the element with `id`.
     pub fn attr(&self, id: &str, name: &str) -> Option<String> {
-        self.doc.attr(self.by_id(id), name).map(str::to_owned)
+        let node = self.by_id(id);
+        let found = self.doc.attr(node, name);
+        // A field shows its `initial_value` until something is typed, as the
+        // webview does.
+        let found = match (found, name) {
+            (None, "value") => self.doc.attr(node, "initial_value"),
+            (f, _) => f,
+        };
+        found.map(str::to_owned)
     }
 
     fn send(&mut self, node: usize, name: &str, data: serde_json::Value) {
