@@ -11,6 +11,7 @@ use quill_proto::board::Maturity;
 use uuid::Uuid;
 
 mod board;
+mod devices;
 
 use crate::backend::{
     AccountNotice, AccountSettings, CreatePrompt, CreateReport, Prompt, PromptPage, PromptQuery,
@@ -62,6 +63,7 @@ pub struct SimServer {
     /// Personas by login, with whether their identity key is published.
     personas: Vec<(String, Persona, bool)>,
     board: board::Board,
+    devices: devices::Devices,
 }
 
 impl SimServer {
@@ -76,6 +78,7 @@ impl SimServer {
             accounts: HashMap::new(),
             personas: Vec::new(),
             board: board::Board::default(),
+            devices: devices::Devices::default(),
         }
     }
 }
@@ -90,6 +93,8 @@ struct Store {
     unlocked: bool,
     /// Personas whose keys are on this computer.
     keys: Vec<Uuid>,
+    /// This computer among the login's devices.
+    here: devices::Here,
 }
 
 #[derive(Debug)]
@@ -389,6 +394,7 @@ impl Backend for Sim {
                     passphrase: passphrase.map(str::to_owned),
                     unlocked: true,
                     keys: Vec::new(),
+                    here: devices::Here::default(),
                 },
             );
             s.current = Some(entry.id);
@@ -660,8 +666,71 @@ impl Backend for Sim {
         })
     }
 
+    fn start_over<'a>(&'a self, persona: Uuid, progress: &'a dyn Fn(Step)) -> Call<'a, ()> {
+        Box::pin(async move {
+            for step in Step::ALL {
+                progress(step);
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            self.sim_start_over(persona)
+        })
+    }
+
+    fn device_name(&self) -> Option<String> {
+        self.sim_device_name()
+    }
+
+    fn rename_device<'a>(&'a self, name: &'a str) -> Call<'a, ()> {
+        now(self.sim_rename_device(name))
+    }
+
+    fn devices(&self) -> Call<'_, Vec<crate::backend::Device>> {
+        now(self.sim_devices())
+    }
+
+    fn remove_device(&self, id: Uuid, reason: crate::backend::RemoveReason) -> Call<'_, ()> {
+        now(self.sim_remove_device(id, reason))
+    }
+
+    fn start_link<'a>(&'a self, name: &'a str) -> Call<'a, crate::backend::LinkStart> {
+        now(self.sim_start_link(name))
+    }
+
+    fn link_answer(&self) -> Call<'_, Option<Vec<String>>> {
+        // As the native one, a look waits a little before saying "not yet".
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            self.sim_link_answer()
+        })
+    }
+
+    fn finish_link(&self) -> Call<'_, Standing> {
+        now(self.sim_finish_link().and_then(|()| self.standing_now()))
+    }
+
+    fn abandon_link(&self) -> Result<(), Problem> {
+        self.sim_abandon_link()
+    }
+
+    fn approve_link<'a>(&'a self, typed: &'a str) -> Call<'a, crate::backend::Approval> {
+        now(self.sim_approve_link(typed))
+    }
+
+    fn waiting_links(&self) -> Call<'_, usize> {
+        now(self.sim_waiting_links())
+    }
+
+    fn key_details(&self) -> Call<'_, Vec<crate::backend::PersonaKeys>> {
+        now(self.sim_key_details())
+    }
+
     fn upkeep(&self) -> Call<'_, Option<String>> {
-        now(self.reach().map(|_| None))
+        now(self.reach().map(|(_, store, _)| {
+            store.here.removed.then(|| {
+                "This computer was removed from your devices. Link it again to keep writing here."
+                    .to_owned()
+            })
+        }))
     }
 
     fn next_notice(&self) -> Call<'_, ()> {

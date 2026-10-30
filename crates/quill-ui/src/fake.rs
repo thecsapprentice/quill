@@ -151,6 +151,43 @@ impl Backend for Fake {
         progress(Step::IdentityKey);
         ready(Ok(()))
     }
+    fn start_over<'a>(&'a self, _: Uuid, progress: &'a dyn Fn(Step)) -> Call<'a, ()> {
+        progress(Step::IdentityKey);
+        ready(Ok(()))
+    }
+    fn device_name(&self) -> Option<String> {
+        None
+    }
+    fn rename_device<'a>(&'a self, _: &'a str) -> Call<'a, ()> {
+        ready(Ok(()))
+    }
+    fn devices(&self) -> Call<'_, Vec<crate::backend::Device>> {
+        ready(Ok(Vec::new()))
+    }
+    fn remove_device(&self, _: Uuid, _: crate::backend::RemoveReason) -> Call<'_, ()> {
+        ready(Ok(()))
+    }
+    fn start_link<'a>(&'a self, _: &'a str) -> Call<'a, crate::backend::LinkStart> {
+        ready(Err(Problem::Gone))
+    }
+    fn link_answer(&self) -> Call<'_, Option<Vec<String>>> {
+        ready(Err(Problem::Gone))
+    }
+    fn finish_link(&self) -> Call<'_, Standing> {
+        ready(Err(Problem::Gone))
+    }
+    fn abandon_link(&self) -> Result<(), Problem> {
+        Ok(())
+    }
+    fn approve_link<'a>(&'a self, _: &'a str) -> Call<'a, crate::backend::Approval> {
+        ready(Ok(crate::backend::Approval::NoneWaiting))
+    }
+    fn waiting_links(&self) -> Call<'_, usize> {
+        ready(Ok(0))
+    }
+    fn key_details(&self) -> Call<'_, Vec<crate::backend::PersonaKeys>> {
+        ready(Ok(Vec::new()))
+    }
     fn account(&self) -> Call<'_, AccountSettings> {
         ready(Ok(AccountSettings {
             maturity_max: Maturity::Teen,

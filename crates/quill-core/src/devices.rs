@@ -63,6 +63,14 @@ const K_ANNOUNCED: &[u8] = b"announced";
 const K_NAME: &[u8] = b"name";
 /// When this device joined the login's devices, in seconds.
 const K_SINCE: &[u8] = b"since";
+/// Errors a client tells apart (they're `CoreError::Keys` with exactly
+/// this text): the link is gone, nobody has answered yet, and the
+/// KeyPackage doesn't match the code or words given.
+pub const LINK_EXPIRED: &str = "the link expired before it was approved; start again";
+pub const LINK_NOT_ANSWERED: &str = "no device approved the link in time; start again";
+pub const LINK_MISMATCH: &str =
+    "the new device's key doesn't match the code: don't link it. The server may have swapped it.";
+
 /// The longest device name, in characters.
 pub const NAME_MAX: usize = 40;
 /// This device fell behind the device group: what it needed to follow it
@@ -1017,7 +1025,7 @@ pub async fn wait_for_link(
     let (welcome, from_seq) = loop {
         let mailbox = client.read_link(link_id).await.map_err(|e| {
             if e.status() == Some(404) {
-                err("the link expired before it was approved; start again")
+                err(LINK_EXPIRED)
             } else {
                 e
             }
@@ -1026,7 +1034,7 @@ pub async fn wait_for_link(
             break (w, s);
         }
         if std::time::Instant::now() >= deadline {
-            return Err(err("no device approved the link in time; start again"));
+            return Err(err(LINK_NOT_ANSWERED));
         }
         tokio::time::sleep(poll).await;
     };
@@ -1220,16 +1228,14 @@ pub async fn approve(
     }
     let mailbox = client.read_link(&code.link_id).await.map_err(|e| {
         if e.status() == Some(404) {
-            err("no such link: it may have expired")
+            err(LINK_EXPIRED)
         } else {
             e
         }
     })?;
     let package = unb64(&mailbox.key_package).ok_or_else(|| err("server sent bad base64"))?;
     if !code.matches(&package) {
-        return Err(err(
-            "the new device's key doesn't match the code: don't link it. The server may have swapped it.",
-        ));
+        return Err(err(LINK_MISMATCH));
     }
     let package = match MlsMessageIn::tls_deserialize_exact(&package)
         .map_err(|e| mls_err("decoding", e))?

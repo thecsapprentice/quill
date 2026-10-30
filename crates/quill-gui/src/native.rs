@@ -9,6 +9,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
+use quill_certs::RevocationReason;
 use quill_core::{
     Client, CoreError, Store, StoreError, devices, keys,
     store::{KdfParams, KeySetup, KeySource, Unlock, vault::Vault},
@@ -25,6 +26,7 @@ use quill_ui::backend::{
     AppSettings, Backend, BoardSettings, Call, Details, Keys, PASSPHRASE_MIN_CHARS, PersonaState,
     Problem, Protection, ServerEntry, ServerInfo, ServerRules, Standing, Step, Theme,
 };
+use quill_ui::backend::{Approval, Device, LinkStart, PersonaKeys, RemoveReason};
 use tokio::runtime::Handle;
 use uuid::Uuid;
 
@@ -63,11 +65,43 @@ pub struct NativeBackend {
     unlocked: Mutex<HashMap<Uuid, Open>>,
     locked: Mutex<Option<Locked>>,
     upkeep_log: Mutex<Vec<String>>,
+    /// The link this computer opened, waiting for an answer.
+    link: Mutex<Option<String>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     // A panic elsewhere mustn't take the whole app down with it.
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// How long a link lasts (the server's mailbox).
+const LINK_SECS: u64 = 10 * 60;
+/// How long one look for a link's answer waits before saying "not yet".
+const ANSWER_WAIT_SECS: u64 = 3;
+
+/// A core message as a sentence: capitalised, with a full stop.
+fn sentence(e: &CoreError) -> String {
+    let text = e.to_string();
+    let mut chars = text.chars();
+    let mut out: String = chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect())
+        .unwrap_or_default();
+    if !out.ends_with('.') {
+        out.push('.');
+    }
+    out
+}
+
+/// A persona device's certificate check, in words.
+fn device_status(s: &keys::DeviceStatus) -> String {
+    match s {
+        keys::DeviceStatus::Valid { limited: false } => "certified".into(),
+        keys::DeviceStatus::Valid { limited: true } => "certified, limited".into(),
+        keys::DeviceStatus::Superseded => "certified by an older identity key".into(),
+        keys::DeviceStatus::Revoked(r) => format!("revoked ({})", r.as_str()),
+        keys::DeviceStatus::Invalid(why) => format!("fails its check: {why}"),
+    }
 }
 
 fn failed(detail: impl std::fmt::Display) -> Problem {
@@ -172,6 +206,7 @@ impl NativeBackend {
             unlocked: Mutex::new(HashMap::new()),
             locked: Mutex::new(None),
             upkeep_log: Mutex::new(Vec::new()),
+            link: Mutex::new(None),
         })
     }
 
@@ -356,6 +391,81 @@ fn create_store(
             Err(e) => Err(failed(e)),
         },
         (None, None) => Err(Problem::NeedsPassphrase),
+    }
+}
+
+impl NativeBackend {
+    /// Gets a persona ready on this computer; `replace` makes a new
+    /// identity key in place of one made on another device.
+    fn prepare_with<'a>(
+        &'a self,
+        persona: Uuid,
+        progress: &'a dyn Fn(Step),
+        replace: bool,
+    ) -> Call<'a, ()> {
+        Box::pin(async move {
+            let open = self.opened()?;
+            let o = open.clone();
+            let found = self
+                .run(async move {
+                    let list = o.client.personas().await.map_err(|e| problem(&o.name, e))?;
+                    Ok(list.into_iter().find(|p| p.id == persona))
+                })
+                .await?
+                .ok_or_else(|| Problem::Refused("That persona is gone.".into()))?;
+            progress(Step::IdentityKey);
+            let (o, p) = (open.clone(), found.clone());
+            self.run(async move {
+                keys::init(&o.store, &o.client, &p, replace)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| match e {
+                        // Made on another device: linking is the way (3d).
+                        CoreError::Keys(_) => Problem::Refused(
+                            "This persona's keys are on another of your devices. Link this computer to it, or restore a backup.".into(),
+                        ),
+                        e => problem(&o.name, e),
+                    })
+            })
+            .await?;
+            progress(Step::ThisComputer);
+            let o = open.clone();
+            self.run(async move {
+                devices::announce(&o.store, &o.client)
+                    .await
+                    .map_err(|e| problem(&o.name, e))
+            })
+            .await?;
+            progress(Step::KeyPackages);
+            let o = open;
+            self.run(async move {
+                keys::publish(&o.store, &o.client, &found, keys::POOL_TARGET)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| problem(&o.name, e))
+            })
+            .await
+        })
+    }
+
+    /// Runs `work` with the open server's store and client, off the window's thread.
+    fn call_with_store<'a, T, F, Fut>(&'a self, work: F) -> Call<'a, T>
+    where
+        T: Send + 'static,
+        F: FnOnce(Arc<Store>, Client) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<T, CoreError>> + Send + 'static,
+    {
+        let open = self.opened();
+        Box::pin(async move {
+            let open = open?;
+            let name = open.name.clone();
+            self.run(async move {
+                work(open.store, open.client)
+                    .await
+                    .map_err(|e| problem(&name, e))
+            })
+            .await
+        })
     }
 }
 
@@ -794,48 +904,232 @@ impl Backend for NativeBackend {
     }
 
     fn prepare<'a>(&'a self, persona: Uuid, progress: &'a dyn Fn(Step)) -> Call<'a, ()> {
+        self.prepare_with(persona, progress, false)
+    }
+
+    fn start_over<'a>(&'a self, persona: Uuid, progress: &'a dyn Fn(Step)) -> Call<'a, ()> {
+        self.prepare_with(persona, progress, true)
+    }
+
+    fn device_name(&self) -> Option<String> {
+        let open = self.opened().ok()?;
+        devices::name(&open.store).ok().flatten()
+    }
+
+    fn rename_device<'a>(&'a self, name: &'a str) -> Call<'a, ()> {
+        let name = name.to_owned();
         Box::pin(async move {
             let open = self.opened()?;
-            let o = open.clone();
-            let found = self
-                .run(async move {
-                    let list = o.client.personas().await.map_err(|e| problem(&o.name, e))?;
-                    Ok(list.into_iter().find(|p| p.id == persona))
-                })
-                .await?
-                .ok_or_else(|| Problem::Refused("That persona is gone.".into()))?;
-            progress(Step::IdentityKey);
-            let (o, p) = (open.clone(), found.clone());
+            devices::set_name(&open.store, &name).map_err(|e| Problem::Refused(sentence(&e)))?;
+            let label = open.name.clone();
             self.run(async move {
-                keys::init(&o.store, &o.client, &p, false)
+                devices::announce(&open.store, &open.client)
                     .await
-                    .map(|_| ())
-                    .map_err(|e| match e {
-                        // Made on another device: linking is the way (3d).
-                        CoreError::Keys(_) => Problem::Refused(
-                            "This persona's keys are on another of your devices. Link this computer to it, or restore a backup.".into(),
-                        ),
-                        e => problem(&o.name, e),
-                    })
-            })
-            .await?;
-            progress(Step::ThisComputer);
-            let o = open.clone();
-            self.run(async move {
-                devices::announce(&o.store, &o.client)
-                    .await
-                    .map_err(|e| problem(&o.name, e))
-            })
-            .await?;
-            progress(Step::KeyPackages);
-            let o = open;
-            self.run(async move {
-                keys::publish(&o.store, &o.client, &found, keys::POOL_TARGET)
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| problem(&o.name, e))
+                    .map_err(|e| problem(&label, e))
             })
             .await
+        })
+    }
+
+    fn devices(&self) -> Call<'_, Vec<Device>> {
+        Box::pin(async move {
+            let open = self.opened()?;
+            let name = open.name.clone();
+            self.run(async move {
+                let p = |e| problem(&name, e);
+                let list = devices::list(&open.store, &open.client).await.map_err(p)?;
+                let personas = open.client.personas().await.map_err(p)?;
+                let handle = |id: &Uuid| {
+                    personas
+                        .iter()
+                        .find(|p| p.id == *id)
+                        .map(|p| p.handle.clone())
+                };
+                Ok(list
+                    .into_iter()
+                    .map(|d| Device {
+                        id: d.id,
+                        this_device: d.this_device,
+                        name: d.name,
+                        since: d.since,
+                        personas: d
+                            .personas
+                            .iter()
+                            .filter_map(|p| handle(&p.persona))
+                            .collect(),
+                    })
+                    .collect())
+            })
+            .await
+        })
+    }
+
+    fn remove_device(&self, id: Uuid, reason: RemoveReason) -> Call<'_, ()> {
+        let reason = match reason {
+            RemoveReason::Lost => RevocationReason::Lost,
+            RemoveReason::Compromised => RevocationReason::Compromised,
+            RemoveReason::Retired => RevocationReason::Retired,
+            RemoveReason::Unspecified => RevocationReason::Unspecified,
+        };
+        self.call_with_store(move |store, client| async move {
+            devices::remove(&store, &client, id, reason)
+                .await
+                .map(|_| ())
+        })
+    }
+
+    fn start_link<'a>(&'a self, name: &'a str) -> Call<'a, LinkStart> {
+        let name = name.to_owned();
+        Box::pin(async move {
+            let open = self.opened()?;
+            devices::set_name(&open.store, &name).map_err(|e| Problem::Refused(sentence(&e)))?;
+            let label = open.name.clone();
+            let pending = self
+                .run(async move {
+                    devices::start_link(&open.store, &open.client)
+                        .await
+                        .map_err(|e| problem(&label, e))
+                })
+                .await?;
+            *lock(&self.link) = Some(pending.link_id.clone());
+            Ok(LinkStart {
+                code: pending.code,
+                words: pending.words.iter().map(|w| (*w).to_owned()).collect(),
+                expires_in_secs: LINK_SECS,
+            })
+        })
+    }
+
+    fn link_answer(&self) -> Call<'_, Option<Vec<String>>> {
+        Box::pin(async move {
+            let open = self.opened()?;
+            let link = lock(&self.link).clone().ok_or(Problem::Gone)?;
+            let label = open.name.clone();
+            let answer = self
+                .run(async move {
+                    match devices::wait_for_link(
+                        &open.store,
+                        &open.client,
+                        &link,
+                        std::time::Duration::from_secs(1),
+                        std::time::Duration::from_secs(ANSWER_WAIT_SECS),
+                    )
+                    .await
+                    {
+                        Ok(words) => Ok(Some(words.iter().map(|w| (*w).to_owned()).collect())),
+                        Err(CoreError::Keys(m)) if m == devices::LINK_NOT_ANSWERED => Ok(None),
+                        Err(CoreError::Keys(m)) if m == devices::LINK_EXPIRED => Err(Problem::Gone),
+                        Err(e) => Err(problem(&label, e)),
+                    }
+                })
+                .await;
+            if matches!(answer, Ok(Some(_)) | Err(Problem::Gone)) {
+                *lock(&self.link) = None;
+            }
+            answer
+        })
+    }
+
+    fn finish_link(&self) -> Call<'_, Standing> {
+        Box::pin(async move {
+            let open = self.opened()?;
+            let label = open.name.clone();
+            self.run(async move {
+                devices::finish_link(&open.store, &open.client)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| problem(&label, e))
+            })
+            .await?;
+            self.standing_now().await
+        })
+    }
+
+    fn abandon_link(&self) -> Result<(), Problem> {
+        *lock(&self.link) = None;
+        let open = self.opened()?;
+        devices::abandon_link(&open.store).map_err(failed)
+    }
+
+    fn approve_link<'a>(&'a self, typed: &'a str) -> Call<'a, Approval> {
+        let typed = typed.to_owned();
+        Box::pin(async move {
+            let code: devices::LinkCode = typed.parse().map_err(|_| {
+                Problem::Refused(
+                    "Type the six words the new computer shows, or paste its whole link code."
+                        .into(),
+                )
+            })?;
+            let open = self.opened()?;
+            let label = open.name.clone();
+            self.run(async move {
+                let p = |e| problem(&label, e);
+                if code.needs_lookup() {
+                    match devices::waiting(&open.client).await.map_err(p)? {
+                        devices::Waiting::None => return Ok(Approval::NoneWaiting),
+                        devices::Waiting::Several(n) => return Ok(Approval::Several(n)),
+                        devices::Waiting::One(_) => {}
+                    }
+                }
+                match devices::approve(&open.store, &open.client, &code).await {
+                    Ok(a) => Ok(Approval::Approved {
+                        confirm: a.confirm.iter().map(|w| (*w).to_owned()).collect(),
+                    }),
+                    Err(CoreError::Keys(m)) if m == devices::LINK_MISMATCH => {
+                        Ok(Approval::WordsDiffer)
+                    }
+                    Err(CoreError::Keys(m)) if m == devices::LINK_EXPIRED => {
+                        Ok(Approval::NoneWaiting)
+                    }
+                    Err(e) => Err(p(e)),
+                }
+            })
+            .await
+        })
+    }
+
+    fn waiting_links(&self) -> Call<'_, usize> {
+        self.call(|client| async move { Ok(client.waiting_links().await?.len()) })
+    }
+
+    fn key_details(&self) -> Call<'_, Vec<PersonaKeys>> {
+        self.call_with_store(|store, client| async move {
+            let mut out = Vec::new();
+            for p in client.personas().await? {
+                let mut rows = vec![("Persona id".to_owned(), p.id.to_string())];
+                let published = client.persona_keys(p.id).await?;
+                let checked = keys::check_published(&published, &p.actor_uri, keys::now_ms())?;
+                if let Some((_, version)) = &checked.identity {
+                    rows.push((
+                        "Identity key".into(),
+                        checked.fingerprint().unwrap_or_default(),
+                    ));
+                    rows.push(("Identity key version".into(), version.to_string()));
+                } else {
+                    rows.push(("Identity key".into(), "none published".into()));
+                }
+                let mine = keys::load_device(&store, p.id)?;
+                let mine_key = mine.as_ref().map(|d| d.public());
+                for d in &checked.devices {
+                    let here = mine_key.is_some_and(|m| m.as_slice() == d.device_key);
+                    let label = if here {
+                        format!("Device {} (this computer)", d.id)
+                    } else {
+                        format!("Device {}", d.id)
+                    };
+                    rows.push((label, device_status(&d.status)));
+                }
+                if let Some(id) = mine.and_then(|d| d.id)
+                    && let Ok(s) = client.key_package_status(p.id, id).await
+                {
+                    rows.push(("KeyPackages waiting".into(), s.available.to_string()));
+                }
+                out.push(PersonaKeys {
+                    handle: p.handle,
+                    rows,
+                });
+            }
+            Ok(out)
         })
     }
 
