@@ -12,8 +12,9 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use quill_proto::{
     board::{
-        AccountSettings, ChipColor, CreatePrompt, CreateTag, FrequentTagsQuery, Maturity, Prompt,
-        PromptAuthor, PromptPage, PromptQuery, PromptState, Tag, TagNamespace, TagOrigin,
+        AccountSettings, ChipColor, CountedTag as ApiCountedTag, CreatePrompt, CreateTag,
+        FrequentTagsQuery, Maturity, Prompt, PromptAuthor, PromptPage, PromptQuery, PromptState,
+        TAG_PAGE_MAX, Tag, TagNamespace, TagOrder as ApiTagOrder, TagOrigin, TagPage, TagPageQuery,
         TagPolicy, TagQuery, TagStatus, UpdateAccountSettings, UpdatePrompt,
     },
     limits::{
@@ -42,6 +43,7 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(list_prompts, create_prompt))
         .routes(routes!(get_prompt, update_prompt, delete_prompt))
         .routes(routes!(list_namespaces))
+        .routes(routes!(list_namespace_tags))
         .routes(routes!(list_tags, create_user_tag))
         .routes(routes!(api_frequent_tags))
 }
@@ -961,6 +963,53 @@ async fn list_namespaces(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<TagNamespace>>, ApiError> {
     namespaces(&state).await.map(Json)
+}
+
+/// How many tags a page of `GET /tag-namespaces/{name}/tags` has by default.
+const TAG_PAGE_DEFAULT: u32 = 30;
+
+#[utoipa::path(
+    get, path = "/tag-namespaces/{name}/tags", tag = "tags", security(()),
+    summary = "One page of a tag type's tags, with how many prompts carry each",
+    description = "Visible tags only. Counts are of prompts on the board (not removed), whatever their rating. For a filter builder: search by text or initial letter, most used first or A to Z, paged.",
+    params(("name" = String, Path, description = "The tag type"), TagPageQuery),
+    responses(
+        (status = 200, body = TagPage),
+        (status = 400, description = "Not a tag type name"),
+    ),
+)]
+async fn list_namespace_tags(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(q): Query<TagPageQuery>,
+) -> Result<Json<TagPage>, ApiError> {
+    let order = match q.order.unwrap_or(ApiTagOrder::Used) {
+        ApiTagOrder::Used => TagOrder::MostUsed,
+        ApiTagOrder::Name => TagOrder::AToZ,
+    };
+    let limit = q.limit.unwrap_or(TAG_PAGE_DEFAULT).clamp(1, TAG_PAGE_MAX);
+    let letter = q.letter.filter(char::is_ascii_alphabetic);
+    let search = q.search.unwrap_or_default();
+    if search.chars().count() > SEARCH_QUERY_MAX_CHARS {
+        return Err(ApiError::BadRequest("search is too long".into()));
+    }
+    let (tags, total) = tag_page(
+        &state,
+        &name,
+        &search,
+        letter,
+        order,
+        q.offset.unwrap_or(0),
+        limit,
+    )
+    .await?;
+    Ok(Json(TagPage {
+        items: tags
+            .into_iter()
+            .map(|(tag, prompts)| ApiCountedTag { tag, prompts })
+            .collect(),
+        total,
+    }))
 }
 
 const NAMESPACE_SELECT: &str =

@@ -519,3 +519,145 @@ async fn the_first_run_moves_through_the_apps_screens() {
     assert_eq!((m.screen, m.persona), (Screen::Frame, None));
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_board_through_the_native_backend() {
+    use quill_proto::board::{
+        CreatePrompt, CreateReport, Maturity, PromptQuery, PromptState, ReportReason, TagPageQuery,
+        TagQuery, UpdateNamespace, UpdatePrompt,
+    };
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let admin = server.admin_account("boss").await.unwrap();
+    // Every prompt needs exactly one length tag.
+    admin
+        .admin_update_namespace(
+            "length",
+            &UpdateNamespace {
+                min: Some(1),
+                max: Some(1),
+                ..UpdateNamespace::default()
+            },
+        )
+        .await
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let app = backend(dir.path(), &keychain());
+    app.add_server(&server.url(), None).await.unwrap();
+    app.register("ink", PASSWORD, None).await.unwrap();
+    let fox = app.create_persona("ink_fox", "").await.unwrap();
+
+    let types = app.tag_types().await.unwrap();
+    let length = types.iter().find(|t| t.name == "length").unwrap();
+    assert_eq!((length.min, length.max), (1, Some(1)));
+
+    let draft = |tags: &[&str]| CreatePrompt {
+        persona: fox.id,
+        title: "The lighthouse keeper".into(),
+        body: "A letter arrives *forty* years late.".into(),
+        maturity: Maturity::General,
+        tags: tags.iter().map(|t| (*t).to_owned()).collect(),
+        state: None,
+    };
+    // The limit is refused in words.
+    let refused = app
+        .create_prompt(draft(&["genre:horror"]))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&refused, Problem::Refused(t) if t.contains("exactly 1 Length tag")),
+        "{refused:?}"
+    );
+    // A locked type takes no new tags.
+    let locked = app
+        .create_prompt(draft(&["length:short", "format:limerick"]))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&locked, Problem::Refused(t) if t.contains("new tags can't be created")),
+        "{locked:?}"
+    );
+    let posted = app
+        .create_prompt(draft(&["length:short", "genre:horror", "theme:the sea"]))
+        .await
+        .unwrap();
+    assert_eq!(posted.tags.len(), 3);
+
+    // Browsing, searching and filtering.
+    let all = app.prompts(PromptQuery::default()).await.unwrap();
+    assert_eq!(all.items.len(), 1);
+    let none = app
+        .prompts(PromptQuery {
+            exclude: Some("genre:horror".into()),
+            ..PromptQuery::default()
+        })
+        .await
+        .unwrap();
+    assert!(none.items.is_empty());
+    let found = app
+        .prompts(PromptQuery {
+            q: Some("letter".into()),
+            ..PromptQuery::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(found.items.len(), 1);
+    assert_eq!(app.prompt(posted.id).await.unwrap().title, posted.title);
+
+    // Tags: a type's page with counts, autocomplete, and frequent tags.
+    let themes = app
+        .tag_page("theme", TagPageQuery::default())
+        .await
+        .unwrap();
+    assert_eq!(themes.items[0].prompts, 1);
+    assert!(
+        !app.find_tags(TagQuery {
+            prefix: Some("hor".into()),
+            ..TagQuery::default()
+        })
+        .await
+        .unwrap()
+        .is_empty()
+    );
+    assert_eq!(app.frequent_tags(Some(fox.id)).await.unwrap().len(), 3);
+
+    // Editing, then closing it.
+    let edited = app
+        .update_prompt(
+            posted.id,
+            UpdatePrompt {
+                title: Some("The lighthouse keeper's last letter".into()),
+                state: Some(PromptState::Closed),
+                ..UpdatePrompt::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(edited.state, PromptState::Closed);
+    assert!(
+        app.prompt_link(posted.id)
+            .unwrap()
+            .ends_with(&format!("/p/{}", posted.id))
+    );
+
+    // Reporting, and the notices an administrator's action sends.
+    app.report(CreateReport {
+        prompt: posted.id,
+        reason: ReportReason::Spam,
+        details: Some("Testing.".into()),
+    })
+    .await
+    .unwrap();
+    assert_eq!(app.account().await.unwrap().unread_notices, 0);
+    assert!(app.notices(None).await.unwrap().is_empty());
+
+    // Deleted: gone, for this writer and anyone.
+    app.delete_prompt(posted.id).await.unwrap();
+    assert_eq!(app.prompt(posted.id).await.unwrap_err(), Problem::Gone);
+    assert_eq!(
+        app.delete_prompt(posted.id).await.unwrap_err(),
+        Problem::Gone
+    );
+    server.stop().await.unwrap();
+}

@@ -9406,6 +9406,110 @@
         ]
       }
     },
+    "/tag-namespaces/{name}/tags": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "One page of a tag type's tags, with how many prompts carry each",
+        "description": "Visible tags only. Counts are of prompts on the board (not removed), whatever their rating. For a filter builder: search by text or initial letter, most used first or A to Z, paged.",
+        "operationId": "get_tag_namespaces_by_name_tags",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The tag type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Keeps tags whose display name contains this, case-insensitively.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "letter",
+            "in": "query",
+            "description": "Keeps tags whose display name starts with this letter.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "description": "`used` (the default) or `name`.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TagOrder"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "At most [`TAG_PAGE_MAX`]; 30 when left out.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a tag type name",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
     "/tags": {
       "get": {
         "tags": [
@@ -10445,6 +10549,24 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "CountedTag": {
+        "type": "object",
+        "description": "A tag and how many prompts on the board carry it.",
+        "required": [
+          "tag",
+          "prompts"
+        ],
+        "properties": {
+          "prompts": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "tag": {
+            "$ref": "#/components/schemas/Tag"
           }
         }
       },
@@ -13046,6 +13168,28 @@
           "server",
           "user"
         ]
+      },
+      "TagPage": {
+        "type": "object",
+        "description": "One page of a tag type's visible tags.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CountedTag"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many tags matched, across pages.",
+            "minimum": 0
+          }
+        }
       },
       "TagPolicy": {
         "type": "string",

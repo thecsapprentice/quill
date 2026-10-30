@@ -224,3 +224,114 @@ legend { font-weight: 600; padding: 0 0.3rem; }
 .rules-box { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 0.5rem 0.8rem; margin-bottom: 0.8rem; }
 .rules-box summary { cursor: pointer; font-weight: 600; }
 .rules-box .markdown { max-height: 16rem; overflow-y: auto; font-size: 1rem; }
+
+/* ---- The board (3c) ---- */
+.page.wide { max-width: none; }
+.board { display: grid; grid-template-columns: minmax(18rem, 28rem) minmax(0, 1fr); gap: 0 2rem; align-items: start; }
+.board-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.board-head h1 { margin: 0 0 0.6rem; font-size: 1.5rem; }
+.board-tools { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+.board-tools input, .tag-find input, .type-head input {
+  flex: 1; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--surface); padding: 0.5rem 0.7rem;
+}
+.summary { display: flex; flex-direction: column; gap: 0.3rem; border: 1px solid var(--line); border-radius: var(--radius-m); padding: 0.6rem 0.8rem; margin-bottom: 0.6rem; background: var(--surface); }
+.summary .quiet { align-self: flex-end; padding: 0.1rem 0.4rem; }
+.summary-label { font-weight: 600; font-size: 0.85rem; margin-right: 0.2rem; }
+.prompts { list-style: none; margin: 0; padding: 0; max-height: calc(100vh - 16rem); overflow-y: auto; border-top: 1px solid var(--line); }
+.row { border-bottom: 1px solid var(--line); }
+.row-button { display: flex; flex-direction: column; gap: 0.15rem; width: 100%; text-align: left; border: 0; background: none; padding: 0.7rem 0.6rem; cursor: pointer; border-left: 3px solid transparent; }
+.row-button:hover { background: var(--surface); }
+.row.open .row-button { background: var(--surface); border-left-color: var(--accent); }
+.row-title { font-family: var(--write); font-weight: 600; font-size: 1.05rem; }
+.row-meta { font-size: 0.8rem; color: var(--muted); }
+.row-line { font-size: 0.9rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-end { padding: 0.8rem 0.4rem; color: var(--muted); font-size: 0.9rem; }
+.board-reader { position: sticky; top: 0; }
+.reader h2 { font-size: 1.9rem; margin: 0.2rem 0 0.3rem; }
+.reader-meta { color: var(--muted); font-size: 0.9rem; margin: 0 0 1rem; }
+.reader .markdown { border-top: 2px solid var(--accent); padding-top: 0.6rem; }
+.reader-back { display: none; }
+.own { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 0.8rem; max-width: 24rem; }
+.report { margin-top: 1rem; }
+
+/* Chips: a type's colour comes inline, from the server's settings. */
+.chips { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.4rem 0; }
+.chip { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.82rem; padding: 0.1rem 0.6rem; border-radius: 999px; background: var(--accent-soft); color: var(--ink); }
+.chip-note { font-size: 0.75rem; }
+.chip-remove { border: 0; background: none; padding: 0 0.1rem; cursor: pointer; color: inherit; font-size: 0.95rem; line-height: 1; }
+.slot { font-size: 0.82rem; padding: 0.1rem 0.6rem; border-radius: 999px; border: 1px dashed var(--muted); color: var(--muted); }
+
+/* Filter builder: types, one type's tags, the whole filter. */
+.filters { display: grid; grid-template-columns: 10rem minmax(24rem, 1fr) 15rem; grid-template-areas: "head head head" "types pane side"; gap: 1rem 1.5rem; align-items: start; }
+.filters-head { grid-area: head; display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+.filters-head h1 { margin: 0; font-size: 1.5rem; }
+.filter-types { grid-area: types; display: flex; flex-direction: column; gap: 0.15rem; }
+.filter-types .count { font-size: 0.75rem; background: var(--ink); color: var(--paper); border-radius: 999px; padding: 0 0.4rem; margin-left: auto; }
+.filter-pane { grid-area: pane; }
+.filter-summary { grid-area: side; background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: var(--radius-m); padding: 0.8rem 1rem; }
+.filter-summary h2 { margin: 0 0 0.5rem; font-size: 1.1rem; }
+.filter-summary h3 { margin: 0.6rem 0 0.2rem; font-size: 0.85rem; font-family: var(--ui); }
+.type-head { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+.type-head h2 { margin: 0; flex-basis: 100%; }
+.letters { display: flex; flex-wrap: wrap; gap: 0.1rem; margin: 0.6rem 0; }
+.letters button { border: 0; background: none; padding: 0.15rem 0.35rem; cursor: pointer; color: var(--accent); border-radius: var(--radius-s); }
+.letters button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.tag-table { width: 100%; border-collapse: collapse; }
+.tag-table th, .tag-table td { text-align: left; padding: 0.35rem 0.4rem; border-bottom: 1px solid var(--line); font-weight: normal; }
+.tag-table thead th { font-size: 0.8rem; color: var(--muted); }
+.tag-table td:last-child { white-space: nowrap; width: 1%; }
+.reader > .actions { margin-top: 0.4rem; }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius-s); overflow: hidden; }
+.segmented button { border: 0; background: var(--surface); padding: 0.3rem 0.8rem; cursor: pointer; }
+.segmented button + button { border-left: 1px solid var(--line); }
+.segmented button[aria-pressed="true"] { background: var(--accent-soft); font-weight: 600; }
+.pager { display: flex; gap: 0.6rem; align-items: center; justify-content: space-between; margin-top: 0.6rem; }
+
+/* Posting: the form, and the preview and tag panel beside it. */
+.post { display: grid; grid-template-columns: minmax(0, 1fr) 24rem; gap: 1.5rem; align-items: start; }
+.post-form h1 { margin-top: 0; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.field .label { font-weight: 600; font-size: 0.92rem; }
+.tag-box { border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--surface); padding: 0.4rem 0.6rem; min-height: 2.6rem; }
+.post-side { display: flex; flex-direction: column; gap: 1rem; }
+.preview, .tag-panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 0.8rem 1rem; }
+.preview h2, .tag-panel h2 { margin: 0 0 0.5rem; font-size: 0.8rem; font-family: var(--ui); letter-spacing: 0.04em; color: var(--muted); }
+.preview h3 { margin: 0; }
+.tag-find { display: flex; gap: 0.5rem; }
+.tag-panel h3 { font-family: var(--ui); font-size: 0.9rem; margin: 0.8rem 0 0.2rem; }
+.tag-type { border-top: 1px solid var(--line); padding-top: 0.3rem; }
+.tag-type.needed { border: 1px dashed var(--bad); border-radius: var(--radius-s); padding: 0.3rem 0.5rem; }
+.tag-type-head { display: flex; justify-content: space-between; align-items: baseline; }
+.tag-option { border: 1px solid var(--line); background: none; border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.82rem; cursor: pointer; }
+.tag-option.on { background: var(--accent-soft); cursor: default; }
+
+/* Mid widths: the filter summary moves under the tags. */
+@media (max-width: 1150px) {
+  .filters { grid-template-columns: 10rem minmax(0, 1fr); grid-template-areas: "head head" "types pane" "types side"; }
+}
+
+@media (max-width: 760px) {
+  .board { grid-template-columns: minmax(0, 1fr); }
+  .board.reading .board-list { display: none; }
+  .board:not(.reading) .board-reader { display: none; }
+  .reader-back { display: block; }
+  .prompts { max-height: none; }
+  .filters { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "types" "pane" "side"; }
+  .filter-types { flex-direction: row; flex-wrap: wrap; }
+  .post { grid-template-columns: minmax(0, 1fr); }
+  .field-row { grid-template-columns: 1fr; }
+}
+
+/* ---- Notices (M2b) and the nav's unread count ---- */
+.section .badge { margin-left: auto; font-size: 0.75rem; font-weight: 600; background: var(--bad); color: #fff; border-radius: 999px; padding: 0 0.45rem; }
+.page > .lede { color: var(--muted); line-height: 1.5; max-width: 60ch; }
+.notices { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.75rem; max-width: 70ch; }
+.notice-item { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 0.75rem 1rem; }
+.notice-item.unread { border-left: 4px solid var(--accent); }
+.notice-item p { margin: 0.25rem 0; }
+.notice-item .new { color: var(--accent); font-weight: 600; }
+.notice-prompts { margin: 0.25rem 0 0; padding-left: 1.2rem; }
+button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; }
+.row-tags { margin-top: 0.3rem; font-size: 0.8rem; }
+.load-more { height: 1px; }
+.fresh { display: flex; gap: 0.8rem; align-items: center; margin: 0.4rem 0; color: var(--muted); }

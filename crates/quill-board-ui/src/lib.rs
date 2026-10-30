@@ -36,7 +36,7 @@ pub use admin::*;
 pub use announcements::*;
 pub use filters::*;
 pub use moderation::*;
-pub use notices::notices_page;
+pub use notices::{notices_page, sentence as notice_sentence};
 pub use pages::*;
 pub use rules::*;
 

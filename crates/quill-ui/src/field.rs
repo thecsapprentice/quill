@@ -121,6 +121,9 @@ pub struct AreaProps {
     pub generation: u32,
     #[props(default)]
     pub hint: Option<String>,
+    /// Whether `hint` says something is wrong.
+    #[props(default)]
+    pub invalid: bool,
     pub oninput: EventHandler<String>,
 }
 
@@ -130,10 +133,11 @@ pub fn Area(props: AreaProps) -> Element {
     let hint_id = format!("{}-hint", props.id);
     let key = format!("{}-{}", props.id, props.generation);
     rsx! {
-        div { class: "field",
+        div { class: if props.invalid { "field invalid" } else { "field" },
             label { r#for: "{props.id}", "{props.label}" }
             for k in [key] {
                 textarea {
+                    aria_invalid: if props.invalid { "true" } else { "false" },
                     key: "{k}",
                     id: "{props.id}",
                     rows: "4",

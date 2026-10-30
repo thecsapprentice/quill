@@ -21,6 +21,18 @@ pub fn RulesPage() -> Element {
         (m.server_name(), m.rules.clone())
     };
 
+    // Fetch afresh on each visit: the rules may have been set or changed
+    // since the frame last asked (a refusal to post sends people here).
+    let b = backend.clone();
+    use_hook(move || {
+        spawn(async move {
+            let Some(id) = model.peek().current else {
+                return;
+            };
+            let fresh = b.rules().await;
+            model.write().rules_loaded(id, fresh);
+        });
+    });
     let b = backend.clone();
     let accept = use_callback(move |version: u32| {
         busy.set(true);

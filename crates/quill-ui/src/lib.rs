@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod backend;
+mod board;
 pub mod checks;
 #[cfg(test)]
 mod fake;
@@ -13,6 +14,7 @@ mod first_run;
 mod frame;
 pub mod markdown;
 pub mod model;
+mod notices;
 mod personas;
 mod server_rules;
 mod settings;
