@@ -20,11 +20,14 @@ use dioxus::prelude::*;
 use dioxus_core::{
     AttributeValue, ElementId, Template, TemplateAttribute, TemplateNode, WriteMutations,
 };
-use dioxus_html::HtmlEvent;
+use dioxus_html::{HtmlEvent, PlatformEventData};
 
 use crate::{App, Backend, Ui, app::StartWith, model::Model};
 
+mod mounted;
 mod sim;
+
+pub use mounted::Asked;
 pub use sim::{Acceptance, Sim, SimServer};
 
 /// How long a wait gives up after.
@@ -373,6 +376,10 @@ impl WriteMutations for Doc {
 pub struct Driver {
     dom: VirtualDom,
     doc: Doc,
+    /// Nodes already sent their `mounted` event.
+    mounted: HashSet<usize>,
+    /// What the app asked of mounted elements, by node, in order.
+    asked: Vec<(usize, Asked)>,
 }
 
 impl Driver {
@@ -387,7 +394,7 @@ impl Driver {
     }
 
     fn start(backend: Rc<dyn Backend>, model: Option<Model>) -> Self {
-        dioxus_html::set_event_converter(Box::new(dioxus_html::SerializedHtmlEventConverter));
+        dioxus_html::set_event_converter(Box::new(mounted::Converter));
         let mut dom = VirtualDom::new(App);
         dom.provide_root_context(Ui(backend));
         if let Some(m) = model {
@@ -395,7 +402,55 @@ impl Driver {
         }
         let mut doc = Doc::new();
         dom.rebuild(&mut doc);
-        Self { dom, doc }
+        let mut d = Self {
+            dom,
+            doc,
+            mounted: HashSet::new(),
+            asked: Vec::new(),
+        };
+        d.mount_new();
+        d
+    }
+
+    /// Sends `mounted` to elements that appeared and listen for it, as the
+    /// webview does after inserting them.
+    fn mount_new(&mut self) {
+        loop {
+            let fresh: Vec<(usize, ElementId)> = self
+                .doc
+                .attached()
+                .into_iter()
+                .filter(|n| !self.mounted.contains(n))
+                .filter(|n| self.doc.nodes[*n].listeners.contains("mounted"))
+                .filter_map(|n| self.doc.nodes[n].id.map(|id| (n, id)))
+                .collect();
+            if fresh.is_empty() {
+                break;
+            }
+            for (n, id) in fresh {
+                self.mounted.insert(n);
+                let data = PlatformEventData::new(Box::new(mounted::Mounted(n)));
+                let event = dioxus_core::Event::new(Rc::new(data) as Rc<dyn std::any::Any>, false);
+                self.dom.runtime().handle_event("mounted", event, id);
+            }
+            self.dom.render_immediate(&mut self.doc);
+        }
+        self.asked.extend(mounted::take());
+    }
+
+    /// What the app asked of elements with `class` (scrolling, focus) since
+    /// the last call, oldest first.
+    pub fn asked_of(&mut self, class: &str) -> Vec<Asked> {
+        self.asked.extend(mounted::take());
+        let (theirs, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.asked)
+            .into_iter()
+            .partition(|(n, _)| {
+                self.doc
+                    .attr(*n, "class")
+                    .is_some_and(|c| c.split_whitespace().any(|w| w == class))
+            });
+        self.asked = rest;
+        theirs.into_iter().map(|(_, a)| a).collect()
     }
 
     /// Lets pending work (backend calls, timers, re-renders) run until
@@ -406,6 +461,7 @@ impl Driver {
                 .await
                 .is_err();
             self.dom.render_immediate(&mut self.doc);
+            self.mount_new();
             if quiet {
                 return;
             }
@@ -614,6 +670,7 @@ impl Driver {
         let event = dioxus_core::Event::new(event.data.into_any(), event.bubbles);
         self.dom.runtime().handle_event(name, event, target);
         self.dom.render_immediate(&mut self.doc);
+        self.mount_new();
     }
 
     /// Clicks the button labelled `label`. A disabled button can't be
