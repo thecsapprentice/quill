@@ -461,11 +461,19 @@ impl Driver {
             .unwrap_or_else(|| panic!("no #{id}; the window shows:\n{}", self.text()))
     }
 
+    /// A button's accessible name: its `aria-label`, else its text, as a
+    /// screen reader would read it.
+    fn name_of(&self, n: usize) -> String {
+        self.doc
+            .attr(n, "aria-label")
+            .map_or_else(|| self.doc.text_of(n), str::to_owned)
+    }
+
     fn button(&self, label: &str) -> Option<usize> {
         self.doc
             .attached()
             .into_iter()
-            .find(|n| self.doc.tag(*n) == Some("button") && self.doc.text_of(*n) == label)
+            .find(|n| self.doc.tag(*n) == Some("button") && self.name_of(*n) == label)
     }
 
     /// The `n`th button labelled `label`, counting from 0 in page order.
@@ -474,7 +482,7 @@ impl Driver {
             .doc
             .attached()
             .into_iter()
-            .filter(|b| self.doc.tag(*b) == Some("button") && self.doc.text_of(*b) == label)
+            .filter(|b| self.doc.tag(*b) == Some("button") && self.name_of(*b) == label)
             .nth(n)
             .unwrap_or_else(|| {
                 panic!(
@@ -581,6 +589,79 @@ impl Driver {
             self.text()
         );
         self.send(b, "click", mouse());
+        self.settle().await;
+    }
+
+    /// Clicks the first button whose text contains `text` (a list row,
+    /// whose label is its title and details).
+    pub async fn click_containing(&mut self, text: &str) {
+        let b = self
+            .doc
+            .attached()
+            .into_iter()
+            .find(|n| self.doc.tag(*n) == Some("button") && self.doc.text_of(*n).contains(text))
+            .unwrap_or_else(|| {
+                panic!(
+                    "no button with \"{text}\"; the window shows:\n{}",
+                    self.text()
+                )
+            });
+        self.send(b, "click", mouse());
+        self.settle().await;
+    }
+
+    /// Whether a button's text contains `text`.
+    pub fn has_button_containing(&self, text: &str) -> bool {
+        self.doc
+            .attached()
+            .into_iter()
+            .any(|n| self.doc.tag(n) == Some("button") && self.doc.text_of(n).contains(text))
+    }
+
+    /// Clicks the element with `id` (a button among others with the same
+    /// label, such as a row's Has).
+    pub async fn click_id(&mut self, id: &str) {
+        let el = self.by_id(id);
+        assert!(
+            self.doc.attr(el, "disabled").is_none(),
+            "#{id} is disabled; the window shows:\n{}",
+            self.text()
+        );
+        self.send(el, "click", mouse());
+        self.settle().await;
+    }
+
+    /// Whether the element with `id` is pressed (`aria-pressed`).
+    pub fn pressed(&self, id: &str) -> bool {
+        self.attr(id, "aria-pressed").as_deref() == Some("true")
+    }
+
+    /// Scrolls the element with class `class` to its end, as reaching the
+    /// bottom of a list does.
+    pub async fn scroll_to_end(&mut self, class: &str) {
+        let el = self
+            .doc
+            .attached()
+            .into_iter()
+            .find(|n| {
+                self.doc
+                    .attr(*n, "class")
+                    .is_some_and(|c| c.split_whitespace().any(|w| w == class))
+            })
+            .unwrap_or_else(|| panic!("no .{class}; the window shows:\n{}", self.text()));
+        let data = dioxus_html::SerializedScrollData {
+            scroll_top: 1000.0,
+            scroll_left: 0.0,
+            scroll_width: 400,
+            scroll_height: 1600,
+            client_width: 400,
+            client_height: 600,
+        };
+        self.send(
+            el,
+            "scroll",
+            serde_json::to_value(data).expect("scroll data"),
+        );
         self.settle().await;
     }
 
