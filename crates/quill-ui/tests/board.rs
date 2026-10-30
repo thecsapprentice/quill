@@ -120,10 +120,19 @@ async fn more_prompts_come_as_the_end_of_the_list_comes_into_view() {
     assert!(d.has_text("Prompt number 25"));
     assert!(!d.has_text("Prompt number 24"), "one page of 20");
     assert!(!d.has_button("Show more prompts"), "no button to press");
+    // Found by hand: the marker and the end's message sat below the list's
+    // scrolling box, so they were always in view when wide (loading every
+    // page at once, and saying "That's every prompt" at any scroll).
+    assert!(
+        d.class_within("prompts", "load-more"),
+        "inside the scrolling list"
+    );
+    assert!(!d.has_text("That's every prompt."), "more to come");
     d.bring_into_view("load-more").await;
     d.wait_for_text("Prompt number 5 ").await;
     d.bring_into_view("load-more").await;
     d.wait_for_text("That's every prompt.").await;
+    assert!(d.text_within("prompts").contains("That's every prompt."));
     assert!(d.has_text("Prompt number 0"));
     assert!(
         !d.has_element_with_class("load-more"),
