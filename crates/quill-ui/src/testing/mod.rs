@@ -699,6 +699,20 @@ impl Driver {
         self.settle().await;
     }
 
+    /// Chooses the option reading `label` in the select with `id`, as a
+    /// writer picks from the list.
+    pub async fn choose_labelled(&mut self, id: &str, label: &str) {
+        let select = self.by_id(id);
+        let value = self.doc.nodes[select]
+            .children
+            .iter()
+            .find(|c| self.doc.tag(**c) == Some("option") && self.doc.text_of(**c) == label)
+            .and_then(|c| self.doc.attr(*c, "value"))
+            .unwrap_or_else(|| panic!("#{id} has no option {label:?}"))
+            .to_owned();
+        self.choose(id, &value).await;
+    }
+
     /// Chooses the option with `value` in the select with `id`.
     pub async fn choose(&mut self, id: &str, value: &str) {
         let field = self.by_id(id);

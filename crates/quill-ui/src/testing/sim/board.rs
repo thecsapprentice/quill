@@ -17,6 +17,9 @@ use quill_proto::{
 };
 use uuid::Uuid;
 
+/// Notices per page when none is asked for, as the server sends.
+pub const NOTICE_PAGE: usize = 50;
+
 use super::{Sim, SimServer};
 use crate::backend::Problem;
 
@@ -620,6 +623,8 @@ impl SimServer {
             .filter(|n| before.is_none_or(|b| n.id < b))
             .collect();
         list.sort_by_key(|n| std::cmp::Reverse(n.id));
+        // The server's default page.
+        list.truncate(NOTICE_PAGE);
         list
     }
 
@@ -832,6 +837,34 @@ impl Sim {
                 .entry(login.to_owned())
                 .or_default()
                 .push(notice);
+        });
+    }
+
+    /// Like [`Sim::notify`], about prompts already posted (by id).
+    pub fn notify_about(
+        &self,
+        domain: &str,
+        login: &str,
+        kind: NoticeKind,
+        fields: NoticeFields,
+        prompt: Uuid,
+    ) {
+        let mut known = None;
+        self.server(domain, |s| {
+            known = s
+                .board
+                .prompts
+                .iter()
+                .find(|p| p.prompt.id == prompt)
+                .map(|p| (p.prompt.title.clone(), p.prompt.author.handle.clone()));
+        });
+        let (title, handle) = known.expect("a posted prompt");
+        self.notify(domain, login, kind, fields, &[(&title, &handle)]);
+        // Point the notice at the prompt itself.
+        self.server(domain, |s| {
+            if let Some(n) = s.board.notices.get_mut(login).and_then(|l| l.last_mut()) {
+                n.prompts[0].id = prompt;
+            }
         });
     }
 
