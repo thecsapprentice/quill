@@ -156,6 +156,9 @@ pub struct BoardState {
     pub seen: u32,
     /// Prompts newer than the list's, found by a check but not shown yet.
     pub fresh: usize,
+    /// Bumped each time a load replaces the list: the list scrolls back
+    /// to its top then (Refresh, a search, a filter, "Show them").
+    pub to_top: u32,
     /// My prompts' persona filter. Applied here rather than by the server,
     /// whose handle filter leaves out removed prompts.
     pub persona: Option<Uuid>,
@@ -178,6 +181,7 @@ impl Default for BoardState {
             said: None,
             seen: 0,
             fresh: 0,
+            to_top: 0,
             persona: None,
         }
     }
@@ -286,6 +290,7 @@ pub fn reload(backend: std::rc::Rc<dyn Backend>, mut board: Signal<BoardState>) 
                 b.items = page.items;
                 b.next = page.next_cursor;
                 b.fresh = 0;
+                b.to_top = b.to_top.wrapping_add(1);
                 // Keep the reading pane only if its prompt is still listed.
                 if b.open_prompt().is_none() {
                     b.open = None;
