@@ -539,6 +539,36 @@ impl Driver {
             .any(|n| self.doc.tag(n) == Some(tag))
     }
 
+    /// The first element with `class`, if any.
+    fn with_class(&self, class: &str) -> Option<usize> {
+        self.doc.attached().into_iter().find(|n| {
+            self.doc
+                .attr(*n, "class")
+                .is_some_and(|c| c.split_whitespace().any(|w| w == class))
+        })
+    }
+
+    /// The text inside the first element with `class` (empty if none).
+    pub fn text_within(&self, class: &str) -> String {
+        self.with_class(class)
+            .map(|n| self.doc.text_of(n))
+            .unwrap_or_default()
+    }
+
+    /// Whether an element with class `inner` sits inside one with `outer`:
+    /// for layout that decides what's seen (inside a scrolling box, say).
+    pub fn class_within(&self, outer: &str, inner: &str) -> bool {
+        fn walk(doc: &Doc, n: usize, class: &str) -> bool {
+            doc.nodes[n].children.iter().any(|c| {
+                doc.attr(*c, "class")
+                    .is_some_and(|v| v.split_whitespace().any(|w| w == class))
+                    || walk(doc, *c, class)
+            })
+        }
+        self.with_class(outer)
+            .is_some_and(|n| walk(&self.doc, n, inner))
+    }
+
     /// Whether an element with `class` is in the window.
     pub fn has_element_with_class(&self, class: &str) -> bool {
         self.doc.attached().into_iter().any(|n| {

@@ -212,46 +212,50 @@ fn BoardList() -> Element {
                         }
                     }
                 }
+                // The end of the list lives inside its scrolling box, so it's
+                // seen (and loads more) only once the list is scrolled there.
+                // Keyed by the count, so a page too short to fill the view
+                // loads the next.
                 ul { class: "prompts",
                     for p in items.iter() {
                         Row { key: "{p.id}", prompt: p.clone(), open: Some(p.id) == open }
                     }
-                }
-                // Reaching the end loads the next page, whichever box scrolls
-                // (the list when wide, the page when narrow). Keyed by the
-                // count, so a page too short to fill the view loads the next.
-                if next && !loading && problem_none {
-                    for k in [items.len()] {
-                        div {
-                            key: "{k}",
-                            class: "load-more",
-                            aria_hidden: "true",
-                            onvisible: {
-                                let bm = bm.clone();
-                                move |e: VisibleEvent| {
-                                    if e.is_intersecting().unwrap_or(false) {
-                                        more(bm.clone(), board);
+                    if next && !loading && problem_none {
+                        for k in [items.len()] {
+                            li {
+                                key: "{k}",
+                                class: "load-more",
+                                aria_hidden: "true",
+                                onvisible: {
+                                    let bm = bm.clone();
+                                    move |e: VisibleEvent| {
+                                        if e.is_intersecting().unwrap_or(false) {
+                                            more(bm.clone(), board);
+                                        }
                                     }
-                                }
-                            },
+                                },
+                            }
+                        }
+                    }
+                    if !items.is_empty() && (loading || (loaded && !next)) {
+                        li { class: "list-end", role: "status",
+                            if loading { "Loading more prompts…" } else { "That's every prompt." }
                         }
                     }
                 }
-                div { class: "list-end", role: "status",
-                    if loading && loaded && !items.is_empty() {
-                        "Loading more prompts…"
-                    } else if loading {
-                        "Loading prompts…"
-                    } else if mine && loaded && items.is_empty() && !next && persona.is_some() {
-                        "No prompts posted as this persona."
-                    } else if mine && loaded && items.is_empty() && !next {
-                        "You haven't posted a prompt yet."
-                    } else if loaded && items.is_empty() && (count > 0 || searching) && !next {
-                        "No prompts match. Try fewer filters, or another search."
-                    } else if loaded && items.is_empty() && !next {
-                        "No prompts on the board yet."
-                    } else if loaded && !next {
-                        "That's every prompt."
+                if items.is_empty() {
+                    div { class: "list-end", role: "status",
+                        if loading {
+                            "Loading prompts…"
+                        } else if mine && loaded && !next && persona.is_some() {
+                            "No prompts posted as this persona."
+                        } else if mine && loaded && !next {
+                            "You haven't posted a prompt yet."
+                        } else if loaded && (count > 0 || searching) && !next {
+                            "No prompts match. Try fewer filters, or another search."
+                        } else if loaded && !next {
+                            "No prompts on the board yet."
+                        }
                     }
                 }
             }
