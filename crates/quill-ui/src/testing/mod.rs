@@ -539,6 +539,15 @@ impl Driver {
             .any(|n| self.doc.tag(n) == Some(tag))
     }
 
+    /// Whether an element with `class` is in the window.
+    pub fn has_element_with_class(&self, class: &str) -> bool {
+        self.doc.attached().into_iter().any(|n| {
+            self.doc
+                .attr(n, "class")
+                .is_some_and(|c| c.split_whitespace().any(|w| w == class))
+        })
+    }
+
     pub fn has_button(&self, label: &str) -> bool {
         self.button(label).is_some()
     }
@@ -636,9 +645,9 @@ impl Driver {
         self.attr(id, "aria-pressed").as_deref() == Some("true")
     }
 
-    /// Scrolls the element with class `class` to its end, as reaching the
-    /// bottom of a list does.
-    pub async fn scroll_to_end(&mut self, class: &str) {
+    /// Scrolls the element with `class` into view, as the webview reports
+    /// it (a `visible` event), whichever box does the scrolling.
+    pub async fn bring_into_view(&mut self, class: &str) {
         let el = self
             .doc
             .attached()
@@ -649,19 +658,19 @@ impl Driver {
                     .is_some_and(|c| c.split_whitespace().any(|w| w == class))
             })
             .unwrap_or_else(|| panic!("no .{class}; the window shows:\n{}", self.text()));
-        let data = dioxus_html::SerializedScrollData {
-            scroll_top: 1000.0,
-            scroll_left: 0.0,
-            scroll_width: 400,
-            scroll_height: 1600,
-            client_width: 400,
-            client_height: 600,
-        };
-        self.send(
-            el,
-            "scroll",
-            serde_json::to_value(data).expect("scroll data"),
-        );
+        let rect = serde_json::json!({
+            "bottom": 600.0, "height": 1.0, "left": 0.0, "right": 400.0,
+            "top": 599.0, "width": 400.0, "x": 0.0, "y": 599.0
+        });
+        let data = serde_json::json!({
+            "bounding_client_rect": rect,
+            "intersection_ratio": 1.0,
+            "intersection_rect": rect,
+            "is_intersecting": true,
+            "root_bounds": rect,
+            "time_ms": 0
+        });
+        self.send(el, "visible", data);
         self.settle().await;
     }
 

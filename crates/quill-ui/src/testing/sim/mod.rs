@@ -99,6 +99,8 @@ struct State {
     stores: HashMap<Uuid, Store>,
     current: Option<Uuid>,
     keychain: bool,
+    /// Wakes waits of a minute or more (`time_passes`).
+    clock: Rc<tokio::sync::Notify>,
     settings: AppSettings,
 }
 
@@ -125,6 +127,7 @@ impl Sim {
             stores: HashMap::new(),
             current: None,
             keychain: true,
+            clock: Rc::default(),
             settings: AppSettings {
                 theme: Theme::System,
                 text_size: 100,
@@ -151,6 +154,12 @@ impl Sim {
     pub fn without_keychain(self) -> Self {
         self.0.borrow_mut().keychain = false;
         self
+    }
+
+    /// Every wait of a minute or more (periodic checks, upkeep) ends now,
+    /// as if that long had passed. Such waits otherwise last until called.
+    pub fn time_passes(&self) {
+        self.0.borrow().clock.notify_waiters();
     }
 
     /// Changes a server (an administrator's settings, an outage).
@@ -810,6 +819,10 @@ impl Backend for Sim {
     }
 
     fn sleep(&self, ms: u64) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+        if ms >= 60_000 {
+            let clock = self.0.borrow().clock.clone();
+            return Box::pin(async move { clock.notified().await });
+        }
         Box::pin(tokio::time::sleep(Duration::from_millis(ms)))
     }
 }
