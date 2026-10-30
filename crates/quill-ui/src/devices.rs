@@ -359,8 +359,10 @@ pub fn DevicesPage() -> Element {
         .map(|p| format!("@{}", p.persona.handle))
         .collect();
     drop(m);
-    // A login alone on this computer has no device group yet.
-    let shown = list().map(|l| {
+    // A login alone on this computer has no device group yet. Otherwise
+    // this computer comes first, then the others, oldest first.
+    let shown = list().map(|mut l| {
+        l.sort_by_key(|d| (!d.this_device, d.since));
         if l.is_empty() {
             vec![Device {
                 id: Uuid::nil(),

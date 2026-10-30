@@ -365,7 +365,7 @@ fn Home() -> Element {
         }
         if nudge {
             div { class: "nudge",
-                p { "Your persona's keys live only on this computer for now. Quill will soon be able to back them up, and will remind you here when it can." }
+                p { "Quill can't back up your personas' keys yet, and will remind you here when it can. Until then, a linked device keeps a second copy." }
                 button {
                     class: "quiet",
                     onclick: move |_| model.write().backup_nudge_dismissed = true,

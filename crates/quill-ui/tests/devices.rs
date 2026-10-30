@@ -310,7 +310,9 @@ async fn this_computer_is_renamed_and_another_removed_after_one_question() {
     d.click("Settings").await;
     d.click("Your devices").await;
     d.wait_for_text("Laptop").await;
-    assert!(d.has_text("Study desktop"));
+    let text = d.text();
+    let at = |t: &str| text.find(t).unwrap_or_else(|| panic!("no {t}"));
+    assert!(at("Study desktop") < at("Laptop"), "this computer first");
     assert!(d.has_text("Writes as @ink_fox."));
 
     d.click("Rename").await;
