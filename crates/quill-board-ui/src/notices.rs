@@ -15,8 +15,9 @@ fn tag_label(n: &AccountNotice) -> String {
     }
 }
 
-/// What happened, and what the list of prompts below it means.
-fn sentence(n: &AccountNotice) -> (String, &'static str) {
+/// What happened, and what the list of prompts below it means. Shared
+/// with the desktop app, so both say it the same way.
+pub fn sentence(n: &AccountNotice) -> (String, &'static str) {
     let tag = tag_label(n);
     match n.kind {
         NoticeKind::PromptRemoved => {
