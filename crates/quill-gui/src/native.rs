@@ -43,6 +43,16 @@ struct Open {
     store: Arc<Store>,
     /// Signed in when the store holds a token.
     client: Client,
+    /// Held while working on the login's device group: two tasks doing so
+    /// at once (upkeep and approving, say) would send with the same keys.
+    group: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl Open {
+    /// Waits for this server's device group to be free (see `group`).
+    async fn exclusive(&self) -> tokio::sync::OwnedMutexGuard<()> {
+        self.group.clone().lock_owned().await
+    }
 }
 
 /// A server whose store waits for its passphrase.
@@ -291,6 +301,7 @@ impl NativeBackend {
             name,
             store: Arc::new(store),
             client,
+            group: Arc::default(),
         };
         *lock(&self.open) = Some(open.clone());
         lock(&self.unlocked).insert(id, open.clone());
@@ -448,6 +459,7 @@ impl NativeBackend {
             progress(Step::ThisComputer);
             let o = open.clone();
             self.run(async move {
+                let _group = o.exclusive().await;
                 devices::announce(&o.store, &o.client)
                     .await
                     .map_err(|e| problem(&o.name, e))
@@ -697,6 +709,7 @@ impl Backend for NativeBackend {
                 name,
                 store,
                 client,
+                group,
             } = open;
             let store = match Arc::try_unwrap(store) {
                 Ok(s) => s,
@@ -706,6 +719,7 @@ impl Backend for NativeBackend {
                         name,
                         store,
                         client,
+                        group,
                     };
                     lock(&self.unlocked).insert(id, open.clone());
                     *lock(&self.open) = Some(open);
@@ -739,6 +753,7 @@ impl Backend for NativeBackend {
                 name,
                 store: Arc::new(store),
                 client,
+                group,
             };
             lock(&self.unlocked).insert(id, open.clone());
             *lock(&self.open) = Some(open);
@@ -950,6 +965,7 @@ impl Backend for NativeBackend {
             devices::set_name(&open.store, &name).map_err(|e| Problem::Refused(sentence(&e)))?;
             let label = open.name.clone();
             self.run(async move {
+                let _group = open.exclusive().await;
                 devices::announce(&open.store, &open.client)
                     .await
                     .map_err(|e| problem(&label, e))
@@ -964,7 +980,10 @@ impl Backend for NativeBackend {
             let name = open.name.clone();
             self.run(async move {
                 let p = |e| problem(&name, e);
-                let list = devices::list(&open.store, &open.client).await.map_err(p)?;
+                let list = {
+                    let _group = open.exclusive().await;
+                    devices::list(&open.store, &open.client).await.map_err(p)?
+                };
                 let personas = open.client.personas().await.map_err(p)?;
                 let handle = |id: &Uuid| {
                     personas
@@ -998,10 +1017,17 @@ impl Backend for NativeBackend {
             RemoveReason::Retired => RevocationReason::Retired,
             RemoveReason::Unspecified => RevocationReason::Unspecified,
         };
-        self.call_with_store(move |store, client| async move {
-            devices::remove(&store, &client, id, reason)
-                .await
-                .map(|_| ())
+        Box::pin(async move {
+            let open = self.opened()?;
+            let label = open.name.clone();
+            self.run(async move {
+                let _group = open.exclusive().await;
+                devices::remove(&open.store, &open.client, id, reason)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| problem(&label, e))
+            })
+            .await
         })
     }
 
@@ -1013,6 +1039,7 @@ impl Backend for NativeBackend {
             let label = open.name.clone();
             let pending = self
                 .run(async move {
+                    let _group = open.exclusive().await;
                     devices::start_link(&open.store, &open.client)
                         .await
                         .map_err(|e| problem(&label, e))
@@ -1034,6 +1061,7 @@ impl Backend for NativeBackend {
             let label = open.name.clone();
             let answer = self
                 .run(async move {
+                    let _group = open.exclusive().await;
                     match devices::wait_for_link(
                         &open.store,
                         &open.client,
@@ -1062,6 +1090,7 @@ impl Backend for NativeBackend {
             let open = self.opened()?;
             let label = open.name.clone();
             self.run(async move {
+                let _group = open.exclusive().await;
                 devices::finish_link(&open.store, &open.client)
                     .await
                     .map(|_| ())
@@ -1098,6 +1127,7 @@ impl Backend for NativeBackend {
                         devices::Waiting::One(_) => {}
                     }
                 }
+                let _group = open.exclusive().await;
                 match devices::approve(&open.store, &open.client, &code).await {
                     Ok(a) => Ok(Approval::Approved {
                         confirm: a.confirm.iter().map(|w| (*w).to_owned()).collect(),
@@ -1169,6 +1199,7 @@ impl Backend for NativeBackend {
             let name = open.name.clone();
             let report = self
                 .run(async move {
+                    let _group = open.exclusive().await;
                     devices::maintain(&open.store, &open.client)
                         .await
                         .map_err(|e| problem(&name, e))

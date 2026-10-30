@@ -808,3 +808,65 @@ async fn starting_over_with_a_new_identity_key_through_the_native_backend() {
     );
     server.stop().await.unwrap();
 }
+
+/// Approving while upkeep runs (a live notice starts upkeep at once) must
+/// not send two device-group messages with the same keys: the new device
+/// then can't read the second, and linking fails.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn approving_while_upkeep_runs_still_links() {
+    use quill_ui::backend::Approval;
+    // Many rounds of linking post more device-group messages a minute
+    // than the server's default allows.
+    let Some(server) = TestServer::start_with(|c| c.limits.messages_per_minute = 10_000)
+        .await
+        .unwrap()
+    else {
+        return;
+    };
+    let (ld, lv) = (tempfile::tempdir().unwrap(), keychain());
+    let laptop = backend(ld.path(), &lv);
+    laptop.add_server(&server.url(), None).await.unwrap();
+    laptop.register("ink", PASSWORD, None).await.unwrap();
+    let fox = laptop.create_persona("ink_fox", "").await.unwrap();
+    laptop.prepare(fox.id, &|_| {}).await.unwrap();
+    // Eight: the server opens at most 10 links per login an hour.
+    for round in 0..8 {
+        let (dd, dv) = (tempfile::tempdir().unwrap(), keychain());
+        let desktop = backend(dd.path(), &dv);
+        desktop.add_server(&server.url(), None).await.unwrap();
+        desktop.sign_in("ink", PASSWORD).await.unwrap();
+        let link = desktop.start_link(&format!("Desk {round}")).await.unwrap();
+        let words = link.words.join(" ");
+        let name = format!("Laptop {round}");
+        let (approved, upkept, listed, renamed) = tokio::join!(
+            laptop.approve_link(&words),
+            laptop.upkeep(),
+            laptop.devices(),
+            laptop.rename_device(&name),
+        );
+        let Approval::Approved { confirm } = approved.unwrap() else {
+            panic!("round {round}: not approved");
+        };
+        upkept.unwrap();
+        listed.unwrap();
+        renamed.unwrap();
+        let shown = loop {
+            if let Some(w) = desktop.link_answer().await.unwrap() {
+                break w;
+            }
+        };
+        assert_eq!(shown, confirm, "round {round}");
+        let standing = desktop
+            .finish_link()
+            .await
+            .unwrap_or_else(|e| panic!("round {round}: finishing failed: {e:?} {:?}", e.detail()));
+        assert_eq!(
+            personas(&standing),
+            vec![("ink_fox".to_owned(), Keys::Ready)]
+        );
+        // And the laptop keeps reading the group.
+        laptop.upkeep().await.unwrap();
+        assert_eq!(laptop.devices().await.unwrap().len(), round + 2);
+    }
+    server.stop().await.unwrap();
+}
