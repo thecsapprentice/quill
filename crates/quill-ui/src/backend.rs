@@ -354,6 +354,10 @@ pub trait Backend {
 
     /// What this computer is called on the login's other devices.
     fn device_name(&self) -> Option<String>;
+    /// Whether another of the login's devices removed this computer.
+    fn removed_here(&self) -> bool;
+    /// A name to suggest for this computer: its own, as the system knows it.
+    fn suggested_device_name(&self) -> String;
     /// Renames this computer, telling the other devices if it's linked.
     fn rename_device<'a>(&'a self, name: &'a str) -> Call<'a, ()>;
     /// The login's devices; empty until a second one is linked.

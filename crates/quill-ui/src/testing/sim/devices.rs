@@ -77,6 +77,8 @@ pub(super) struct Here {
     pub link: Option<Uuid>,
     /// Another device removed it.
     pub removed: bool,
+    /// Removed, but not yet learnt: the next upkeep learns it.
+    pub removal_pending: bool,
 }
 
 /// Seconds for "now": devices made in a test count from here.
@@ -173,8 +175,8 @@ impl Sim {
         });
     }
 
-    /// Another device removes this computer from the login's devices: its
-    /// keys go, and upkeep says so.
+    /// Another device removes this computer from the login's devices. The
+    /// app learns it at its next upkeep, when the keys go.
     pub fn remove_this_computer(&self, domain: &str) {
         let mut s = self.0.borrow_mut();
         let st = &mut *s;
@@ -187,8 +189,24 @@ impl Sim {
         if let Some(id) = store.here.device {
             server.devices.list.retain(|d| d.id != id);
         }
-        store.keys.clear();
-        store.here.removed = true;
+        store.here.removal_pending = true;
+    }
+
+    /// Upkeep's catch-up: learns a pending removal. Returns whether it did.
+    pub(super) fn sim_catch_up(&self) -> bool {
+        let Ok((_, store, _)) = self.open_store() else {
+            return false;
+        };
+        if !store.here.removal_pending {
+            return false;
+        }
+        self.with_server_mut(|_, store| {
+            store.keys.clear();
+            store.here.removal_pending = false;
+            store.here.removed = true;
+            store.here.device = None;
+        });
+        true
     }
 
     /// The login's devices as the server's group knows them: name and the

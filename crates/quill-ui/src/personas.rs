@@ -60,6 +60,8 @@ enum Mode {
     Showing,
     Editing,
     Deleting,
+    /// Asking before a new identity key replaces one on another device.
+    StartingOver,
 }
 
 #[component]
@@ -141,10 +143,18 @@ fn PersonaItem(state: PersonaState) -> Element {
                                 "Write as @{handle}"
                             }
                         }
+                        if state.keys == Keys::Elsewhere {
+                            button {
+                                class: "secondary",
+                                onclick: move |_| model.write().begin_link(),
+                                "Link this computer"
+                            }
+                            button { class: "quiet", onclick: move |_| mode.set(Mode::StartingOver), "Start over…" }
+                        }
                         if state.keys == Keys::ToSetUp {
                             button {
                                 class: "secondary",
-                                onclick: move |_| model.write().screen = crate::model::Screen::Preparing { persona: id },
+                                onclick: move |_| model.write().screen = crate::model::Screen::Preparing { persona: id, replace: false },
                                 "Get it ready here"
                             }
                         }
@@ -172,6 +182,20 @@ fn PersonaItem(state: PersonaState) -> Element {
                     div { class: "actions",
                         button { class: "primary", disabled: busy(), onclick: save, "Save" }
                         button { class: "quiet", onclick: move |_| mode.set(Mode::Showing), "Cancel" }
+                    }
+                },
+                Mode::StartingOver => rsx! {
+                    div { class: "notice", role: "alert",
+                        p { "Start @{handle} over with a new identity key? Do this only if you can't reach the device that holds its keys: linking keeps everything." }
+                        p { "Your other devices stop being able to write as @{handle}, and writers you've worked with are told its key changed. Sessions it was in will need it added again." }
+                    }
+                    div { class: "actions",
+                        button {
+                            class: "danger",
+                            onclick: move |_| model.write().begin_start_over(id),
+                            "Start over with a new key"
+                        }
+                        button { class: "quiet", onclick: move |_| mode.set(Mode::Showing), "Keep it" }
                     }
                 },
                 Mode::Deleting => rsx! {

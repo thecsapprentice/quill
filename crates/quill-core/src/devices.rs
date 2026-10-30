@@ -250,6 +250,12 @@ impl Sibling {
     }
 }
 
+/// Whether another of the login's devices removed this one (its keys are
+/// gone; linking again starts afresh).
+pub fn was_removed(store: &Store) -> Result<bool, CoreError> {
+    Ok(store.get(Table::Account, K_REMOVED)?.is_some())
+}
+
 /// This device's name, if its owner gave one.
 pub fn name(store: &Store) -> Result<Option<String>, CoreError> {
     Ok(store

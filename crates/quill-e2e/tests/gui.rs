@@ -484,7 +484,13 @@ async fn the_first_run_moves_through_the_apps_screens() {
 
     let fox = app.create_persona("ink_fox", "Ink Fox").await.unwrap();
     m.persona_created(fox.clone());
-    assert_eq!(m.screen, Screen::Preparing { persona: fox.id });
+    assert_eq!(
+        m.screen,
+        Screen::Preparing {
+            persona: fox.id,
+            replace: false
+        }
+    );
     let done = app.prepare(fox.id, &|_| {}).await;
     m.prepared(fox.id, done);
     assert_eq!((m.screen, m.status), (Screen::Frame, Status::Connected));

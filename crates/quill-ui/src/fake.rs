@@ -158,6 +158,12 @@ impl Backend for Fake {
     fn device_name(&self) -> Option<String> {
         None
     }
+    fn removed_here(&self) -> bool {
+        false
+    }
+    fn suggested_device_name(&self) -> String {
+        "This computer".into()
+    }
     fn rename_device<'a>(&'a self, _: &'a str) -> Call<'a, ()> {
         ready(Ok(()))
     }

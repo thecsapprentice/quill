@@ -93,6 +93,23 @@ fn sentence(e: &CoreError) -> String {
     out
 }
 
+/// The computer's own name, as the system knows it, if it says.
+fn computer_name() -> Option<String> {
+    let from_env = ["COMPUTERNAME", "HOSTNAME"]
+        .iter()
+        .find_map(|k| std::env::var(k).ok());
+    let found = from_env.or_else(|| std::fs::read_to_string("/etc/hostname").ok());
+    // macOS keeps it elsewhere; `scutil` would need a process, so it's skipped.
+    found
+        .map(|n| {
+            n.trim()
+                .chars()
+                .take(quill_ui::backend::DEVICE_NAME_MAX)
+                .collect::<String>()
+        })
+        .filter(|n| !n.is_empty())
+}
+
 /// A persona device's certificate check, in words.
 fn device_status(s: &keys::DeviceStatus) -> String {
     match s {
@@ -909,6 +926,16 @@ impl Backend for NativeBackend {
 
     fn start_over<'a>(&'a self, persona: Uuid, progress: &'a dyn Fn(Step)) -> Call<'a, ()> {
         self.prepare_with(persona, progress, true)
+    }
+
+    fn removed_here(&self) -> bool {
+        self.opened()
+            .ok()
+            .is_some_and(|o| devices::was_removed(&o.store).unwrap_or(false))
+    }
+
+    fn suggested_device_name(&self) -> String {
+        computer_name().unwrap_or_else(|| "My computer".into())
     }
 
     fn device_name(&self) -> Option<String> {

@@ -10,6 +10,7 @@ use crate::{
     app::{ProblemLine, open_server, use_ui},
     backend::{Backend, Keys},
     board::{BoardPage, BoardState, MineState, MyPromptsPage},
+    devices::DevicesPage,
     model::{Section, Status},
     notices::NoticesPage,
     personas::PersonasPage,
@@ -93,6 +94,7 @@ fn Sections(section: Section) -> Element {
                         Section::Personas => rsx! { PersonasPage {} },
                         Section::Settings => rsx! { SettingsPage {} },
                         Section::Rules => rsx! { RulesPage {} },
+                        Section::Devices => rsx! { DevicesPage {} },
                     }
     }
 }
@@ -266,7 +268,16 @@ fn Upkeep(server: Uuid) -> Element {
                     model.write().opened(server, result);
                 } else if signed_in {
                     let result = b.upkeep().await;
+                    // Something to tell (this computer removed, say) may
+                    // change which personas are ready here: look again.
+                    let told = matches!(result, Ok(Some(_)));
                     model.write().upkept(server, result);
+                    if told {
+                        let standing = b.standing().await;
+                        if let Ok(s) = standing {
+                            model.write().opened(server, Ok(s));
+                        }
+                    }
                     // The account says how many notices are unread.
                     if let Ok(account) = b.account().await {
                         model.write().unread_loaded(server, account.unread_notices);
@@ -320,6 +331,12 @@ fn Home() -> Element {
     let no_persona = m.signed_in() && m.personas().is_empty();
     let signed_out = m.status == Status::SignedOut;
     let nudge = !m.backup_nudge_dismissed && in_use.is_some();
+    let elsewhere: Vec<String> = m
+        .personas()
+        .iter()
+        .filter(|p| p.keys == crate::backend::Keys::Elsewhere)
+        .map(|p| format!("@{}", p.persona.handle))
+        .collect();
     drop(m);
     rsx! {
         h1 {
@@ -338,6 +355,12 @@ fn Home() -> Element {
             div { class: "nudge",
                 p { "Writing and posting need a persona: a name you write under. It takes a moment to make one." }
                 button { class: "primary", onclick: move |_| model.write().go(Section::Personas), "Make a persona" }
+            }
+        }
+        if !elsewhere.is_empty() {
+            div { class: "nudge",
+                p { "The keys for {elsewhere.join(\", \")} are on another of your devices. Link this computer to write as them here." }
+                button { class: "primary", onclick: move |_| model.write().begin_link(), "Link this computer" }
             }
         }
         if nudge {

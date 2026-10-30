@@ -680,6 +680,14 @@ impl Backend for Sim {
         self.sim_device_name()
     }
 
+    fn removed_here(&self) -> bool {
+        self.open_store().is_ok_and(|(_, s, _)| s.here.removed)
+    }
+
+    fn suggested_device_name(&self) -> String {
+        "writing-laptop".into()
+    }
+
     fn rename_device<'a>(&'a self, name: &'a str) -> Call<'a, ()> {
         now(self.sim_rename_device(name))
     }
@@ -725,8 +733,10 @@ impl Backend for Sim {
     }
 
     fn upkeep(&self) -> Call<'_, Option<String>> {
-        now(self.reach().map(|(_, store, _)| {
-            store.here.removed.then(|| {
+        // A removal by another device is learnt here, as quill-core's
+        // catch-up learns it: the keys go then.
+        now(self.reach().map(|_| {
+            self.sim_catch_up().then(|| {
                 "This computer was removed from your devices. Link it again to keep writing here."
                     .to_owned()
             })

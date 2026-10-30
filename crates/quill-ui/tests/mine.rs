@@ -28,7 +28,7 @@ async fn signed_in(sim: &Rc<Sim>) -> Driver {
     d.type_into("login-password", PASSWORD).await;
     d.click("Sign in").await;
     d.wait_for_text("This computer is new to your login").await;
-    d.click("Continue").await;
+    d.click("Not now").await;
     d.wait_for_text("Connected to writers.example").await;
     d
 }
