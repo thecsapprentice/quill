@@ -294,6 +294,13 @@ fn Row(prompt: Prompt, open: bool) -> Element {
                     if prompt.removed { " · removed" }
                 }
                 span { class: "row-line", "{line}" }
+                if !prompt.tags.is_empty() {
+                    span { class: "chips row-tags",
+                        for t in prompt.tags.iter() {
+                            Chip { key: "{t.key()}", tag: t.clone() }
+                        }
+                    }
+                }
             }
         }
     }

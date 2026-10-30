@@ -67,6 +67,8 @@ async fn prompts_are_listed_newest_first_and_read_beside_the_list() {
         at("Prompt number 4") < at("Prompt number 0"),
         "newest first"
     );
+    // Each row carries its tags, before any prompt is opened.
+    assert!(d.has_text("genre: Mystery"));
     d.click_containing("Prompt number 4").await;
     d.wait_for_text("The body of prompt number 4.").await;
     assert!(d.has_text("@writer0"));
