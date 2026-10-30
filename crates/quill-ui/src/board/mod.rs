@@ -19,7 +19,7 @@ mod list;
 mod post;
 mod reader;
 
-pub use list::BoardPage;
+pub use list::{BoardPage, MyPromptsPage};
 
 /// What the board asks the server for: tags to have and to hide, a lower
 /// rating cap, a status and a search.
@@ -30,6 +30,8 @@ pub struct Filter {
     pub maturity: Option<Maturity>,
     pub state: Option<PromptState>,
     pub search: String,
+    /// `me` on My prompts: the login's own, removed ones included.
+    pub author: Option<String>,
 }
 
 /// How a tag is set in the filter builder.
@@ -52,6 +54,7 @@ impl Filter {
             maturity_max: self.maturity,
             q: Some(self.search.trim().to_owned()).filter(|s| !s.is_empty()),
             state: self.state,
+            author: self.author.clone(),
             cursor,
             ..PromptQuery::default()
         }
@@ -88,8 +91,10 @@ impl Filter {
     /// Clears everything but the search.
     pub fn clear(&mut self) {
         let search = std::mem::take(&mut self.search);
+        let author = self.author.take();
         *self = Self {
             search,
+            author,
             ..Self::default()
         };
     }
@@ -147,6 +152,9 @@ pub struct BoardState {
     pub policy: TagPolicy,
     /// A line to show after an action ("Prompt posted.").
     pub said: Option<String>,
+    /// My prompts' persona filter. Applied here rather than by the server,
+    /// whose handle filter leaves out removed prompts.
+    pub persona: Option<Uuid>,
 }
 
 impl Default for BoardState {
@@ -164,11 +172,38 @@ impl Default for BoardState {
             types: None,
             policy: TagPolicy::Open,
             said: None,
+            persona: None,
         }
     }
 }
 
+/// My prompts' board, kept apart from the Board's so each keeps its own
+/// list, filter and open prompt.
+#[derive(Clone, Copy)]
+pub struct MineState(pub Signal<BoardState>);
+
 impl BoardState {
+    /// The board of the login's own prompts.
+    pub fn mine() -> Self {
+        let mut b = Self::default();
+        b.filter.author = Some("me".into());
+        b
+    }
+
+    /// Whether this is My prompts rather than the Board.
+    pub fn is_mine(&self) -> bool {
+        self.filter.author.is_some()
+    }
+
+    /// The prompts to list: all, or My prompts' chosen persona's.
+    pub fn shown(&self) -> Vec<Prompt> {
+        self.items
+            .iter()
+            .filter(|p| self.persona.is_none_or(|id| p.author.id == id))
+            .cloned()
+            .collect()
+    }
+
     pub fn open_prompt(&self) -> Option<&Prompt> {
         self.items.iter().find(|p| Some(p.id) == self.open)
     }

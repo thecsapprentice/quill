@@ -5,8 +5,8 @@ use dioxus::prelude::*;
 use quill_proto::board::Prompt;
 
 use super::{
-    View, filters::FilterBuilder, more, post::PostForm, reader::Reader, reload, use_board,
-    use_tag_types,
+    MineState, View, filters::FilterBuilder, more, post::PostForm, reader::Reader, reload,
+    use_board, use_tag_types,
 };
 use crate::{
     app::{ProblemLine, use_ui},
@@ -24,9 +24,14 @@ pub fn BoardPage() -> Element {
     let (backend, _) = use_ui();
     let board = use_board();
     use_tag_types();
-    // The first visit loads the first page.
+    // The first visit loads the first page; My prompts loads afresh on
+    // each visit, since they may have changed on the Board.
     use_hook(move || {
-        if !board.peek().loaded && !board.peek().loading {
+        let b = board.peek();
+        let again = b.is_mine() || !b.loaded;
+        let busy = b.loading;
+        drop(b);
+        if again && !busy {
             reload(backend, board);
         }
     });
@@ -38,6 +43,15 @@ pub fn BoardPage() -> Element {
     }
 }
 
+/// The My prompts section (mockup D6): the board's list and reading pane
+/// over the login's own prompts, with a persona filter instead of search.
+#[component]
+pub fn MyPromptsPage() -> Element {
+    let MineState(mine) = use_context::<MineState>();
+    use_context_provider(|| mine);
+    rsx! { BoardPage {} }
+}
+
 #[component]
 fn BoardList() -> Element {
     let (backend, model) = use_ui();
@@ -45,7 +59,9 @@ fn BoardList() -> Element {
     let mut round = use_signal(|| 0u32);
     let b = board.read();
     let open = b.open;
-    let items = b.items.clone();
+    let mine = b.is_mine();
+    let persona = b.persona;
+    let items = b.shown();
     let loading = b.loading;
     let loaded = b.loaded;
     let next = b.next.is_some();
@@ -54,6 +70,12 @@ fn BoardList() -> Element {
     let said = b.said.clone();
     drop(b);
     let can_post = model.read().signed_in();
+    let personas: Vec<(uuid::Uuid, String)> = model
+        .read()
+        .personas()
+        .iter()
+        .map(|p| (p.persona.id, p.persona.handle.clone()))
+        .collect();
 
     let back = backend.clone();
     let on_search = use_callback(move |text: String| {
@@ -92,7 +114,7 @@ fn BoardList() -> Element {
         div { class,
             section { class: "board-list", aria_label: "Prompts",
                 header { class: "board-head",
-                    h1 { "Board" }
+                    h1 { if mine { "My prompts" } else { "Board" } }
                     if can_post {
                         button {
                             class: "primary",
@@ -105,6 +127,19 @@ fn BoardList() -> Element {
                         }
                     }
                 }
+                if mine {
+                    div { class: "board-tools",
+                        label { class: "sr-only", r#for: "mine-persona", "Persona" }
+                        select {
+                            id: "mine-persona",
+                            onchange: move |e| board.write().persona = e.value().parse().ok(),
+                            option { value: "", selected: persona.is_none(), "All my personas ({personas.len()})" }
+                            for (id, handle) in personas.iter() {
+                                option { key: "{id}", value: "{id}", selected: persona == Some(*id), "@{handle}" }
+                            }
+                        }
+                    }
+                } else {
                 div { class: "board-tools",
                     input {
                         id: "board-search",
@@ -124,6 +159,7 @@ fn BoardList() -> Element {
                     }
                 }
                 Summary {}
+                }
                 if let Some(text) = said {
                     p { class: "hint", role: "status", "{text}" }
                 }
@@ -148,9 +184,13 @@ fn BoardList() -> Element {
                 div { class: "list-end", role: "status",
                     if loading {
                         "Loading prompts…"
-                    } else if loaded && items.is_empty() && (count > 0 || searching) {
+                    } else if mine && loaded && items.is_empty() && !next && persona.is_some() {
+                        "No prompts posted as this persona."
+                    } else if mine && loaded && items.is_empty() && !next {
+                        "You haven't posted a prompt yet."
+                    } else if loaded && items.is_empty() && (count > 0 || searching) && !next {
                         "No prompts match. Try fewer filters, or another search."
-                    } else if loaded && items.is_empty() {
+                    } else if loaded && items.is_empty() && !next {
                         "No prompts on the board yet."
                     } else if next {
                         button {

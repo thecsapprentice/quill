@@ -9,8 +9,9 @@ use uuid::Uuid;
 use crate::{
     app::{ProblemLine, open_server, use_ui},
     backend::{Backend, Keys},
-    board::{BoardPage, BoardState},
+    board::{BoardPage, BoardState, MineState, MyPromptsPage},
     model::{Section, Status},
+    notices::NoticesPage,
     personas::PersonasPage,
     server_rules::RulesPage,
     settings::SettingsPage,
@@ -38,7 +39,7 @@ pub fn Frame() -> Element {
         div { class: "frame",
             Nav {}
             main { class: "main", id: "main",
-                div { class: if section == Section::Board { "page wide" } else { "page" },
+                div { class: if matches!(section, Section::Board | Section::MyPrompts) { "page wide" } else { "page" },
                     if rules_banner {
                         div { class: "nudge", role: "status",
                             p { "The server rules have changed. Read and accept them to keep posting, editing, commenting and reporting." }
@@ -70,10 +71,13 @@ pub fn Frame() -> Element {
 #[component]
 fn Sections(section: Section) -> Element {
     use_context_provider(|| Signal::new(BoardState::default()));
+    use_context_provider(|| MineState(Signal::new(BoardState::mine())));
     rsx! {
                     match section {
                         Section::Home => rsx! { Home {} },
                         Section::Board => rsx! { BoardPage {} },
+                        Section::MyPrompts => rsx! { MyPromptsPage {} },
+                        Section::Notices => rsx! { NoticesPage {} },
                         Section::Requests => rsx! {
                             Coming {
                                 title: "Requests",
@@ -103,6 +107,7 @@ fn Nav() -> Element {
     let persona = m.persona.map(|p| p.to_string()).unwrap_or_default();
     let section = m.section;
     let signed_in = m.signed_in();
+    let unread = m.unread;
     drop(m);
 
     let b = backend.clone();
@@ -159,13 +164,17 @@ fn Nav() -> Element {
                     }
                 }
             }
-            for s in Section::ALL {
+            // A login's own prompts and notices need it signed in.
+            for s in Section::ALL.into_iter().filter(|s| signed_in || !matches!(s, Section::MyPrompts | Section::Notices)) {
                 button {
                     key: "{s.label()}",
                     class: "section",
                     aria_current: if s == section { "page" } else { "false" },
                     onclick: move |_| model.write().go(s),
                     "{s.label()}"
+                    if s == Section::Notices && unread > 0 {
+                        span { class: "badge", " {unread}" span { class: "sr-only", " unread" } }
+                    }
                 }
             }
         }
@@ -258,6 +267,10 @@ fn Upkeep(server: Uuid) -> Element {
                 } else if signed_in {
                     let result = b.upkeep().await;
                     model.write().upkept(server, result);
+                    // The account says how many notices are unread.
+                    if let Ok(account) = b.account().await {
+                        model.write().unread_loaded(server, account.unread_notices);
+                    }
                 }
                 // The rules too, to notice a change that needs accepting.
                 let reachable = {

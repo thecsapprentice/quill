@@ -14,6 +14,7 @@ mod first_run;
 mod frame;
 pub mod markdown;
 pub mod model;
+mod notices;
 mod personas;
 mod server_rules;
 mod settings;

@@ -37,6 +37,10 @@ pub enum Screen {
 pub enum Section {
     Home,
     Board,
+    /// The login's own prompts, removed ones included.
+    MyPrompts,
+    /// What administrators did to the login's prompts and tags.
+    Notices,
     Requests,
     Sessions,
     Personas,
@@ -47,9 +51,11 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 6] = [
+    pub const ALL: [Section; 8] = [
         Section::Home,
         Section::Board,
+        Section::MyPrompts,
+        Section::Notices,
         Section::Requests,
         Section::Sessions,
         Section::Personas,
@@ -60,6 +66,8 @@ impl Section {
         match self {
             Section::Home => "Home",
             Section::Board => "Board",
+            Section::MyPrompts => "My prompts",
+            Section::Notices => "Notices",
             Section::Requests => "Requests",
             Section::Sessions => "Sessions",
             Section::Personas => "Personas",
@@ -98,6 +106,8 @@ pub struct Model {
     pub notice: Option<String>,
     /// The server's rules, once fetched (`None` inside: it has none).
     pub rules: Option<Option<ServerRules>>,
+    /// Notices not yet read, as upkeep last heard.
+    pub unread: u64,
     pub settings: AppSettings,
     /// Adding a server: the one to go back to if the writer cancels.
     pub adding: Option<Option<Uuid>>,
@@ -136,6 +146,7 @@ impl Model {
             problem: None,
             notice: None,
             rules: None,
+            unread: 0,
             settings: backend.app_settings(),
             adding: None,
             fresh_login: false,
@@ -192,6 +203,7 @@ impl Model {
             self.persona = None;
             self.notice = None;
             self.rules = None;
+            self.unread = 0;
         }
         self.current = Some(id);
         self.standing = None;
@@ -402,6 +414,13 @@ impl Model {
     }
 
     /// The rules for server `id`, fetched by the upkeep loop.
+    /// Upkeep heard how many notices are unread.
+    pub fn unread_loaded(&mut self, id: Uuid, unread: u64) {
+        if self.current == Some(id) {
+            self.unread = unread;
+        }
+    }
+
     pub fn rules_loaded(&mut self, id: Uuid, result: Result<Option<ServerRules>, Problem>) {
         if self.current == Some(id)
             && let Ok(rules) = result
