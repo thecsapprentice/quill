@@ -299,7 +299,7 @@ As built in 2k, for history:
 - The server deletes ciphertext older than `retentionDays` whether or not it was read. A server that keeps it regardless of age (`QUILL_RETENTION_DAYS=-1`) publishes `retentionDays: null`; messages then go only once every device has read them.
 - These are JSON objects tagged by `type` inside the device group's MLS messages, like the 2d payloads, not ActivityStreams activities.
 
-As built (2d, 2k), the types are `deviceGrant` (identity keys, trust pins and the login's known devices, for a newly linked device), `deviceKeys` (which persona devices belong to the sending device), `historyRequest` and `historyBundle`; `Settings` and `Personas` aren't built. Schema: [`schemas/device-payload.json`](../schemas/device-payload.json).
+As built (2d, 2k), the types are `deviceGrant` (identity keys, trust pins and the login's known devices, for a newly linked device), `deviceKeys` (which persona devices belong to the sending device, with the name its owner gave it and when it joined, both added in 3d and seen only by the login's devices), `historyRequest` and `historyBundle`; `Settings` and `Personas` aren't built. Schema: [`schemas/device-payload.json`](../schemas/device-payload.json).
 
 ## 6. Binary formats
 

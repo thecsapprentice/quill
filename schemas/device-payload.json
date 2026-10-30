@@ -61,20 +61,24 @@
             "required": ["device", "personas"],
             "properties": {
               "device": { "$ref": "#/$defs/uuid" },
-              "personas": { "type": "array", "items": { "$ref": "#/$defs/personaDevice" } }
+              "personas": { "type": "array", "items": { "$ref": "#/$defs/personaDevice" } },
+              "name": { "description": "What its owner calls it (3d). Only the login's devices see it.", "type": "string", "maxLength": 40 },
+              "since": { "description": "When it joined the login's devices, in seconds since the Unix epoch.", "type": "integer", "minimum": 0 }
             }
           }
         }
       }
     },
     "deviceKeys": {
-      "description": "Which persona devices in the directory belong to the sending account device.",
+      "description": "Which persona devices in the directory belong to the sending account device, and its name.",
       "type": "object",
       "required": ["type", "device", "personas"],
       "properties": {
         "type": { "const": "deviceKeys" },
         "device": { "$ref": "#/$defs/uuid" },
-        "personas": { "type": "array", "items": { "$ref": "#/$defs/personaDevice" } }
+        "personas": { "type": "array", "items": { "$ref": "#/$defs/personaDevice" } },
+                "name": { "description": "What its owner calls it (3d). Only the login's devices see it.", "type": "string", "maxLength": 40 },
+                "since": { "description": "When it joined the login's devices, in seconds since the Unix epoch.", "type": "integer", "minimum": 0 }
       }
     },
     "historyRequest": {

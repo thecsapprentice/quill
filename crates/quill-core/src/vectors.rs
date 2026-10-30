@@ -780,6 +780,8 @@ fn json_objects() -> Value {
                 persona: uuid(2),
                 device: uuid(4),
             }],
+            name: Some("Study desktop".into()),
+            since: Some(1_790_000_000),
         }],
     })
     .unwrap();
@@ -789,6 +791,8 @@ fn json_objects() -> Value {
             persona: uuid(2),
             device: uuid(4),
         }],
+        name: Some("Study desktop".into()),
+        since: Some(1_790_000_000),
     })
     .unwrap();
 

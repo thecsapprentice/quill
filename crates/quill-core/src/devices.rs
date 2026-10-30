@@ -59,6 +59,12 @@ const K_OWN: &[u8] = b"own";
 const K_PENDING: &[u8] = b"pending-link";
 const K_REMOVED: &[u8] = b"removed";
 const K_ANNOUNCED: &[u8] = b"announced";
+/// This device's name, as its owner calls it; sent only inside the group.
+const K_NAME: &[u8] = b"name";
+/// When this device joined the login's devices, in seconds.
+const K_SINCE: &[u8] = b"since";
+/// The longest device name, in characters.
+pub const NAME_MAX: usize = 40;
 /// This device fell behind the device group: what it needed to follow it
 /// was deleted, so it must be linked again (2k).
 const K_STALE: &[u8] = b"stale";
@@ -102,10 +108,16 @@ pub enum Payload {
         #[serde(default)]
         devices: Vec<DeviceAnnouncement>,
     },
-    /// Which persona devices in the directory belong to the sender.
+    /// Which persona devices in the directory belong to the sender, and
+    /// what its owner calls it.
     DeviceKeys {
         device: Uuid,
         personas: Vec<PersonaDevice>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// When it joined the login's devices, in seconds.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<u64>,
     },
     /// The sender lacks a session's history from `from` to `to` (log
     /// positions, inclusive): any device that has it may answer (2k).
@@ -198,6 +210,83 @@ pub struct GrantedPin {
 pub struct DeviceAnnouncement {
     pub device: Uuid,
     pub personas: Vec<PersonaDevice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<u64>,
+}
+
+/// What this device knows of another of the login's devices, as stored.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct Sibling {
+    personas: Vec<PersonaDevice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    since: Option<u64>,
+}
+
+impl Sibling {
+    /// Reads a stored sibling; before names (3d) only the personas were kept.
+    fn read(bytes: &[u8]) -> Option<Self> {
+        serde_json::from_slice(bytes).ok().or_else(|| {
+            serde_json::from_slice(bytes).ok().map(|personas| Self {
+                personas,
+                ..Self::default()
+            })
+        })
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, CoreError> {
+        serde_json::to_vec(self).map_err(|_| err("state"))
+    }
+}
+
+/// This device's name, if its owner gave one.
+pub fn name(store: &Store) -> Result<Option<String>, CoreError> {
+    Ok(store
+        .get(Table::Account, K_NAME)?
+        .map(|v| String::from_utf8_lossy(&v).into_owned()))
+}
+
+/// Names this device for its owner's other devices (sent at the next
+/// announcement, inside the encrypted group). Trimmed; empty clears it.
+pub fn set_name(store: &Store, name: &str) -> Result<(), CoreError> {
+    let name = name.trim();
+    if name.chars().count() > NAME_MAX {
+        return Err(err(format!(
+            "a device name is at most {NAME_MAX} characters"
+        )));
+    }
+    Ok(store.apply(&[if name.is_empty() {
+        Op::Delete {
+            table: Table::Account,
+            key: K_NAME,
+        }
+    } else {
+        Op::Put {
+            table: Table::Account,
+            key: K_NAME,
+            value: name.as_bytes(),
+        }
+    }])?)
+}
+
+/// When this device joined the login's devices, first asked for after it
+/// did (so a device that predates names counts from then).
+fn since(store: &Store) -> Result<u64, CoreError> {
+    if let Some(v) = store.get(Table::Account, K_SINCE)?
+        && let Ok(b) = <[u8; 8]>::try_from(v.as_slice())
+    {
+        return Ok(u64::from_be_bytes(b));
+    }
+    let now = keys::now_ms() / 1000;
+    store.apply(&[Op::Put {
+        table: Table::Account,
+        key: K_SINCE,
+        value: &now.to_be_bytes(),
+    }])?;
+    Ok(now)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -507,23 +596,31 @@ fn apply(p: &Provider<'_>, gid: &[u8], bytes: &[u8]) -> Result<Applied, CoreErro
                         {
                             continue;
                         }
-                        p.set(
-                            Table::Siblings,
-                            d.device.as_bytes(),
-                            Some(serde_json::to_vec(&d.personas).map_err(|_| err("state"))?),
-                        )?;
+                        let sibling = Sibling {
+                            personas: d.personas,
+                            name: d.name,
+                            since: d.since,
+                        };
+                        p.set(Table::Siblings, d.device.as_bytes(), Some(sibling.bytes()?))?;
                     }
                 }
-                Payload::DeviceKeys { device, personas } => {
+                Payload::DeviceKeys {
+                    device,
+                    personas,
+                    name,
+                    since,
+                } => {
                     // A device speaks only for itself.
                     if sender != Some(device) {
                         return Err(err("a device announced keys for another device"));
                     }
-                    p.set(
-                        Table::Siblings,
-                        device.as_bytes(),
-                        Some(serde_json::to_vec(&personas).map_err(|_| err("state"))?),
-                    )?;
+                    let name = name.map(|n| n.chars().take(NAME_MAX).collect());
+                    let sibling = Sibling {
+                        personas,
+                        name,
+                        since,
+                    };
+                    p.set(Table::Siblings, device.as_bytes(), Some(sibling.bytes()?))?;
                 }
                 Payload::HistoryRequest { session, from, to } => {
                     let Some(device) = sender else {
@@ -780,28 +877,24 @@ pub async fn announce(store: &Store, client: &Client) -> Result<(), CoreError> {
     {
         return Ok(());
     }
-    let personas: Vec<PersonaDevice> = keys::own_persona_devices(store)?
-        .into_iter()
-        .map(|(persona, device)| PersonaDevice { persona, device })
-        .collect();
-    let digest = Sha256::digest(serde_json::to_vec(&personas).map_err(|_| err("encoding"))?);
+    let me = account_device(store)?;
+    let payload = Payload::DeviceKeys {
+        device: me.id,
+        personas: keys::own_persona_devices(store)?
+            .into_iter()
+            .map(|(persona, device)| PersonaDevice { persona, device })
+            .collect(),
+        name: name(store)?,
+        since: Some(since(store)?),
+    };
+    let digest = Sha256::digest(serde_json::to_vec(&payload).map_err(|_| err("encoding"))?);
     if store
         .get(Table::Account, K_ANNOUNCED)?
         .is_some_and(|v| v.as_slice() == digest.as_slice())
     {
         return Ok(());
     }
-    let me = account_device(store)?;
-    send(
-        store,
-        client,
-        &gid,
-        &Payload::DeviceKeys {
-            device: me.id,
-            personas,
-        },
-    )
-    .await?;
+    send(store, client, &gid, &payload).await?;
     store.apply(&[Op::Put {
         table: Table::Account,
         key: K_ANNOUNCED,
@@ -850,6 +943,7 @@ pub async fn start_link(store: &Store, client: &Client) -> Result<PendingLink, C
             K_PENDING,
             K_REMOVED,
             K_ANNOUNCED,
+            K_SINCE,
             K_STALE,
             K_ASKS,
             K_INBOX,
@@ -1039,7 +1133,12 @@ impl std::str::FromStr for LinkCode {
         let parts: Vec<&str> = s.split_whitespace().collect();
         // Six words alone: the link is looked up when approving.
         let (link, typed) = match parts.len() {
-            6 => ("", parts.as_slice()),
+            6 if parts.iter().all(|w| words::is_word(w)) => ("", parts.as_slice()),
+            6 => {
+                return Err(err(
+                    "those aren't all link words: check them against the new device's screen",
+                ));
+            }
             7 => (parts[0], &parts[1..]),
             _ => {
                 return Err(err(
@@ -1181,10 +1280,17 @@ pub async fn approve(
             .into_iter()
             .map(|(persona, device)| PersonaDevice { persona, device })
             .collect(),
+        name: name(store)?,
+        since: Some(since(store)?),
     }];
     for (k, v) in store.scan(Table::Siblings, b"")? {
-        if let (Ok(device), Ok(personas)) = (Uuid::from_slice(&k), serde_json::from_slice(&v)) {
-            known.push(DeviceAnnouncement { device, personas });
+        if let (Ok(device), Some(s)) = (Uuid::from_slice(&k), Sibling::read(&v)) {
+            known.push(DeviceAnnouncement {
+                device,
+                personas: s.personas,
+                name: s.name,
+                since: s.since,
+            });
         }
     }
     send(
@@ -1242,6 +1348,10 @@ async fn resolve(client: &Client, code: &LinkCode) -> Result<LinkCode, CoreError
 pub struct ListedDevice {
     pub id: Uuid,
     pub this_device: bool,
+    /// What its owner calls it, if they named it.
+    pub name: Option<String>,
+    /// When it joined the login's devices, in seconds, if it said.
+    pub since: Option<u64>,
     /// Its persona devices, as it announced them (or, for this device, as
     /// it holds them).
     pub personas: Vec<PersonaDevice>,
@@ -1266,22 +1376,28 @@ pub async fn list(store: &Store, client: &Client) -> Result<Vec<ListedDevice>, C
         .members()
         .filter_map(|m| device_of(&m.credential))
         .map(|id| {
-            let personas = if id == me.id {
-                keys::own_persona_devices(store)?
-                    .into_iter()
-                    .map(|(persona, device)| PersonaDevice { persona, device })
-                    .collect()
+            let s = if id == me.id {
+                Sibling {
+                    personas: keys::own_persona_devices(store)?
+                        .into_iter()
+                        .map(|(persona, device)| PersonaDevice { persona, device })
+                        .collect(),
+                    name: name(store)?,
+                    since: Some(since(store)?),
+                }
             } else {
                 store
                     .get(Table::Siblings, id.as_bytes())?
-                    .map(|v| serde_json::from_slice(&v).map_err(|_| err("damaged state")))
+                    .map(|v| Sibling::read(&v).ok_or_else(|| err("damaged state")))
                     .transpose()?
                     .unwrap_or_default()
             };
             Ok(ListedDevice {
                 id,
                 this_device: id == me.id,
-                personas,
+                name: s.name,
+                since: s.since,
+                personas: s.personas,
             })
         })
         .collect()
@@ -1422,6 +1538,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn siblings_stored_before_names_still_read() {
+        let pd = PersonaDevice {
+            persona: Uuid::nil(),
+            device: Uuid::max(),
+        };
+        let old = serde_json::to_vec(&vec![pd.clone()]).unwrap();
+        let s = Sibling::read(&old).unwrap();
+        assert_eq!(s.personas, vec![pd.clone()]);
+        assert_eq!(s.name, None);
+        let new = Sibling {
+            personas: vec![pd],
+            name: Some("Study desktop".into()),
+            since: Some(5),
+        };
+        let back = Sibling::read(&new.bytes().unwrap()).unwrap();
+        assert_eq!(back.name.as_deref(), Some("Study desktop"));
+        assert_eq!(back.since, Some(5));
+        assert!(Sibling::read(b"junk").is_none());
+    }
+
+    #[test]
+    fn device_names_are_trimmed_and_limited() {
+        let store = Store::in_memory();
+        set_name(&store, "  Study desktop ").unwrap();
+        assert_eq!(name(&store).unwrap().as_deref(), Some("Study desktop"));
+        assert!(set_name(&store, &"x".repeat(NAME_MAX + 1)).is_err());
+        set_name(&store, "").unwrap();
+        assert_eq!(name(&store).unwrap(), None);
+    }
+
+    #[test]
     fn link_codes_parse_both_ways() {
         let fp = b64(&[7u8; 32]);
         let code: LinkCode = format!("quill-link:1:writers.example:8090:abc123:{fp}")
@@ -1431,7 +1578,11 @@ mod tests {
         assert_eq!(code.check, Check::Fingerprint(vec![7; 32]));
         let typed: LinkCode = "abc123 one two three four five six".parse().unwrap();
         assert_eq!(typed.link_id, "abc123");
-        let alone: LinkCode = "one two three four five six".parse().unwrap();
+        let alone: LinkCode = "abandon ability able about above absent".parse().unwrap();
+        assert!(
+            "one two three four five six".parse::<LinkCode>().is_err(),
+            "not list words"
+        );
         assert!(alone.needs_lookup());
         assert!(!typed.needs_lookup());
         for bad in [

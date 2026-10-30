@@ -467,7 +467,7 @@ async fn approving_with_the_six_words_alone_finds_the_waiting_link() {
         devices::waiting(&laptop_c).await.unwrap(),
         devices::Waiting::None
     );
-    let typed: LinkCode = "one two three four five six".parse().unwrap();
+    let typed: LinkCode = "abandon ability able about above absent".parse().unwrap();
     let none = devices::approve(&laptop, &laptop_c, &typed)
         .await
         .unwrap_err();
@@ -542,4 +542,50 @@ async fn two_waiting_links_are_not_approved_by_words_alone() {
     // The whole code still works: it names its link.
     let code: LinkCode = pa.code.parse().unwrap();
     devices::approve(&laptop, &laptop_c, &code).await.unwrap();
+}
+
+/// Names travel inside the device group: a device linked later learns the
+/// others' names from the grant, and renames reach the rest.
+#[tokio::test]
+async fn device_names_travel_inside_the_group() {
+    let server = server!();
+    let laptop_c = server.account("alice").await.unwrap();
+    let pen = persona(&laptop_c, "ink_fox").await;
+    let laptop = Store::in_memory();
+    keys::init(&laptop, &laptop_c, &pen, false).await.unwrap();
+    devices::set_name(&laptop, "Laptop").unwrap();
+
+    let desktop = Store::in_memory();
+    let desktop_c = same_login(&server, "alice").await;
+    devices::set_name(&desktop, "Study desktop").unwrap();
+    link((&desktop, &desktop_c), (&laptop, &laptop_c)).await;
+
+    let names = |list: Vec<devices::ListedDevice>| {
+        let mut v: Vec<(bool, Option<String>, bool)> = list
+            .into_iter()
+            .map(|d| (d.this_device, d.name, d.since.is_some()))
+            .collect();
+        v.sort();
+        v
+    };
+    assert_eq!(
+        names(devices::list(&desktop, &desktop_c).await.unwrap()),
+        [
+            (false, Some("Laptop".into()), true),
+            (true, Some("Study desktop".into()), true)
+        ]
+    );
+    assert_eq!(
+        names(devices::list(&laptop, &laptop_c).await.unwrap()),
+        [
+            (false, Some("Study desktop".into()), true),
+            (true, Some("Laptop".into()), true)
+        ]
+    );
+    // A rename reaches the other device.
+    devices::set_name(&laptop, "Old laptop").unwrap();
+    devices::announce(&laptop, &laptop_c).await.unwrap();
+    let seen = devices::list(&desktop, &desktop_c).await.unwrap();
+    assert!(seen.iter().any(|d| d.name.as_deref() == Some("Old laptop")));
+    // That the server never holds the names is checked in gate.rs.
 }
