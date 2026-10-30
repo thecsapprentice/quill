@@ -370,3 +370,44 @@ async fn a_removal_is_a_notice_that_leads_to_the_prompt_on_a_real_server() {
     assert!(d.has_text("· removed"));
     server.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_passphrase_chosen_at_first_run_unlocks_on_reopening_against_a_real_server() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let no_keychain = || {
+        let backend = NativeBackend::new(
+            Paths::in_dir(dir.path()),
+            None,
+            tokio::runtime::Handle::current(),
+        )
+        .unwrap();
+        Driver::new(Rc::new(backend))
+    };
+    let mut d = no_keychain();
+    d.type_into("server-address", &typed(&server)).await;
+    d.wait_for_text("Takes new logins").await;
+    d.click("Continue").await;
+    d.wait_for_text("choose a passphrase").await;
+    d.type_into("store-passphrase", "a long passphrase here")
+        .await;
+    d.click("Continue").await;
+    d.wait_for_text("Make a login on").await;
+    d.type_into("login-name", "ink").await;
+    d.type_into("login-password", PASSWORD).await;
+    d.click("Make my login").await;
+    d.wait_for_text("Make your first persona").await;
+    d.click("Not now").await;
+    d.wait_for_text("Connected to").await;
+
+    drop(d);
+    let mut d = no_keychain();
+    d.wait_for_text("Unlock").await;
+    d.type_into("unlock-passphrase", "a long passphrase here")
+        .await;
+    d.click("Unlock").await;
+    d.wait_for_text("Connected to").await;
+    server.stop().await.unwrap();
+}
