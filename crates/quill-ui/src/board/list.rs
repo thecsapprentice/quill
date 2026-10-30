@@ -1,6 +1,7 @@
 //! The board page (mockup D1; N1 and N4 when narrow): search, the filter
 //! summary and the prompt list beside a reading pane.
 
+use dioxus::html::geometry::PixelsVector2D;
 use dioxus::prelude::*;
 use quill_proto::board::Prompt;
 
@@ -112,6 +113,29 @@ fn BoardList() -> Element {
     let bm = backend.clone();
     let br = backend.clone();
     let fresh = board.read().fresh;
+    // A new list starts at its top: the list's own scroll when wide, and the
+    // page's (to the Board's header) when narrow.
+    let mut list_el = use_signal(|| None::<std::rc::Rc<MountedData>>);
+    let mut head_el = use_signal(|| None::<std::rc::Rc<MountedData>>);
+    let mut seen_top = use_signal(|| board.peek().to_top);
+    use_effect(move || {
+        let top = board.read().to_top;
+        if top == *seen_top.peek() {
+            return;
+        }
+        seen_top.set(top);
+        let (list, head) = (list_el.peek().clone(), head_el.peek().clone());
+        spawn(async move {
+            if let Some(l) = list {
+                let _ = l
+                    .scroll(PixelsVector2D::new(0.0, 0.0), ScrollBehavior::Instant)
+                    .await;
+            }
+            if let Some(h) = head {
+                let _ = h.scroll_to(ScrollBehavior::Instant).await;
+            }
+        });
+    });
     let count = filter.count();
     let filters_label = if count > 0 {
         format!("Filters ({count})")
@@ -127,7 +151,9 @@ fn BoardList() -> Element {
     rsx! {
         div { class,
             section { class: "board-list", aria_label: "Prompts",
-                header { class: "board-head",
+                header {
+                    class: "board-head",
+                    onmounted: move |e: MountedEvent| head_el.set(Some(e.data())),
                     h1 { if mine { "My prompts" } else { "Board" } }
                     button {
                         class: "quiet",
@@ -216,7 +242,9 @@ fn BoardList() -> Element {
                 // seen (and loads more) only once the list is scrolled there.
                 // Keyed by the count, so a page too short to fill the view
                 // loads the next.
-                ul { class: "prompts",
+                ul {
+                    class: "prompts",
+                    onmounted: move |e: MountedEvent| list_el.set(Some(e.data())),
                     for p in items.iter() {
                         Row { key: "{p.id}", prompt: p.clone(), open: Some(p.id) == open }
                     }

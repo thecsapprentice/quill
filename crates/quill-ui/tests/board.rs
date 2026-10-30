@@ -647,3 +647,52 @@ async fn report_details_say_their_limit_while_typing() {
     assert!(d.has_text("2,001 of 2,000 characters: 1 too many."));
     assert!(d.button_disabled("Send report"));
 }
+
+/// Found by hand (3c): Refresh with the list partly scrolled left it at a
+/// part-way point in the new list. A load that replaces the list (Refresh,
+/// "Show them", a search) starts it at the top.
+#[tokio::test]
+async fn refreshing_starts_the_list_at_the_top() {
+    use quill_ui::testing::Asked;
+    let sim = sim();
+    sim.fill_board(SERVER, 45);
+    let mut d = on_the_board(&sim).await;
+    d.bring_into_view("load-more").await;
+    d.wait_for_text("Prompt number 5 ").await;
+    let _ = (d.asked_of("prompts"), d.asked_of("board-head"));
+    // Loading more keeps the place.
+    d.bring_into_view("load-more").await;
+    d.wait_for_text("That's every prompt.").await;
+    assert_eq!(d.asked_of("prompts"), []);
+
+    let top = Asked::ScrollTo { x: 0.0, y: 0.0 };
+    d.click("Refresh").await;
+    d.wait_until("the list's top", |d| d.has_text("Prompt number 44"))
+        .await;
+    assert_eq!(d.asked_of("prompts"), [top], "the list's own scroll");
+    assert_eq!(
+        d.asked_of("board-head"),
+        [Asked::IntoView],
+        "the page's, when narrow"
+    );
+
+    sim.post_as(
+        SERVER,
+        "marrow",
+        "Newer still",
+        "Text.",
+        &[],
+        Maturity::General,
+    );
+    sim.time_passes();
+    d.wait_for_text("1 new prompt.").await;
+    d.click("Show them").await;
+    d.wait_until("shown", |d| d.has_button_containing("Newer still"))
+        .await;
+    assert_eq!(d.asked_of("prompts"), [top]);
+
+    d.type_into("board-search", "number 3").await;
+    d.wait_until("searched", |d| !d.has_text("Prompt number 44"))
+        .await;
+    assert_eq!(d.asked_of("prompts"), [top]);
+}
