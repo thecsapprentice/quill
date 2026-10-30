@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod backend;
+mod board;
 pub mod checks;
 #[cfg(test)]
 mod fake;

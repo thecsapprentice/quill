@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::{
     app::{ProblemLine, open_server, use_ui},
     backend::{Backend, Keys},
+    board::{BoardPage, BoardState},
     model::{Section, Status},
     personas::PersonasPage,
     server_rules::RulesPage,
@@ -37,7 +38,7 @@ pub fn Frame() -> Element {
         div { class: "frame",
             Nav {}
             main { class: "main", id: "main",
-                div { class: "page",
+                div { class: if section == Section::Board { "page wide" } else { "page" },
                     if rules_banner {
                         div { class: "nudge", role: "status",
                             p { "The server rules have changed. Read and accept them to keep posting, editing, commenting and reporting." }
@@ -50,14 +51,29 @@ pub fn Frame() -> Element {
                     if let Some(p) = problem {
                         ProblemLine { problem: p }
                     }
+                    // Keyed by server: each has its own board and filters.
+                    for k in [server.unwrap_or_default()] {
+                        Sections { key: "{k}", section }
+                    }
+                }
+            }
+            StatusLine {}
+            if let Some(server) = server {
+                // Keyed: a new server, or "Try now", restarts the loop.
+                Upkeep { key: "{key}", server }
+            }
+        }
+    }
+}
+
+/// The section in view, with state that lasts while the server is open.
+#[component]
+fn Sections(section: Section) -> Element {
+    use_context_provider(|| Signal::new(BoardState::default()));
+    rsx! {
                     match section {
                         Section::Home => rsx! { Home {} },
-                        Section::Board => rsx! {
-                            Coming {
-                                title: "Board",
-                                text: "The prompt board comes next: browse prompts, post your own, and ask to write with the people behind them.",
-                            }
-                        },
+                        Section::Board => rsx! { BoardPage {} },
                         Section::Requests => rsx! {
                             Coming {
                                 title: "Requests",
@@ -74,14 +90,6 @@ pub fn Frame() -> Element {
                         Section::Settings => rsx! { SettingsPage {} },
                         Section::Rules => rsx! { RulesPage {} },
                     }
-                }
-            }
-            StatusLine {}
-            if let Some(server) = server {
-                // Keyed: a new server, or "Try now", restarts the loop.
-                Upkeep { key: "{key}", server }
-            }
-        }
     }
 }
 
