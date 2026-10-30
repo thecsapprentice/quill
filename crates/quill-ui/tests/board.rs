@@ -591,3 +591,50 @@ async fn ids_never_show_on_the_board() {
         .any(|w| w.len() == 36 && w.matches('-').count() == 4);
     assert!(!looks_like_uuid, "{text}");
 }
+
+/// Found by hand (3c): the title and text limits were only told after
+/// pressing Post. They're said as the writer types, and Post waits.
+#[tokio::test]
+async fn length_limits_are_said_while_typing() {
+    let sim = sim();
+    let mut d = on_the_board(&sim).await;
+    d.click("Post a prompt").await;
+    d.wait_for_text("Add tags").await;
+    assert!(d.has_text("Up to 200 characters."));
+    assert!(d.has_text("Up to 20,000 characters."));
+    d.type_into("post-title", &"t".repeat(201)).await;
+    assert!(d.has_text("201 of 200 characters: 1 too many."));
+    assert_eq!(
+        d.attr("post-title", "aria-invalid").as_deref(),
+        Some("true")
+    );
+    d.type_into("post-body", &"b".repeat(20_005)).await;
+    assert!(d.has_text("20,005 of 20,000 characters: 5 too many."));
+    assert!(d.has_text("Needs a shorter title, shorter text before posting."));
+    assert!(d.button_disabled("Post prompt"));
+    d.type_into("post-title", "A fair title").await;
+    d.type_into("post-body", "A fair body.").await;
+    assert!(d.has_text("12 of 200 characters."));
+    assert!(!d.button_disabled("Post prompt"));
+}
+
+#[tokio::test]
+async fn report_details_say_their_limit_while_typing() {
+    let sim = sim();
+    sim.post_as(
+        SERVER,
+        "marrow",
+        "Something odd",
+        "Text.",
+        &[],
+        Maturity::General,
+    );
+    let mut d = on_the_board(&sim).await;
+    d.click_containing("Something odd").await;
+    d.click("Report this prompt").await;
+    d.set_checked("reason-spam", true).await;
+    assert!(d.has_text("Up to 2,000 characters."));
+    d.type_into("report-details", &"x".repeat(2_001)).await;
+    assert!(d.has_text("2,001 of 2,000 characters: 1 too many."));
+    assert!(d.button_disabled("Send report"));
+}

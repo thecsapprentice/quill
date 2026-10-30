@@ -291,6 +291,8 @@ fn ReportForm(prompt: Prompt) -> Element {
             p { class: "hint", role: "status", "Thanks. An administrator will look at your report." }
         };
     }
+    let details_check =
+        crate::checks::length(&details(), quill_proto::limits::REPORT_DETAILS_MAX_CHARS);
     if !open() {
         return rsx! {
             div { class: "actions",
@@ -317,6 +319,8 @@ fn ReportForm(prompt: Prompt) -> Element {
             Area {
                 label: "Anything to add (optional)",
                 id: "report-details",
+                hint: details_check.hint.clone(),
+                invalid: details_check.invalid,
                 oninput: move |t| details.set(t),
             }
             if let Some(p) = problem() {
@@ -325,7 +329,7 @@ fn ReportForm(prompt: Prompt) -> Element {
             div { class: "actions",
                 button {
                     class: "primary",
-                    disabled: busy() || reason().is_none(),
+                    disabled: busy() || reason().is_none() || details_check.invalid,
                     onclick: send,
                     "Send report"
                 }
