@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+quill-board-ui.workspace = true
 quill-proto.workspace = true
 
 dioxus = { workspace = true, features = ["hooks", "document"] }

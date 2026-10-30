@@ -7,6 +7,10 @@ use quill_proto::board::Maturity;
 use uuid::Uuid;
 
 use crate::backend::{
+    AccountNotice, AccountSettings, CreatePrompt, CreateReport, Prompt, PromptPage, PromptQuery,
+    Tag, TagNamespace, TagPage, TagPageQuery, TagPolicy, TagQuery, UpdatePrompt,
+};
+use crate::backend::{
     AppSettings, Backend, BoardSettings, Call, Details, Keys, Persona, PersonaState, Problem,
     Protection, ServerEntry, ServerInfo, ServerRules, Standing, Step, Theme,
 };
@@ -145,6 +149,63 @@ impl Backend for Fake {
     }
     fn prepare<'a>(&'a self, _: Uuid, progress: &'a dyn Fn(Step)) -> Call<'a, ()> {
         progress(Step::IdentityKey);
+        ready(Ok(()))
+    }
+    fn account(&self) -> Call<'_, AccountSettings> {
+        ready(Ok(AccountSettings {
+            maturity_max: Maturity::Teen,
+            is_admin: false,
+            unread_notices: 0,
+            staff_name: None,
+            suggest_all_personas: false,
+        }))
+    }
+    fn prompts(&self, _: PromptQuery) -> Call<'_, PromptPage> {
+        ready(Ok(PromptPage {
+            items: Vec::new(),
+            next_cursor: None,
+        }))
+    }
+    fn prompt(&self, _: Uuid) -> Call<'_, Prompt> {
+        ready(Err(Problem::Gone))
+    }
+    fn create_prompt(&self, _: CreatePrompt) -> Call<'_, Prompt> {
+        ready(Err(Problem::Refused("no".into())))
+    }
+    fn update_prompt(&self, _: Uuid, _: UpdatePrompt) -> Call<'_, Prompt> {
+        ready(Err(Problem::Refused("no".into())))
+    }
+    fn delete_prompt(&self, _: Uuid) -> Call<'_, ()> {
+        ready(Ok(()))
+    }
+    fn prompt_link(&self, id: Uuid) -> Option<String> {
+        Some(format!("https://writers.example/p/{id}"))
+    }
+    fn tag_types(&self) -> Call<'_, Vec<TagNamespace>> {
+        ready(Ok(Vec::new()))
+    }
+    fn tag_policy(&self) -> Call<'_, TagPolicy> {
+        ready(Ok(TagPolicy::Open))
+    }
+    fn tag_page<'a>(&'a self, _: &'a str, _: TagPageQuery) -> Call<'a, TagPage> {
+        ready(Ok(TagPage {
+            items: Vec::new(),
+            total: 0,
+        }))
+    }
+    fn find_tags(&self, _: TagQuery) -> Call<'_, Vec<Tag>> {
+        ready(Ok(Vec::new()))
+    }
+    fn frequent_tags(&self, _: Option<Uuid>) -> Call<'_, Vec<Tag>> {
+        ready(Ok(Vec::new()))
+    }
+    fn report(&self, _: CreateReport) -> Call<'_, ()> {
+        ready(Ok(()))
+    }
+    fn notices(&self, _: Option<i64>) -> Call<'_, Vec<AccountNotice>> {
+        ready(Ok(Vec::new()))
+    }
+    fn mark_notices_read(&self) -> Call<'_, ()> {
         ready(Ok(()))
     }
     fn upkeep(&self) -> Call<'_, Option<String>> {

@@ -10,6 +10,12 @@ use std::{cell::RefCell, collections::HashMap, future::Future, pin::Pin, rc::Rc,
 use quill_proto::board::Maturity;
 use uuid::Uuid;
 
+mod board;
+
+use crate::backend::{
+    AccountNotice, AccountSettings, CreatePrompt, CreateReport, Prompt, PromptPage, PromptQuery,
+    Tag, TagNamespace, TagPage, TagPageQuery, TagPolicy, TagQuery, UpdatePrompt,
+};
 use crate::backend::{
     AppSettings, Backend, BoardSettings, Call, Details, Keys, PASSPHRASE_MIN_CHARS, Persona,
     PersonaState, Problem, Protection, ServerEntry, ServerInfo, ServerRules, Standing, Step, Theme,
@@ -38,6 +44,8 @@ impl Acceptance {
 struct Account {
     password: String,
     accepted: u32,
+    /// The board's maturity cap for this login.
+    maturity: Maturity,
 }
 
 /// One simulated server.
@@ -53,7 +61,7 @@ pub struct SimServer {
     accounts: HashMap<String, Account>,
     /// Personas by login, with whether their identity key is published.
     personas: Vec<(String, Persona, bool)>,
-    maturity: Maturity,
+    board: board::Board,
 }
 
 impl SimServer {
@@ -67,7 +75,7 @@ impl SimServer {
             rules_fail: false,
             accounts: HashMap::new(),
             personas: Vec::new(),
-            maturity: Maturity::Teen,
+            board: board::Board::default(),
         }
     }
 }
@@ -146,13 +154,13 @@ impl Sim {
     }
 
     /// Changes a server (an administrator's settings, an outage).
-    pub fn server(&self, domain: &str, change: impl FnOnce(&mut SimServer)) {
+    pub fn server<T>(&self, domain: &str, change: impl FnOnce(&mut SimServer) -> T) -> T {
         let mut s = self.0.borrow_mut();
         let server = s
             .servers
             .get_mut(&address(domain))
             .unwrap_or_else(|| panic!("no server {domain}"));
-        change(server);
+        change(server)
     }
 
     /// Sets or changes a server's rules; each change is a new version.
@@ -173,6 +181,7 @@ impl Sim {
                 Account {
                     password: password.into(),
                     accepted: 0,
+                    maturity: Maturity::DEFAULT_MAX,
                 },
             );
             for h in handles {
@@ -496,6 +505,7 @@ impl Backend for Sim {
                 Account {
                     password: password.into(),
                     accepted,
+                    maturity: Maturity::DEFAULT_MAX,
                 },
             );
             store.login = Some(login.clone());
@@ -659,14 +669,110 @@ impl Backend for Sim {
     }
 
     fn board_settings(&self) -> Call<'_, BoardSettings> {
-        now(self.reach().map(|(_, _, s)| BoardSettings {
-            maturity_max: s.maturity,
+        now(self.signed_in().map(|(login, server)| BoardSettings {
+            maturity_max: server.account_of(&login).maturity_max,
         }))
     }
 
     fn set_board_settings(&self, settings: BoardSettings) -> Call<'_, BoardSettings> {
-        self.with_server_mut(|server, _| server.maturity = settings.maturity_max);
+        self.with_server_mut(|server, store| {
+            if let Some(a) = store
+                .login
+                .as_ref()
+                .and_then(|l| server.accounts.get_mut(l))
+            {
+                a.maturity = settings.maturity_max;
+            }
+        });
         now(Ok(settings))
+    }
+
+    fn account(&self) -> Call<'_, AccountSettings> {
+        now(self
+            .signed_in()
+            .map(|(login, server)| server.account_of(&login)))
+    }
+
+    fn prompts(&self, query: PromptQuery) -> Call<'_, PromptPage> {
+        now(self.reach().and_then(|(_, store, server)| {
+            server.search(
+                store.signed_in.then_some(store.login.as_deref()).flatten(),
+                &query,
+            )
+        }))
+    }
+
+    fn prompt(&self, id: Uuid) -> Call<'_, Prompt> {
+        now(self.reach().and_then(|(_, store, server)| {
+            server.one(
+                store.signed_in.then_some(store.login.as_deref()).flatten(),
+                id,
+            )
+        }))
+    }
+
+    fn create_prompt(&self, body: CreatePrompt) -> Call<'_, Prompt> {
+        now(self.writing(|server, login| server.post(login, &body)))
+    }
+
+    fn update_prompt(&self, id: Uuid, body: UpdatePrompt) -> Call<'_, Prompt> {
+        now(self.writing(|server, login| server.edit(login, id, &body)))
+    }
+
+    fn delete_prompt(&self, id: Uuid) -> Call<'_, ()> {
+        now(self.writing(|server, login| server.delete(login, id)))
+    }
+
+    fn prompt_link(&self, id: Uuid) -> Option<String> {
+        let (_, store, _) = self.open_store().ok()?;
+        Some(format!("{}/p/{id}", store.address))
+    }
+
+    fn tag_types(&self) -> Call<'_, Vec<TagNamespace>> {
+        now(self.reach().map(|(_, _, server)| server.tag_types()))
+    }
+
+    fn tag_policy(&self) -> Call<'_, TagPolicy> {
+        now(self.reach().map(|(_, _, server)| server.board.policy))
+    }
+
+    fn tag_page<'a>(&'a self, namespace: &'a str, query: TagPageQuery) -> Call<'a, TagPage> {
+        now(self
+            .reach()
+            .and_then(|(_, _, server)| server.tag_page(namespace, &query)))
+    }
+
+    fn find_tags(&self, query: TagQuery) -> Call<'_, Vec<Tag>> {
+        now(self.reach().map(|(_, _, server)| server.find(&query)))
+    }
+
+    fn frequent_tags(&self, persona: Option<Uuid>) -> Call<'_, Vec<Tag>> {
+        now(self
+            .signed_in()
+            .map(|(login, server)| server.frequent(&login, persona)))
+    }
+
+    fn report(&self, body: CreateReport) -> Call<'_, ()> {
+        if let Err(p) = self.reach() {
+            return now(Err(p));
+        }
+        now(self.with_server_mut(|server, store| {
+            let login = store.signed_in.then(|| store.login.clone()).flatten();
+            server.file_report(login.as_deref(), body)
+        }))
+    }
+
+    fn notices(&self, before: Option<i64>) -> Call<'_, Vec<AccountNotice>> {
+        now(self
+            .signed_in()
+            .map(|(login, server)| server.notices_of(&login, before)))
+    }
+
+    fn mark_notices_read(&self) -> Call<'_, ()> {
+        now(self.writing(|server, login| {
+            server.read_notices(login);
+            Ok(())
+        }))
     }
 
     fn app_settings(&self) -> AppSettings {
@@ -709,6 +815,27 @@ impl Backend for Sim {
 }
 
 impl Sim {
+    /// The open server and its signed-in login, or why there's none.
+    fn signed_in(&self) -> Result<(String, SimServer), Problem> {
+        let (_, store, server) = self.reach()?;
+        match store.login {
+            Some(login) if store.signed_in => Ok((login, server)),
+            _ => Err(Problem::SignedOut),
+        }
+    }
+
+    /// Runs a change on the open server as its signed-in login.
+    fn writing<T>(
+        &self,
+        f: impl FnOnce(&mut SimServer, &str) -> Result<T, Problem>,
+    ) -> Result<T, Problem> {
+        self.signed_in()?;
+        self.with_server_mut(|server, store| {
+            let login = store.login.clone().unwrap_or_default();
+            f(server, &login)
+        })
+    }
+
     /// The app closed: stores with a passphrase are locked again.
     pub fn relock(&self) {
         for store in self.0.borrow_mut().stores.values_mut() {
