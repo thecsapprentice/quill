@@ -457,7 +457,7 @@ fn DeviceRow(
     let shown = shown_name(&device);
     let id = device.id;
     let writes = if device.personas.is_empty() {
-        "Can't write as any of your personas.".to_owned()
+        "No personas on it yet.".to_owned()
     } else {
         let handles: Vec<String> = device.personas.iter().map(|h| format!("@{h}")).collect();
         format!("Writes as {}.", handles.join(", "))
@@ -499,9 +499,12 @@ fn DeviceRow(
         li { class: "item",
             header {
                 span { class: "name", "{shown}" }
-                if device.this_device {
+                if device.this_device && device.name.is_some() {
                     span { class: "tag", "This computer" }
                 }
+            }
+            if device.this_device && device.name.is_none() {
+                p { class: "hint", "Name it, so your other devices can tell it apart." }
             }
             p { class: "hint",
                 if let Some(since) = device.since { "Linked {date(since)}. " }
@@ -690,7 +693,16 @@ fn ApprovePanel(on_linked: EventHandler<()>) -> Element {
                         "If it shows anything else, choose They don't match there, then remove it from the list above."
                     }
                     div { class: "actions",
-                        button { class: "secondary", onclick: move |_| { typed.set(String::new()); state.set(Approving::Closed); }, "Done" }
+                        button {
+                            class: "secondary",
+                            onclick: move |_| {
+                                typed.set(String::new());
+                                state.set(Approving::Closed);
+                                // By now the new computer has likely said its name.
+                                on_linked.call(());
+                            },
+                            "Done"
+                        }
                     }
                 },
             }

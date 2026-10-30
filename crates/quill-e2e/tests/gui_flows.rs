@@ -411,3 +411,91 @@ async fn a_passphrase_chosen_at_first_run_unlocks_on_reopening_against_a_real_se
     d.wait_for_text("Connected to").await;
     server.stop().await.unwrap();
 }
+
+/// The six words shown after `marker` in a window's text.
+fn six_words_after(text: &str, marker: &str) -> String {
+    let at = text
+        .find(marker)
+        .unwrap_or_else(|| panic!("no {marker:?} in {text}"));
+    text[at + marker.len()..]
+        .split_whitespace()
+        .take(6)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_computer_is_linked_and_then_removed_on_a_real_server() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    // The laptop: a login and a ready persona.
+    let (ld, lv) = (
+        tempfile::tempdir().unwrap(),
+        Arc::new(MemoryVault::default()),
+    );
+    let mut laptop = app(ld.path(), &lv);
+    on_the_board(&mut laptop, &server).await;
+
+    // The desktop signs in and links itself.
+    let (dd, dv) = (
+        tempfile::tempdir().unwrap(),
+        Arc::new(MemoryVault::default()),
+    );
+    let mut desktop = app(dd.path(), &dv);
+    to_sign_up(&mut desktop, &server).await;
+    desktop.click("I have a login").await;
+    desktop.type_into("login-name", "ink").await;
+    desktop.type_into("login-password", PASSWORD).await;
+    desktop.click("Sign in").await;
+    desktop
+        .wait_for_text("This computer is new to your login")
+        .await;
+    desktop.click("Link this computer").await;
+    desktop.type_into("device-name", "Study desktop").await;
+    desktop.click("Show the link code").await;
+    desktop
+        .wait_for_text("Type these words on your other device")
+        .await;
+    let words = six_words_after(&desktop.text(), "Type these six words there.");
+
+    // The laptop approves it by those words.
+    laptop.click("Settings").await;
+    laptop.click("Your devices").await;
+    laptop.wait_for_text("Only this computer so far.").await;
+    laptop.click("Link a new computer").await;
+    laptop
+        .wait_until("the words field", |d| d.has_field("link-words"))
+        .await;
+    laptop.type_into("link-words", &words).await;
+    laptop.click("Link it").await;
+    laptop
+        .wait_for_text("The new computer should now show these words:")
+        .await;
+    let confirm = six_words_after(
+        &laptop.text(),
+        "The new computer should now show these words:",
+    );
+
+    // The desktop shows the same words, and takes the keys.
+    desktop.wait_for_text("Check the words match").await;
+    let shown = six_words_after(&desktop.text(), "in the same order.");
+    assert_eq!(shown, confirm, "both devices show the same words");
+    desktop.click("They match").await;
+    desktop.wait_for_text("Hello, @ink_fox").await;
+
+    // The laptop sees it by name, and removes it.
+    laptop.click("Done").await;
+    laptop.wait_for_text("Study desktop").await;
+    laptop.click("Remove…").await;
+    laptop.click("Remove Study desktop").await;
+    laptop.wait_for_text("Study desktop was removed.").await;
+
+    // Reopened, the desktop learns it and says so.
+    drop(desktop);
+    let mut desktop = app(dd.path(), &dv);
+    desktop
+        .wait_for_text("This computer was removed from your devices")
+        .await;
+    server.stop().await.unwrap();
+}

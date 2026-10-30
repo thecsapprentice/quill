@@ -245,7 +245,9 @@ async fn a_new_computer_is_approved_here_by_typing_its_words() {
     let sim = Sim::new().with_server(SERVER).rc();
     let mut d = on_devices(&sim).await;
     assert!(d.has_text("Only this computer so far."));
-    assert!(d.has_text("This computer"));
+    // Unnamed, it's called "This computer" once, with a nudge to name it.
+    assert_eq!(d.text().matches("This computer").count(), 1, "{}", d.text());
+    assert!(d.has_text("Name it, so your other devices can tell it apart."));
     d.click("Link a new computer").await;
     d.wait_for_text("No new computer is waiting yet").await;
     assert!(!d.has_field("link-words"), "nothing to type yet");
@@ -271,8 +273,14 @@ async fn a_new_computer_is_approved_here_by_typing_its_words() {
         .await;
     d.wait_until("two devices", |d| d.has_text("An unnamed device"))
         .await;
+    assert!(d.has_text("No personas on it yet."));
     assert!(!d.has_text("Only this computer so far."));
     assert_eq!(sim.devices_of(SERVER, "wren").len(), 2);
+    // The new computer names itself after the words match; Done shows it.
+    sim.finish_newest_device(SERVER, "wren", "Kitchen laptop");
+    d.click("Done").await;
+    d.wait_for_text("Kitchen laptop").await;
+    assert!(!d.has_text("No personas on it yet."));
 }
 
 #[tokio::test]

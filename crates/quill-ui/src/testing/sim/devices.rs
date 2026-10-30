@@ -166,6 +166,23 @@ impl Sim {
         shown
     }
 
+    /// The login's newest device finishes linking: it takes the personas'
+    /// keys and announces its name, seen by the others at their next look.
+    pub fn finish_newest_device(&self, domain: &str, login: &str, name: &str) {
+        self.server(domain, |s| {
+            let held: Vec<Uuid> = s
+                .personas
+                .iter()
+                .filter(|(owner, _, published)| owner == login && *published)
+                .map(|(_, p, _)| p.id)
+                .collect();
+            if let Some(d) = s.devices.list.iter_mut().rev().find(|d| d.login == login) {
+                d.name = Some(name.into());
+                d.personas = held;
+            }
+        });
+    }
+
     /// Every waiting link on a server expires.
     pub fn expire_links(&self, domain: &str) {
         self.server(domain, |s| {
@@ -408,13 +425,14 @@ impl Sim {
             if let Some(l) = server.devices.links.iter_mut().find(|l| l.id == link_id) {
                 l.confirm = Some(confirm.clone());
             }
-            // The new device joins, nameless until it says otherwise.
+            // The new device joins, nameless and holding nothing until it
+            // finishes and announces itself.
             server.devices.list.push(SimDevice {
                 id: Uuid::new_v4(),
                 login: login.clone(),
                 name: None,
                 since: NOW,
-                personas: store.keys.clone(),
+                personas: Vec::new(),
             });
             Ok(Approval::Approved { confirm })
         })
