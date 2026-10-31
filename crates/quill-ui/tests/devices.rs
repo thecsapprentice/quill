@@ -245,6 +245,9 @@ async fn a_new_computer_is_approved_here_by_typing_its_words() {
     let sim = Sim::new().with_server(SERVER).rc();
     let mut d = on_devices(&sim).await;
     assert!(d.has_text("Only this computer so far."));
+    // Found by hand (3d): alone, this computer said it had no personas.
+    assert!(d.has_text("Writes as @salt_wren."), "{}", d.text());
+    assert!(!d.has_text("No personas on it yet."));
     // Unnamed, it's called "This computer" once, with a nudge to name it.
     assert_eq!(d.text().matches("This computer").count(), 1, "{}", d.text());
     assert!(d.has_text("Name it, so your other devices can tell it apart."));

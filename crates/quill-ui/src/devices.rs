@@ -358,6 +358,13 @@ pub fn DevicesPage() -> Element {
         .filter(|p| p.keys == Keys::Elsewhere)
         .map(|p| format!("@{}", p.persona.handle))
         .collect();
+    // Alone, this computer writes as the personas whose keys are here.
+    let ready_here: Vec<String> = m
+        .personas()
+        .iter()
+        .filter(|p| p.keys == Keys::Ready)
+        .map(|p| p.persona.handle.clone())
+        .collect();
     drop(m);
     // A login alone on this computer has no device group yet. Otherwise
     // this computer comes first, then the others, oldest first.
@@ -369,7 +376,7 @@ pub fn DevicesPage() -> Element {
                 this_device: true,
                 name: backend.device_name(),
                 since: None,
-                personas: Vec::new(),
+                personas: ready_here.clone(),
             }]
         } else {
             l
