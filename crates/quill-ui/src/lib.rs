@@ -7,6 +7,7 @@ pub mod app;
 pub mod backend;
 mod board;
 pub mod checks;
+mod devices;
 #[cfg(test)]
 mod fake;
 pub mod field;

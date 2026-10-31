@@ -194,9 +194,14 @@ async fn signed_in(server: &TestServer, name: &str) -> Client {
     c.with_token(&token.token)
 }
 
+/// A linked device's name, which must never reach the server.
+const DEVICE_NAME: &str = "Bob's quiet garret phone";
+
 async fn linked(server: &TestServer, name: &str, existing: (&Store, &Client)) -> (Store, Client) {
     let store = Store::in_memory();
     let client = signed_in(server, name).await;
+    // Device names stay inside the device group.
+    devices::set_name(&store, DEVICE_NAME).unwrap();
     let pending = devices::start_link(&store, &client).await.unwrap();
     devices::approve(existing.0, existing.1, &pending.code.parse().unwrap())
         .await
@@ -376,6 +381,7 @@ async fn the_server_never_holds_plaintext_or_private_keys() {
     let mut secrets = vec![
         secret("the canary", canary.as_bytes()),
         secret("the channel name", channel.as_bytes()),
+        secret("a device's name", DEVICE_NAME.as_bytes()),
     ];
     for (who, store) in [
         ("Alice's first device", &alice),

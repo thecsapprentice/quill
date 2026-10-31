@@ -59,6 +59,20 @@ const K_OWN: &[u8] = b"own";
 const K_PENDING: &[u8] = b"pending-link";
 const K_REMOVED: &[u8] = b"removed";
 const K_ANNOUNCED: &[u8] = b"announced";
+/// This device's name, as its owner calls it; sent only inside the group.
+const K_NAME: &[u8] = b"name";
+/// When this device joined the login's devices, in seconds.
+const K_SINCE: &[u8] = b"since";
+/// Errors a client tells apart (they're `CoreError::Keys` with exactly
+/// this text): the link is gone, nobody has answered yet, and the
+/// KeyPackage doesn't match the code or words given.
+pub const LINK_EXPIRED: &str = "the link expired before it was approved; start again";
+pub const LINK_NOT_ANSWERED: &str = "no device approved the link in time; start again";
+pub const LINK_MISMATCH: &str =
+    "the new device's key doesn't match the code: don't link it. The server may have swapped it.";
+
+/// The longest device name, in characters.
+pub const NAME_MAX: usize = 40;
 /// This device fell behind the device group: what it needed to follow it
 /// was deleted, so it must be linked again (2k).
 const K_STALE: &[u8] = b"stale";
@@ -102,10 +116,16 @@ pub enum Payload {
         #[serde(default)]
         devices: Vec<DeviceAnnouncement>,
     },
-    /// Which persona devices in the directory belong to the sender.
+    /// Which persona devices in the directory belong to the sender, and
+    /// what its owner calls it.
     DeviceKeys {
         device: Uuid,
         personas: Vec<PersonaDevice>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// When it joined the login's devices, in seconds.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<u64>,
     },
     /// The sender lacks a session's history from `from` to `to` (log
     /// positions, inclusive): any device that has it may answer (2k).
@@ -198,6 +218,89 @@ pub struct GrantedPin {
 pub struct DeviceAnnouncement {
     pub device: Uuid,
     pub personas: Vec<PersonaDevice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<u64>,
+}
+
+/// What this device knows of another of the login's devices, as stored.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct Sibling {
+    personas: Vec<PersonaDevice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    since: Option<u64>,
+}
+
+impl Sibling {
+    /// Reads a stored sibling; before names (3d) only the personas were kept.
+    fn read(bytes: &[u8]) -> Option<Self> {
+        serde_json::from_slice(bytes).ok().or_else(|| {
+            serde_json::from_slice(bytes).ok().map(|personas| Self {
+                personas,
+                ..Self::default()
+            })
+        })
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, CoreError> {
+        serde_json::to_vec(self).map_err(|_| err("state"))
+    }
+}
+
+/// Whether another of the login's devices removed this one (its keys are
+/// gone; linking again starts afresh).
+pub fn was_removed(store: &Store) -> Result<bool, CoreError> {
+    Ok(store.get(Table::Account, K_REMOVED)?.is_some())
+}
+
+/// This device's name, if its owner gave one.
+pub fn name(store: &Store) -> Result<Option<String>, CoreError> {
+    Ok(store
+        .get(Table::Account, K_NAME)?
+        .map(|v| String::from_utf8_lossy(&v).into_owned()))
+}
+
+/// Names this device for its owner's other devices (sent at the next
+/// announcement, inside the encrypted group). Trimmed; empty clears it.
+pub fn set_name(store: &Store, name: &str) -> Result<(), CoreError> {
+    let name = name.trim();
+    if name.chars().count() > NAME_MAX {
+        return Err(err(format!(
+            "a device name is at most {NAME_MAX} characters"
+        )));
+    }
+    Ok(store.apply(&[if name.is_empty() {
+        Op::Delete {
+            table: Table::Account,
+            key: K_NAME,
+        }
+    } else {
+        Op::Put {
+            table: Table::Account,
+            key: K_NAME,
+            value: name.as_bytes(),
+        }
+    }])?)
+}
+
+/// When this device joined the login's devices, first asked for after it
+/// did (so a device that predates names counts from then).
+fn since(store: &Store) -> Result<u64, CoreError> {
+    if let Some(v) = store.get(Table::Account, K_SINCE)?
+        && let Ok(b) = <[u8; 8]>::try_from(v.as_slice())
+    {
+        return Ok(u64::from_be_bytes(b));
+    }
+    let now = keys::now_ms() / 1000;
+    store.apply(&[Op::Put {
+        table: Table::Account,
+        key: K_SINCE,
+        value: &now.to_be_bytes(),
+    }])?;
+    Ok(now)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -507,23 +610,31 @@ fn apply(p: &Provider<'_>, gid: &[u8], bytes: &[u8]) -> Result<Applied, CoreErro
                         {
                             continue;
                         }
-                        p.set(
-                            Table::Siblings,
-                            d.device.as_bytes(),
-                            Some(serde_json::to_vec(&d.personas).map_err(|_| err("state"))?),
-                        )?;
+                        let sibling = Sibling {
+                            personas: d.personas,
+                            name: d.name,
+                            since: d.since,
+                        };
+                        p.set(Table::Siblings, d.device.as_bytes(), Some(sibling.bytes()?))?;
                     }
                 }
-                Payload::DeviceKeys { device, personas } => {
+                Payload::DeviceKeys {
+                    device,
+                    personas,
+                    name,
+                    since,
+                } => {
                     // A device speaks only for itself.
                     if sender != Some(device) {
                         return Err(err("a device announced keys for another device"));
                     }
-                    p.set(
-                        Table::Siblings,
-                        device.as_bytes(),
-                        Some(serde_json::to_vec(&personas).map_err(|_| err("state"))?),
-                    )?;
+                    let name = name.map(|n| n.chars().take(NAME_MAX).collect());
+                    let sibling = Sibling {
+                        personas,
+                        name,
+                        since,
+                    };
+                    p.set(Table::Siblings, device.as_bytes(), Some(sibling.bytes()?))?;
                 }
                 Payload::HistoryRequest { session, from, to } => {
                     let Some(device) = sender else {
@@ -780,28 +891,24 @@ pub async fn announce(store: &Store, client: &Client) -> Result<(), CoreError> {
     {
         return Ok(());
     }
-    let personas: Vec<PersonaDevice> = keys::own_persona_devices(store)?
-        .into_iter()
-        .map(|(persona, device)| PersonaDevice { persona, device })
-        .collect();
-    let digest = Sha256::digest(serde_json::to_vec(&personas).map_err(|_| err("encoding"))?);
+    let me = account_device(store)?;
+    let payload = Payload::DeviceKeys {
+        device: me.id,
+        personas: keys::own_persona_devices(store)?
+            .into_iter()
+            .map(|(persona, device)| PersonaDevice { persona, device })
+            .collect(),
+        name: name(store)?,
+        since: Some(since(store)?),
+    };
+    let digest = Sha256::digest(serde_json::to_vec(&payload).map_err(|_| err("encoding"))?);
     if store
         .get(Table::Account, K_ANNOUNCED)?
         .is_some_and(|v| v.as_slice() == digest.as_slice())
     {
         return Ok(());
     }
-    let me = account_device(store)?;
-    send(
-        store,
-        client,
-        &gid,
-        &Payload::DeviceKeys {
-            device: me.id,
-            personas,
-        },
-    )
-    .await?;
+    send(store, client, &gid, &payload).await?;
     store.apply(&[Op::Put {
         table: Table::Account,
         key: K_ANNOUNCED,
@@ -850,6 +957,7 @@ pub async fn start_link(store: &Store, client: &Client) -> Result<PendingLink, C
             K_PENDING,
             K_REMOVED,
             K_ANNOUNCED,
+            K_SINCE,
             K_STALE,
             K_ASKS,
             K_INBOX,
@@ -923,7 +1031,7 @@ pub async fn wait_for_link(
     let (welcome, from_seq) = loop {
         let mailbox = client.read_link(link_id).await.map_err(|e| {
             if e.status() == Some(404) {
-                err("the link expired before it was approved; start again")
+                err(LINK_EXPIRED)
             } else {
                 e
             }
@@ -932,7 +1040,7 @@ pub async fn wait_for_link(
             break (w, s);
         }
         if std::time::Instant::now() >= deadline {
-            return Err(err("no device approved the link in time; start again"));
+            return Err(err(LINK_NOT_ANSWERED));
         }
         tokio::time::sleep(poll).await;
     };
@@ -1004,7 +1112,8 @@ pub fn abandon_link(store: &Store) -> Result<(), CoreError> {
 
 // ---- Linking: the device already in use ----------------------------------------------------
 
-/// A link code as typed: the full code, or the link id and 6 words.
+/// A link code as typed: the full code, the link id and 6 words, or the 6
+/// words alone (the link is then looked up among this login's waiting ones).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkCode {
     pub link_id: String,
@@ -1035,14 +1144,22 @@ impl std::str::FromStr for LinkCode {
                 _ => Err(err("that isn't a complete link code")),
             };
         }
-        let mut parts = s.split_whitespace();
-        let link = parts.next().unwrap_or_default();
-        let typed: Vec<&str> = parts.collect();
-        if link.is_empty() || typed.len() != 6 {
-            return Err(err(
-                "give the whole quill-link: code, or the link id followed by its 6 words",
-            ));
-        }
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        // Six words alone: the link is looked up when approving.
+        let (link, typed) = match parts.len() {
+            6 if parts.iter().all(|w| words::is_word(w)) => ("", parts.as_slice()),
+            6 => {
+                return Err(err(
+                    "those aren't all link words: check them against the new device's screen",
+                ));
+            }
+            7 => (parts[0], &parts[1..]),
+            _ => {
+                return Err(err(
+                    "give the 6 words the new device shows, or its whole quill-link: code",
+                ));
+            }
+        };
         Ok(Self {
             link_id: link.to_owned(),
             check: Check::Words(typed.join(" ")),
@@ -1050,7 +1167,32 @@ impl std::str::FromStr for LinkCode {
     }
 }
 
+/// Links waiting for a device in use to approve them, as [`waiting`] finds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Waiting {
+    None,
+    One(String),
+    /// More than one: someone else may be linking to this login, so none
+    /// is approved by words alone.
+    Several(usize),
+}
+
+/// This login's links that no device has answered yet.
+pub async fn waiting(client: &Client) -> Result<Waiting, CoreError> {
+    let mut links = client.waiting_links().await?;
+    Ok(match links.len() {
+        0 => Waiting::None,
+        1 => Waiting::One(links.remove(0).link_id),
+        n => Waiting::Several(n),
+    })
+}
+
 impl LinkCode {
+    /// Whether the link must be looked up (six words were given alone).
+    pub fn needs_lookup(&self) -> bool {
+        self.link_id.is_empty()
+    }
+
     /// Whether `package`, the KeyPackage the mailbox holds, is the one the
     /// code was made for.
     pub fn matches(&self, package: &[u8]) -> bool {
@@ -1081,6 +1223,7 @@ pub async fn approve(
     client: &Client,
     code: &LinkCode,
 ) -> Result<Approved, CoreError> {
+    let code = &resolve(client, code).await?;
     let gid = ensure_group(store, client).await?;
     let caught = catch_up(store, client).await?;
     if caught.removed {
@@ -1091,16 +1234,14 @@ pub async fn approve(
     }
     let mailbox = client.read_link(&code.link_id).await.map_err(|e| {
         if e.status() == Some(404) {
-            err("no such link: it may have expired")
+            err(LINK_EXPIRED)
         } else {
             e
         }
     })?;
     let package = unb64(&mailbox.key_package).ok_or_else(|| err("server sent bad base64"))?;
     if !code.matches(&package) {
-        return Err(err(
-            "the new device's key doesn't match the code: don't link it. The server may have swapped it.",
-        ));
+        return Err(err(LINK_MISMATCH));
     }
     let package = match MlsMessageIn::tls_deserialize_exact(&package)
         .map_err(|e| mls_err("decoding", e))?
@@ -1151,10 +1292,17 @@ pub async fn approve(
             .into_iter()
             .map(|(persona, device)| PersonaDevice { persona, device })
             .collect(),
+        name: name(store)?,
+        since: Some(since(store)?),
     }];
     for (k, v) in store.scan(Table::Siblings, b"")? {
-        if let (Ok(device), Ok(personas)) = (Uuid::from_slice(&k), serde_json::from_slice(&v)) {
-            known.push(DeviceAnnouncement { device, personas });
+        if let (Ok(device), Some(s)) = (Uuid::from_slice(&k), Sibling::read(&v)) {
+            known.push(DeviceAnnouncement {
+                device,
+                personas: s.personas,
+                name: s.name,
+                since: s.since,
+            });
         }
     }
     send(
@@ -1185,6 +1333,26 @@ pub async fn approve(
     })
 }
 
+/// Fills in the link id of a code given as six words alone.
+async fn resolve(client: &Client, code: &LinkCode) -> Result<LinkCode, CoreError> {
+    if !code.needs_lookup() {
+        return Ok(code.clone());
+    }
+    match waiting(client).await? {
+        Waiting::One(link_id) => Ok(LinkCode {
+            link_id,
+            check: code.check.clone(),
+        }),
+        Waiting::None => Err(err(
+            "no new device is waiting: start linking on the new device first (links last 10 minutes)",
+        )),
+        Waiting::Several(n) => Err(err(format!(
+            "{n} new devices are waiting to link to this login. If only one is yours, someone else may be \
+             trying to link: change your password, wait 10 minutes for the links to expire, and start again"
+        ))),
+    }
+}
+
 // ---- Listing and removing ------------------------------------------------------------------
 
 /// One of the login's devices.
@@ -1192,6 +1360,10 @@ pub async fn approve(
 pub struct ListedDevice {
     pub id: Uuid,
     pub this_device: bool,
+    /// What its owner calls it, if they named it.
+    pub name: Option<String>,
+    /// When it joined the login's devices, in seconds, if it said.
+    pub since: Option<u64>,
     /// Its persona devices, as it announced them (or, for this device, as
     /// it holds them).
     pub personas: Vec<PersonaDevice>,
@@ -1216,22 +1388,28 @@ pub async fn list(store: &Store, client: &Client) -> Result<Vec<ListedDevice>, C
         .members()
         .filter_map(|m| device_of(&m.credential))
         .map(|id| {
-            let personas = if id == me.id {
-                keys::own_persona_devices(store)?
-                    .into_iter()
-                    .map(|(persona, device)| PersonaDevice { persona, device })
-                    .collect()
+            let s = if id == me.id {
+                Sibling {
+                    personas: keys::own_persona_devices(store)?
+                        .into_iter()
+                        .map(|(persona, device)| PersonaDevice { persona, device })
+                        .collect(),
+                    name: name(store)?,
+                    since: Some(since(store)?),
+                }
             } else {
                 store
                     .get(Table::Siblings, id.as_bytes())?
-                    .map(|v| serde_json::from_slice(&v).map_err(|_| err("damaged state")))
+                    .map(|v| Sibling::read(&v).ok_or_else(|| err("damaged state")))
                     .transpose()?
                     .unwrap_or_default()
             };
             Ok(ListedDevice {
                 id,
                 this_device: id == me.id,
-                personas,
+                name: s.name,
+                since: s.since,
+                personas: s.personas,
             })
         })
         .collect()
@@ -1372,6 +1550,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn siblings_stored_before_names_still_read() {
+        let pd = PersonaDevice {
+            persona: Uuid::nil(),
+            device: Uuid::max(),
+        };
+        let old = serde_json::to_vec(&vec![pd.clone()]).unwrap();
+        let s = Sibling::read(&old).unwrap();
+        assert_eq!(s.personas, vec![pd.clone()]);
+        assert_eq!(s.name, None);
+        let new = Sibling {
+            personas: vec![pd],
+            name: Some("Study desktop".into()),
+            since: Some(5),
+        };
+        let back = Sibling::read(&new.bytes().unwrap()).unwrap();
+        assert_eq!(back.name.as_deref(), Some("Study desktop"));
+        assert_eq!(back.since, Some(5));
+        assert!(Sibling::read(b"junk").is_none());
+    }
+
+    #[test]
+    fn device_names_are_trimmed_and_limited() {
+        let store = Store::in_memory();
+        set_name(&store, "  Study desktop ").unwrap();
+        assert_eq!(name(&store).unwrap().as_deref(), Some("Study desktop"));
+        assert!(set_name(&store, &"x".repeat(NAME_MAX + 1)).is_err());
+        set_name(&store, "").unwrap();
+        assert_eq!(name(&store).unwrap(), None);
+    }
+
+    #[test]
     fn link_codes_parse_both_ways() {
         let fp = b64(&[7u8; 32]);
         let code: LinkCode = format!("quill-link:1:writers.example:8090:abc123:{fp}")
@@ -1381,6 +1590,13 @@ mod tests {
         assert_eq!(code.check, Check::Fingerprint(vec![7; 32]));
         let typed: LinkCode = "abc123 one two three four five six".parse().unwrap();
         assert_eq!(typed.link_id, "abc123");
+        let alone: LinkCode = "abandon ability able about above absent".parse().unwrap();
+        assert!(
+            "one two three four five six".parse::<LinkCode>().is_err(),
+            "not list words"
+        );
+        assert!(alone.needs_lookup());
+        assert!(!typed.needs_lookup());
         for bad in [
             "quill-link:1:host:abc",
             "abc123 one two",

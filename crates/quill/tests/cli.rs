@@ -282,6 +282,13 @@ async fn the_cli_links_a_second_computer() {
         let list: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(list.as_array().unwrap().len(), 2, "{out}");
     }
+
+    // The desktop names itself; the laptop learns the name in the group.
+    let (ok, _, err) = on_desktop(&["device", "name", "Study desktop"]);
+    assert!(ok, "{err}");
+    let (ok, out, err) = on_laptop(&["devices"]);
+    assert!(ok, "{err}");
+    assert!(out.contains("Study desktop"), "{out}");
     server.stop().await.unwrap();
 }
 

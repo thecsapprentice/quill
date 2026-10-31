@@ -76,6 +76,12 @@ pub fn from_mnemonic(typed: &str) -> Option<[u8; 16]> {
     (check == got).then_some(entropy)
 }
 
+/// Whether `word` (any case) is on the list.
+pub fn is_word(word: &str) -> bool {
+    let word = word.to_lowercase();
+    LIST.lines().any(|l| l == word)
+}
+
 /// Whether `typed` (any case, any spacing) are the words for `hash`.
 pub fn matches(hash: &[u8], typed: &str) -> bool {
     let typed: Vec<String> = typed.split_whitespace().map(str::to_lowercase).collect();
