@@ -6230,6 +6230,54 @@
       }
     },
     "/link": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "List this login's links waiting for an answer",
+        "description": "Unanswered, unexpired linking mailboxes opened by this login, soonest to expire first. A device already in use looks them up when the writer chooses to link, then checks the KeyPackage against the words the new device shows.",
+        "operationId": "get_link",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WaitingLink"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
       "post": {
         "tags": [
           "groups"
@@ -13576,6 +13624,24 @@
               "null"
             ],
             "description": "The new script's name; the template's own if left out."
+          }
+        }
+      },
+      "WaitingLink": {
+        "type": "object",
+        "description": "One entry of `GET /link`: a link this login opened that no device has\nanswered yet. The KeyPackage is fetched by id as before.",
+        "required": [
+          "linkId",
+          "expiresInSecs"
+        ],
+        "properties": {
+          "expiresInSecs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "linkId": {
+            "type": "string"
           }
         }
       }

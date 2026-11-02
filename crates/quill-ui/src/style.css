@@ -335,3 +335,15 @@ button.link { border: 0; background: none; padding: 0; color: var(--accent); tex
 .row-tags { margin-top: 0.3rem; font-size: 0.8rem; }
 .load-more { height: 1px; }
 .fresh { display: flex; gap: 0.8rem; align-items: center; margin: 0.4rem 0; color: var(--muted); }
+
+/* ---- Keys and devices (3d) ---- */
+.link-words { display: grid; grid-template-columns: repeat(3, max-content); gap: 0.4rem 1.8rem; list-style-position: inside; padding: 0; margin: 1rem 0; font-family: var(--mono); font-size: 1.15rem; }
+.link-words li { padding: 0.2rem 0; }
+.link-code { display: flex; gap: 1.2rem; align-items: center; flex-wrap: wrap; margin: 0.8rem 0; }
+.qr { width: 9rem; height: 9rem; background: #fff; border: 1px solid var(--line); border-radius: var(--radius-s); }
+.card-problem { max-width: 32rem; margin: 0 auto; }
+.panel { margin-top: 1.5rem; max-width: 46rem; }
+.devices { max-width: 46rem; }
+@media (max-width: 480px) {
+  .link-words { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

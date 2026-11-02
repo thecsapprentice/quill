@@ -974,6 +974,11 @@ impl Client {
         Self::json(Self::with_json(builder, body)).await
     }
 
+    /// This login's links that no device has answered yet.
+    pub async fn waiting_links(&self) -> Result<Vec<quill_proto::groups::WaitingLink>, CoreError> {
+        Self::json(self.authed(Method::GET, "/link")?).await
+    }
+
     pub async fn read_link(
         &self,
         link: &str,

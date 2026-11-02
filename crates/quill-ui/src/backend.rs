@@ -200,6 +200,82 @@ pub struct Details {
     pub rows: Vec<(String, String)>,
 }
 
+/// A link this computer opened, waiting for a device already in use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkStart {
+    /// The whole `quill-link:` code, for the QR code and for copying.
+    pub code: String,
+    /// The six words to type on the device in use.
+    pub words: Vec<String>,
+    /// How long the link lasts.
+    pub expires_in_secs: u64,
+}
+
+/// What approving a new computer's link came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Approval {
+    /// Linked: both devices should now show these words.
+    Approved { confirm: Vec<String> },
+    /// No new computer is waiting (or its link expired).
+    NoneWaiting,
+    /// More than one is waiting: someone else may be linking, so none is
+    /// approved by words alone.
+    Several(usize),
+    /// The words don't match the computer that's waiting.
+    WordsDiffer,
+}
+
+/// One of the login's devices.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Device {
+    pub id: Uuid,
+    pub this_device: bool,
+    pub name: Option<String>,
+    /// When it joined the login's devices, in seconds since 1970.
+    pub since: Option<u64>,
+    /// The personas it can write as, by handle.
+    pub personas: Vec<String>,
+}
+
+/// Why a device is removed, recorded with its persona keys' revocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RemoveReason {
+    Lost,
+    Compromised,
+    Retired,
+    #[default]
+    Unspecified,
+}
+
+impl RemoveReason {
+    pub const ALL: [RemoveReason; 4] = [
+        RemoveReason::Retired,
+        RemoveReason::Lost,
+        RemoveReason::Compromised,
+        RemoveReason::Unspecified,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            RemoveReason::Retired => "I don't use it any more",
+            RemoveReason::Lost => "It was lost or stolen",
+            RemoveReason::Compromised => "Someone else may have used it",
+            RemoveReason::Unspecified => "I'd rather not say",
+        }
+    }
+}
+
+/// A persona's keys as advanced mode shows them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonaKeys {
+    pub handle: String,
+    /// Label and value pairs, in order.
+    pub rows: Vec<(String, String)>,
+}
+
+/// The longest device name, in characters (as `quill-core` allows).
+pub const DEVICE_NAME_MAX: usize = 40;
+
 /// The client's side of the app.
 pub trait Backend {
     // ---- Servers -------------------------------------------------------------------
@@ -269,6 +345,41 @@ pub trait Backend {
     /// calling `progress` as each step starts. Safe to call again after a
     /// failure: it carries on from where it stopped.
     fn prepare<'a>(&'a self, persona: Uuid, progress: &'a dyn Fn(Step)) -> Call<'a, ()>;
+    /// As `prepare`, but makes a new identity key in place of one made on
+    /// another device. That device stops working for the persona, and
+    /// other writers are told the key changed.
+    fn start_over<'a>(&'a self, persona: Uuid, progress: &'a dyn Fn(Step)) -> Call<'a, ()>;
+
+    // ---- Devices ---------------------------------------------------------------------------
+
+    /// What this computer is called on the login's other devices.
+    fn device_name(&self) -> Option<String>;
+    /// Whether another of the login's devices removed this computer.
+    fn removed_here(&self) -> bool;
+    /// A name to suggest for this computer: its own, as the system knows it.
+    fn suggested_device_name(&self) -> String;
+    /// Renames this computer, telling the other devices if it's linked.
+    fn rename_device<'a>(&'a self, name: &'a str) -> Call<'a, ()>;
+    /// The login's devices; empty until a second one is linked.
+    fn devices(&self) -> Call<'_, Vec<Device>>;
+    /// Removes another of the login's devices; its persona keys are revoked.
+    fn remove_device(&self, id: Uuid, reason: RemoveReason) -> Call<'_, ()>;
+    /// On a new computer: names it and opens a link for a device in use.
+    fn start_link<'a>(&'a self, name: &'a str) -> Call<'a, LinkStart>;
+    /// Whether the link was answered: the words to compare, `None` while
+    /// waiting (it returns within a few seconds), `Gone` once it expired.
+    fn link_answer(&self) -> Call<'_, Option<Vec<String>>>;
+    /// The words matched: takes the keys and gets the personas ready.
+    fn finish_link(&self) -> Call<'_, Standing>;
+    /// The words didn't match, or the person gave up: takes nothing.
+    fn abandon_link(&self) -> Result<(), Problem>;
+    /// On a device in use: approves the waiting link whose words (or whole
+    /// code) are `typed`.
+    fn approve_link<'a>(&'a self, typed: &'a str) -> Call<'a, Approval>;
+    /// How many new computers are waiting to link to this login.
+    fn waiting_links(&self) -> Call<'_, usize>;
+    /// Each persona's keys, for advanced mode.
+    fn key_details(&self) -> Call<'_, Vec<PersonaKeys>>;
 
     // ---- The board ------------------------------------------------------------------------
 

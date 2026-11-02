@@ -484,7 +484,13 @@ async fn the_first_run_moves_through_the_apps_screens() {
 
     let fox = app.create_persona("ink_fox", "Ink Fox").await.unwrap();
     m.persona_created(fox.clone());
-    assert_eq!(m.screen, Screen::Preparing { persona: fox.id });
+    assert_eq!(
+        m.screen,
+        Screen::Preparing {
+            persona: fox.id,
+            replace: false
+        }
+    );
     let done = app.prepare(fox.id, &|_| {}).await;
     m.prepared(fox.id, done);
     assert_eq!((m.screen, m.status), (Screen::Frame, Status::Connected));
@@ -659,5 +665,208 @@ async fn the_board_through_the_native_backend() {
         app.delete_prompt(posted.id).await.unwrap_err(),
         Problem::Gone
     );
+    server.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn linking_naming_and_removing_through_the_native_backend() {
+    use quill_ui::backend::{Approval, RemoveReason};
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    // The laptop: a login with a ready persona.
+    let (ld, lv) = (tempfile::tempdir().unwrap(), keychain());
+    let laptop = backend(ld.path(), &lv);
+    laptop.add_server(&server.url(), None).await.unwrap();
+    laptop.register("ink", PASSWORD, None).await.unwrap();
+    let fox = laptop.create_persona("ink_fox", "").await.unwrap();
+    laptop.prepare(fox.id, &|_| {}).await.unwrap();
+    // Alone, a login has no device group yet.
+    assert!(laptop.devices().await.unwrap().is_empty());
+    assert_eq!(
+        laptop
+            .approve_link("abandon ability able about above absent")
+            .await
+            .unwrap(),
+        Approval::NoneWaiting
+    );
+
+    // The desktop signs in: its keys are elsewhere.
+    let (dd, dv) = (tempfile::tempdir().unwrap(), keychain());
+    let desktop = backend(dd.path(), &dv);
+    desktop.add_server(&server.url(), None).await.unwrap();
+    let standing = desktop.sign_in("ink", PASSWORD).await.unwrap();
+    assert_eq!(
+        personas(&standing),
+        vec![("ink_fox".to_owned(), Keys::Elsewhere)]
+    );
+    let link = desktop.start_link("Study desktop").await.unwrap();
+    assert_eq!(link.words.len(), 6);
+    assert!(link.code.starts_with("quill-link:1:"));
+    assert_eq!(
+        desktop.link_answer().await.unwrap(),
+        None,
+        "not answered yet"
+    );
+    assert_eq!(laptop.waiting_links().await.unwrap(), 1);
+
+    // A typo is told apart from a match; nothing is linked by it.
+    let mut wrong = link.words.clone();
+    wrong[0] = if wrong[0] == "abandon" {
+        "ability"
+    } else {
+        "abandon"
+    }
+    .into();
+    assert_eq!(
+        laptop.approve_link(&wrong.join(" ")).await.unwrap(),
+        Approval::WordsDiffer
+    );
+    let Approval::Approved { confirm } = laptop.approve_link(&link.words.join(" ")).await.unwrap()
+    else {
+        panic!("not approved");
+    };
+    let shown = loop {
+        if let Some(words) = desktop.link_answer().await.unwrap() {
+            break words;
+        }
+    };
+    assert_eq!(shown, confirm, "both devices show the same words");
+    let standing = desktop.finish_link().await.unwrap();
+    assert_eq!(
+        personas(&standing),
+        vec![("ink_fox".to_owned(), Keys::Ready)]
+    );
+
+    // Both list both, named; a rename reaches the other.
+    laptop.rename_device("Laptop").await.unwrap();
+    let seen = desktop.devices().await.unwrap();
+    assert_eq!(seen.len(), 2);
+    let me = seen.iter().find(|d| d.this_device).unwrap();
+    assert_eq!(me.name.as_deref(), Some("Study desktop"));
+    assert_eq!(me.personas, vec!["ink_fox".to_owned()]);
+    let other = seen.iter().find(|d| !d.this_device).unwrap();
+    assert_eq!(other.name.as_deref(), Some("Laptop"));
+    assert_eq!(desktop.device_name().as_deref(), Some("Study desktop"));
+
+    // The laptop removes the desktop, which finds out at its next upkeep.
+    let desk_id = laptop
+        .devices()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|d| !d.this_device)
+        .unwrap()
+        .id;
+    laptop
+        .remove_device(desk_id, RemoveReason::Retired)
+        .await
+        .unwrap();
+    assert_eq!(laptop.devices().await.unwrap().len(), 1);
+    let told = desktop.upkeep().await.unwrap();
+    assert!(
+        told.is_some_and(|t| t.contains("removed")),
+        "the desktop is told"
+    );
+    server.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn starting_over_with_a_new_identity_key_through_the_native_backend() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let (ld, lv) = (tempfile::tempdir().unwrap(), keychain());
+    let laptop = backend(ld.path(), &lv);
+    laptop.add_server(&server.url(), None).await.unwrap();
+    laptop.register("ink", PASSWORD, None).await.unwrap();
+    let fox = laptop.create_persona("ink_fox", "").await.unwrap();
+    laptop.prepare(fox.id, &|_| {}).await.unwrap();
+
+    // A computer whose other device is lost starts over.
+    let (dd, dv) = (tempfile::tempdir().unwrap(), keychain());
+    let desktop = backend(dd.path(), &dv);
+    desktop.add_server(&server.url(), None).await.unwrap();
+    desktop.sign_in("ink", PASSWORD).await.unwrap();
+    assert!(
+        desktop.prepare(fox.id, &|_| {}).await.is_err(),
+        "keys are elsewhere"
+    );
+    desktop.start_over(fox.id, &|_| {}).await.unwrap();
+    assert_eq!(
+        personas(&desktop.standing().await.unwrap()),
+        vec![("ink_fox".to_owned(), Keys::Ready)]
+    );
+    // The new key shows in advanced mode.
+    let details = desktop.key_details().await.unwrap();
+    assert_eq!(details[0].handle, "ink_fox");
+    assert!(
+        details[0]
+            .rows
+            .iter()
+            .any(|(k, v)| k == "Identity key version" && v == "2")
+    );
+    server.stop().await.unwrap();
+}
+
+/// Approving while upkeep runs (a live notice starts upkeep at once) must
+/// not send two device-group messages with the same keys: the new device
+/// then can't read the second, and linking fails.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn approving_while_upkeep_runs_still_links() {
+    use quill_ui::backend::Approval;
+    // Many rounds of linking post more device-group messages a minute
+    // than the server's default allows.
+    let Some(server) = TestServer::start_with(|c| c.limits.messages_per_minute = 10_000)
+        .await
+        .unwrap()
+    else {
+        return;
+    };
+    let (ld, lv) = (tempfile::tempdir().unwrap(), keychain());
+    let laptop = backend(ld.path(), &lv);
+    laptop.add_server(&server.url(), None).await.unwrap();
+    laptop.register("ink", PASSWORD, None).await.unwrap();
+    let fox = laptop.create_persona("ink_fox", "").await.unwrap();
+    laptop.prepare(fox.id, &|_| {}).await.unwrap();
+    // Eight: the server opens at most 10 links per login an hour.
+    for round in 0..8 {
+        let (dd, dv) = (tempfile::tempdir().unwrap(), keychain());
+        let desktop = backend(dd.path(), &dv);
+        desktop.add_server(&server.url(), None).await.unwrap();
+        desktop.sign_in("ink", PASSWORD).await.unwrap();
+        let link = desktop.start_link(&format!("Desk {round}")).await.unwrap();
+        let words = link.words.join(" ");
+        let name = format!("Laptop {round}");
+        let (approved, upkept, listed, renamed) = tokio::join!(
+            laptop.approve_link(&words),
+            laptop.upkeep(),
+            laptop.devices(),
+            laptop.rename_device(&name),
+        );
+        let Approval::Approved { confirm } = approved.unwrap() else {
+            panic!("round {round}: not approved");
+        };
+        upkept.unwrap();
+        listed.unwrap();
+        renamed.unwrap();
+        let shown = loop {
+            if let Some(w) = desktop.link_answer().await.unwrap() {
+                break w;
+            }
+        };
+        assert_eq!(shown, confirm, "round {round}");
+        let standing = desktop
+            .finish_link()
+            .await
+            .unwrap_or_else(|e| panic!("round {round}: finishing failed: {e:?} {:?}", e.detail()));
+        assert_eq!(
+            personas(&standing),
+            vec![("ink_fox".to_owned(), Keys::Ready)]
+        );
+        // And the laptop keeps reading the group.
+        laptop.upkeep().await.unwrap();
+        assert_eq!(laptop.devices().await.unwrap().len(), round + 2);
+    }
     server.stop().await.unwrap();
 }

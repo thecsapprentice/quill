@@ -191,7 +191,7 @@ async fn signing_in_where_the_keys_are_elsewhere_says_so_once() {
     d.click("Sign in").await;
     d.wait_for_text("This computer is new to your login").await;
     assert!(d.has_text("@ink_fox"));
-    d.click("Continue").await;
+    d.click("Not now").await;
     d.wait_for_text("Connected to writers.example").await;
 }
 

@@ -24,8 +24,11 @@ pub enum Screen {
     Account,
     /// The first persona, pushed but skippable.
     FirstPersona,
-    /// Getting a persona ready, as progress.
-    Preparing { persona: Uuid },
+    /// Getting a persona ready, as progress; `replace` starts it over with a
+    /// new identity key in place of one on another device.
+    Preparing { persona: Uuid, replace: bool },
+    /// Linking this computer to the login's other devices (3d).
+    Linking,
     /// Signed in where the personas' keys are on another device.
     Elsewhere,
     /// The app's frame and its sections.
@@ -48,6 +51,8 @@ pub enum Section {
     /// The server rules: reached from Settings and the "rules changed"
     /// banner, not the sidebar.
     Rules,
+    /// The login's devices: reached from Settings, not the sidebar.
+    Devices,
 }
 
 impl Section {
@@ -73,6 +78,7 @@ impl Section {
             Section::Personas => "Personas",
             Section::Settings => "Settings",
             Section::Rules => "Server rules",
+            Section::Devices => "Devices",
         }
     }
 }
@@ -300,6 +306,7 @@ impl Model {
                 if let (Some(p), false) = (to_set_up, self.prepare_later) {
                     Screen::Preparing {
                         persona: p.persona.id,
+                        replace: false,
                     }
                 } else if personas.is_empty() && self.fresh_login && !self.persona_skipped {
                     Screen::FirstPersona
@@ -331,7 +338,10 @@ impl Model {
         }
         self.problem = None;
         self.prepare_later = false;
-        self.screen = Screen::Preparing { persona: id };
+        self.screen = Screen::Preparing {
+            persona: id,
+            replace: false,
+        };
     }
 
     /// Getting `persona` ready finished, or stopped with a problem (the
@@ -353,6 +363,41 @@ impl Model {
         self.prepare_later = true;
         self.problem = None;
         self.route();
+    }
+
+    /// Starts linking this computer to the login's other devices.
+    pub fn begin_link(&mut self) {
+        self.problem = None;
+        self.screen = Screen::Linking;
+    }
+
+    /// Linking stopped without a link: back to where things stand.
+    pub fn link_left(&mut self) {
+        self.problem = None;
+        self.elsewhere_seen = true;
+        if self.standing.is_some() {
+            self.route();
+        } else {
+            self.screen = Screen::Frame;
+        }
+    }
+
+    /// Linked: the personas are ready here, and Home says so.
+    pub fn linked(&mut self, standing: Standing) {
+        self.notice = None;
+        self.elsewhere_seen = true;
+        self.set_standing(standing);
+        self.section = Section::Home;
+        self.route();
+    }
+
+    /// Starts `persona` over with a new identity key, as progress.
+    pub fn begin_start_over(&mut self, persona: Uuid) {
+        self.problem = None;
+        self.screen = Screen::Preparing {
+            persona,
+            replace: true,
+        };
     }
 
     pub fn elsewhere_seen(&mut self) {
@@ -564,9 +609,21 @@ mod tests {
         let mut m = opened(&fake);
         let fox = persona("ink_fox", Keys::ToSetUp).persona;
         m.persona_created(fox.clone());
-        assert_eq!(m.screen, Screen::Preparing { persona: fox.id });
+        assert_eq!(
+            m.screen,
+            Screen::Preparing {
+                persona: fox.id,
+                replace: false
+            }
+        );
         m.prepared(fox.id, Err(Problem::Unreachable("w".into())));
-        assert_eq!(m.screen, Screen::Preparing { persona: fox.id });
+        assert_eq!(
+            m.screen,
+            Screen::Preparing {
+                persona: fox.id,
+                replace: false
+            }
+        );
         assert!(m.problem.is_some());
         m.prepared(fox.id, Ok(()));
         assert_eq!(m.screen, Screen::Frame);
