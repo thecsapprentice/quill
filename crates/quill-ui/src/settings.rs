@@ -521,7 +521,6 @@ fn AdvancedFieldset() -> Element {
                 if let Some(p) = problem() {
                     ProblemLine { problem: p }
                 }
-                p { class: "hint", "Every part of the app's design, in each of its states, light and dark." }
                 div { class: "actions",
                     button {
                         class: "secondary",
@@ -532,6 +531,7 @@ fn AdvancedFieldset() -> Element {
                         "Design reference"
                     }
                 }
+                p { class: "hint", "Every part of the app's design, in each of its states, light and dark." }
             }
         }
     }

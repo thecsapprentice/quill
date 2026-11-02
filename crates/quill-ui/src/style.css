@@ -149,6 +149,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; filter: none; }
 button[aria-busy="true"]:disabled { cursor: progress; }
 button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; }
 .actions { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; margin-top: var(--space-4); }
+.actions + .hint { margin-top: var(--space-2); }
 
 /* ---- The page header: a page's title and its actions ---- */
 .page-head { display: flex; align-items: baseline; gap: var(--space-2) var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-4); }
@@ -461,6 +462,7 @@ fieldset > .hint { margin-bottom: var(--space-3); }
 .ref-spaces { display: flex; flex-direction: column; gap: var(--space-1); }
 .ref-space { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-xs); }
 .ref-space span { height: var(--space-3); background: var(--accent); border-radius: 2px; }
+.ref-scroll { overflow-x: auto; max-width: 100%; }
 .ref-states { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
 .ref-states th, .ref-states td { padding: var(--space-1); text-align: left; }
 .ref-states th[scope="col"] { color: var(--muted); font-weight: 400; }

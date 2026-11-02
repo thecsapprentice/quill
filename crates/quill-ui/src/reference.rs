@@ -103,6 +103,7 @@ fn Theme(theme: &'static str, name: &'static str) -> Element {
             }
 
             h3 { "Buttons" }
+            div { class: "ref-scroll",
             table { class: "ref-states",
                 thead {
                     tr {
@@ -130,6 +131,7 @@ fn Theme(theme: &'static str, name: &'static str) -> Element {
                         }
                     }
                 }
+            }
             }
             p { "Inside running text, a " button { class: "link", "link-style action" } "." }
 
