@@ -14,12 +14,16 @@ is in [`docs/rebrand-plait.md`](../../docs/rebrand-plait.md).
 
 ## The idea
 
-Writing together is weaving. A **warp** is a public prompt: the fixed
-threads strung on the loom that everything else is woven through. A
-**loom** is a private, encrypted session where writers weave. Each writer
-is a thread of their own colour, and the finished piece is one **cloth**
-with every colour in it. The mark is a three-strand **plait**: separate
-strands that hold together only because they cross.
+Writing together is like weaving. A public prompt is the warp: threads
+strung on the loom for others to weave through. A private session is the
+loom itself. Each writer is a thread of their own colour, and the finished
+piece is one cloth with every colour in it. The mark is a three-strand
+**plait**: separate strands that hold together only because they cross.
+
+The weaving is for the art, the brand and the docs. The app's labels stay
+in writing words (prompt, session, request, persona, server), and so do
+the icon names. See "Vocabulary" in
+[`docs/rebrand-plait.md`](../../docs/rebrand-plait.md).
 
 ## Palette
 
@@ -66,28 +70,28 @@ outlined to paths, so no font ships with it.
 ## Interface icons
 
 24 by 24, no fill, 2px round strokes in `currentColor`: the same rules as
-the board's existing nav icons (`layout.rs`), so they sit together. The
-theme word is the file name; the plain meaning is the `<title>`.
+the board's existing nav icons (`layout.rs`), so they sit together. Names
+and titles are the app's own words; the weaving is in the drawings.
 
-| Icon | Means | Icon | Means |
+| Icon | Drawn as | Icon | Drawn as |
 | --- | --- | --- | --- |
-| `home` | Home | `thread` | A persona |
-| `warp-board` | The board of warps | `threads` | All personas |
-| `warp` | One warp (prompt) | `thread-add` | Add a writer |
-| `warp-new` | Post a warp | `selvedge` | Verified identity, safety number |
-| `my-warps` | My warps | `key` | Identity key |
-| `shuttle` | A request to weave | `devices` | Linked devices |
-| `shuttle-sent` | A request you sent | `backup` | Backup and recovery |
-| `shuttle-received` | A request waiting on you | `guild` | A server |
-| `loom` | A session | `federation` | Other servers |
-| `loom-locked` | End-to-end encrypted | `rules` | Server rules |
-| `strand` | One contribution | `notices` | Notices |
-| `cloth` | The story channel | `news` | Announcements |
-| `draft` | The planning channel | `tag` | Tag |
-| `panels` | All channels | `report` | Report |
-| `bolt` | Export the finished piece | `moderation` | Moderation |
-| `needle` | Edit | `search`, `filter`, `settings` | As named |
-| `attach` | Attach a reference | `waiting`, `accept`, `decline` | As named |
+| `home` | House | `persona` | A spool of thread |
+| `board` | Prompt cards hung from a beam | `personas` | Two spools |
+| `prompt` | A card hung from a beam | `add-writer` | Spool and plus |
+| `prompt-new` | Hung card with a plus | `verified` | Shield with a tick |
+| `my-prompts` | Two hung cards | `key` | Identity key |
+| `request` | A shuttle | `devices` | Linked devices |
+| `request-sent` | Shuttle, arrow out | `backup` | Backup and recovery |
+| `request-received` | Shuttle, arrow in | `server` | Columned hall |
+| `session` | A loom | `federation` | Two linked nodes |
+| `session-locked` | Loom with a padlock | `rules` | Scroll |
+| `contribution` | A wavy strand | `notices` | Bell |
+| `story` | Woven cloth | `news` | Newspaper |
+| `planning` | Grid of notes | `tag` | Tag |
+| `channels` | Stacked layers | `report` | Flag |
+| `export` | A bolt of cloth | `moderation` | Shield with a mark |
+| `edit` | Needle | `search`, `filter`, `settings` | As named |
+| `attach` | Paper clip | `waiting`, `accept`, `decline` | As named |
 | `more`, `sign-in`, `sign-out` | As named | | |
 
 Using them:
@@ -100,7 +104,7 @@ Using them:
   stroke_width: "2", stroke_linecap: "round", stroke_linejoin: "round",
   aria_hidden: "true", path { d: icon.path() } }`.
 - **In HTML.** Inline `sprite.svg` once and use
-  `<svg class="icon"><use href="#plait-loom"/></svg>`.
+  `<svg class="icon"><use href="#plait-session"/></svg>`.
 - An icon next to a text label is decorative (`aria-hidden`). An icon
   alone on a button needs `aria-label` set to its `meaning()`.
 

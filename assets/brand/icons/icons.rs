@@ -5,57 +5,57 @@
 pub enum Icon {
     /// Home.
     Home,
-    /// The board of warps (public prompts).
-    WarpBoard,
-    /// A warp (one prompt).
-    Warp,
-    /// Post a warp.
-    WarpNew,
-    /// My warps.
-    MyWarps,
-    /// Shuttle (a request to weave).
-    Shuttle,
-    /// Shuttle sent (request you made).
-    ShuttleSent,
-    /// Shuttle received (request waiting on you).
-    ShuttleReceived,
-    /// Loom (a private writing session).
-    Loom,
-    /// Locked loom (end-to-end encrypted).
-    LoomLocked,
-    /// Strand (one contribution).
-    Strand,
-    /// Cloth (the story channel).
-    Cloth,
-    /// Draft (the planning channel).
-    Draft,
-    /// Panels (all channels).
-    Panels,
-    /// Bolt (the finished, exported piece).
-    Bolt,
-    /// Needle (edit).
-    Needle,
+    /// The prompt board.
+    Board,
+    /// A prompt.
+    Prompt,
+    /// Post a prompt.
+    PromptNew,
+    /// My prompts.
+    MyPrompts,
+    /// A request to write together.
+    Request,
+    /// A request you sent.
+    RequestSent,
+    /// A request waiting on you.
+    RequestReceived,
+    /// A writing session.
+    Session,
+    /// End-to-end encrypted session.
+    SessionLocked,
+    /// One contribution.
+    Contribution,
+    /// The story channel.
+    Story,
+    /// The planning channel.
+    Planning,
+    /// All channels.
+    Channels,
+    /// Export the finished piece.
+    Export,
+    /// Edit.
+    Edit,
     /// Attach a reference.
     Attach,
-    /// Thread (a persona).
-    Thread,
-    /// Threads (all personas).
-    Threads,
+    /// A persona.
+    Persona,
+    /// All personas.
+    Personas,
     /// Add a writer.
-    ThreadAdd,
-    /// Selvedge (verified identity, safety number).
-    Selvedge,
+    AddWriter,
+    /// Verified identity (safety number).
+    Verified,
     /// Identity key.
     Key,
     /// Linked devices.
     Devices,
     /// Backup and recovery.
     Backup,
-    /// Guild (a server).
-    Guild,
-    /// Other guilds (federation).
+    /// A server.
+    Server,
+    /// Other servers (federation).
     Federation,
-    /// Guild rules.
+    /// Server rules.
     Rules,
     /// Notices.
     Notices,
@@ -92,30 +92,30 @@ impl Icon {
     pub const fn path(self) -> &'static str {
         match self {
             Icon::Home => "M4 11l8-7 8 7M6 9.5V20h12V9.5M10 20v-5h4v5",
-            Icon::WarpBoard => "M3 3h18M7 3v3M17 3v3M3.5 6h7v9h-7zM13.5 6h7v13h-7zM6 10h2M16 10h2",
-            Icon::Warp => "M4 3h16M8 3v4M16 3v4M6 7h12v14H6zM9 11h6M9 14h6M9 17h3",
-            Icon::WarpNew => "M4 3h16M8 3v4M16 3v4M6 7h12v14H6zM12 10.5v7M8.5 14h7",
-            Icon::MyWarps => "M3 3h14M7 3v3M13 3v3M5 6h10v12H5zM18 9v11H8",
-            Icon::Shuttle => "M2 12c3.5-4.5 16.5-4.5 20 0-3.5 4.5-16.5 4.5-20 0zM9 12h6",
-            Icon::ShuttleSent => "M2 15c3-3.5 12-3.5 15 0-3 3.5-12 3.5-15 0zM7.5 15h4.5M15 4h6v6M21 4l-6 6",
-            Icon::ShuttleReceived => "M2 15c3-3.5 12-3.5 15 0-3 3.5-12 3.5-15 0zM7.5 15h4.5M21 4l-6 6M15 5v5h5",
-            Icon::Loom => "M3 4h18M3 20h18M5 4v16M19 4v16M9 4v6M9 14v6M12 4v16M15 4v6M15 14v6M5 12h5.5M13.5 12h5.5",
-            Icon::LoomLocked => "M3 4h18M5 4v16M19 4v7M9 4v7M14 4v7M5 20h5M13 14h8v7h-8zM14.5 14v-1.5a2.5 2.5 0 0 1 5 0V14",
-            Icon::Strand => "M3 15c3 0 3-6 6-6s3 6 6 6 3-6 6-6M3 15h.01",
-            Icon::Cloth => "M5 5h14v14H5zM5 11l6-6M5 17l12-12M11 19l8-8M17 19l2-2",
-            Icon::Draft => "M5 3h14v18H5zM5 9h14M5 15h14M12 3v18M8.5 6h.01M15.5 12h.01M8.5 18h.01",
-            Icon::Panels => "M3 8l9-4 9 4-9 4zM3 12l9 4 9-4M3 16l9 4 9-4",
-            Icon::Bolt => "M6 5a3 7 0 1 0 0 14 3 7 0 1 0 0-14zM6 5h12a3 7 0 0 1 0 14H6M6 10a1 2 0 1 0 0 4",
-            Icon::Needle => "M4 20L15.5 8.5M15.5 8.5l2.5-2.5a1.8 1.8 0 0 1 2.5 2.5L18 11l-2.5-2.5M4 20l1.5-4.5M4 20l4.5-1.5",
+            Icon::Board => "M3 3h18M7 3v3M17 3v3M3.5 6h7v9h-7zM13.5 6h7v13h-7zM6 10h2M16 10h2",
+            Icon::Prompt => "M4 3h16M8 3v4M16 3v4M6 7h12v14H6zM9 11h6M9 14h6M9 17h3",
+            Icon::PromptNew => "M4 3h16M8 3v4M16 3v4M6 7h12v14H6zM12 10.5v7M8.5 14h7",
+            Icon::MyPrompts => "M3 3h14M7 3v3M13 3v3M5 6h10v12H5zM18 9v11H8",
+            Icon::Request => "M2 12c3.5-4.5 16.5-4.5 20 0-3.5 4.5-16.5 4.5-20 0zM9 12h6",
+            Icon::RequestSent => "M2 15c3-3.5 12-3.5 15 0-3 3.5-12 3.5-15 0zM7.5 15h4.5M15 4h6v6M21 4l-6 6",
+            Icon::RequestReceived => "M2 15c3-3.5 12-3.5 15 0-3 3.5-12 3.5-15 0zM7.5 15h4.5M21 4l-6 6M15 5v5h5",
+            Icon::Session => "M3 4h18M3 20h18M5 4v16M19 4v16M9 4v6M9 14v6M12 4v16M15 4v6M15 14v6M5 12h5.5M13.5 12h5.5",
+            Icon::SessionLocked => "M3 4h18M5 4v16M19 4v7M9 4v7M14 4v7M5 20h5M13 14h8v7h-8zM14.5 14v-1.5a2.5 2.5 0 0 1 5 0V14",
+            Icon::Contribution => "M3 15c3 0 3-6 6-6s3 6 6 6 3-6 6-6M3 15h.01",
+            Icon::Story => "M5 5h14v14H5zM5 11l6-6M5 17l12-12M11 19l8-8M17 19l2-2",
+            Icon::Planning => "M5 3h14v18H5zM5 9h14M5 15h14M12 3v18M8.5 6h.01M15.5 12h.01M8.5 18h.01",
+            Icon::Channels => "M3 8l9-4 9 4-9 4zM3 12l9 4 9-4M3 16l9 4 9-4",
+            Icon::Export => "M6 5a3 7 0 1 0 0 14 3 7 0 1 0 0-14zM6 5h12a3 7 0 0 1 0 14H6M6 10a1 2 0 1 0 0 4",
+            Icon::Edit => "M4 20L15.5 8.5M15.5 8.5l2.5-2.5a1.8 1.8 0 0 1 2.5 2.5L18 11l-2.5-2.5M4 20l1.5-4.5M4 20l4.5-1.5",
             Icon::Attach => "M20 11.5l-8 8a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L10 17a1.7 1.7 0 0 1-2.4-2.4L15 7.3",
-            Icon::Thread => "M5 4.5a6 1.5 0 1 0 12 0 6 1.5 0 1 0-12 0M5 19.5a6 1.5 0 1 0 12 0 6 1.5 0 1 0-12 0M8 6v12M14 6v12M8 8.5l6 2M8 12l6 2M8 15.5l6 2M14 13c3 0 5 2 6 6",
-            Icon::Threads => "M2 5a4 1.2 0 1 0 8 0 4 1.2 0 1 0-8 0M2 19a4 1.2 0 1 0 8 0 4 1.2 0 1 0-8 0M4 6.2v11.6M8 6.2v11.6M4 9l4 1.5M4 13l4 1.5M14 5a4 1.2 0 1 0 8 0 4 1.2 0 1 0-8 0M14 19a4 1.2 0 1 0 8 0 4 1.2 0 1 0-8 0M16 6.2v11.6M20 6.2v11.6M16 9l4 1.5M16 13l4 1.5",
-            Icon::ThreadAdd => "M2 4.5a5 1.5 0 1 0 10 0 5 1.5 0 1 0-10 0M2 19.5a5 1.5 0 1 0 10 0 5 1.5 0 1 0-10 0M4.5 6v12M9.5 6v12M4.5 9l5 2M4.5 13l5 2M18 9v6M15 12h6",
-            Icon::Selvedge => "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM8.5 12l2.5 2.5 4.5-5",
+            Icon::Persona => "M5 4.5a6 1.5 0 1 0 12 0 6 1.5 0 1 0-12 0M5 19.5a6 1.5 0 1 0 12 0 6 1.5 0 1 0-12 0M8 6v12M14 6v12M8 8.5l6 2M8 12l6 2M8 15.5l6 2M14 13c3 0 5 2 6 6",
+            Icon::Personas => "M2 5a4 1.2 0 1 0 8 0 4 1.2 0 1 0-8 0M2 19a4 1.2 0 1 0 8 0 4 1.2 0 1 0-8 0M4 6.2v11.6M8 6.2v11.6M4 9l4 1.5M4 13l4 1.5M14 5a4 1.2 0 1 0 8 0 4 1.2 0 1 0-8 0M14 19a4 1.2 0 1 0 8 0 4 1.2 0 1 0-8 0M16 6.2v11.6M20 6.2v11.6M16 9l4 1.5M16 13l4 1.5",
+            Icon::AddWriter => "M2 4.5a5 1.5 0 1 0 10 0 5 1.5 0 1 0-10 0M2 19.5a5 1.5 0 1 0 10 0 5 1.5 0 1 0-10 0M4.5 6v12M9.5 6v12M4.5 9l5 2M4.5 13l5 2M18 9v6M15 12h6",
+            Icon::Verified => "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM8.5 12l2.5 2.5 4.5-5",
             Icon::Key => "M3 12a4 4 0 1 0 8 0 4 4 0 1 0-8 0M11 12h10M17 12v3M20 12v2",
             Icon::Devices => "M3 5h11v8H3zM1.5 16.5h14M17 8h5v12h-5zM19.5 17h.01",
             Icon::Backup => "M3 4h18v4H3zM5 8v12h14V8M12 11v6M9.5 13.5L12 11l2.5 2.5",
-            Icon::Guild => "M3 9l9-5 9 5M4 9h16M6 9v8M10 9v8M14 9v8M18 9v8M4 17h16M3 20h18",
+            Icon::Server => "M3 9l9-5 9 5M4 9h16M6 9v8M10 9v8M14 9v8M18 9v8M4 17h16M3 20h18",
             Icon::Federation => "M3 7a3 3 0 1 0 6 0 3 3 0 1 0-6 0M15 17a3 3 0 1 0 6 0 3 3 0 1 0-6 0M8.5 8.5c3 1.5 1 6 6.5 7.5",
             Icon::Rules => "M8 4h11v13a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-2h11v2a3 3 0 0 0 3 3M8 4a3 3 0 0 0-3 3v8M11 8h5M11 12h5",
             Icon::Notices => "M6 16v-5a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0",
@@ -139,32 +139,32 @@ impl Icon {
     pub const fn meaning(self) -> &'static str {
         match self {
             Icon::Home => "Home",
-            Icon::WarpBoard => "The board of warps (public prompts)",
-            Icon::Warp => "A warp (one prompt)",
-            Icon::WarpNew => "Post a warp",
-            Icon::MyWarps => "My warps",
-            Icon::Shuttle => "Shuttle (a request to weave)",
-            Icon::ShuttleSent => "Shuttle sent (request you made)",
-            Icon::ShuttleReceived => "Shuttle received (request waiting on you)",
-            Icon::Loom => "Loom (a private writing session)",
-            Icon::LoomLocked => "Locked loom (end-to-end encrypted)",
-            Icon::Strand => "Strand (one contribution)",
-            Icon::Cloth => "Cloth (the story channel)",
-            Icon::Draft => "Draft (the planning channel)",
-            Icon::Panels => "Panels (all channels)",
-            Icon::Bolt => "Bolt (the finished, exported piece)",
-            Icon::Needle => "Needle (edit)",
+            Icon::Board => "The prompt board",
+            Icon::Prompt => "A prompt",
+            Icon::PromptNew => "Post a prompt",
+            Icon::MyPrompts => "My prompts",
+            Icon::Request => "A request to write together",
+            Icon::RequestSent => "A request you sent",
+            Icon::RequestReceived => "A request waiting on you",
+            Icon::Session => "A writing session",
+            Icon::SessionLocked => "End-to-end encrypted session",
+            Icon::Contribution => "One contribution",
+            Icon::Story => "The story channel",
+            Icon::Planning => "The planning channel",
+            Icon::Channels => "All channels",
+            Icon::Export => "Export the finished piece",
+            Icon::Edit => "Edit",
             Icon::Attach => "Attach a reference",
-            Icon::Thread => "Thread (a persona)",
-            Icon::Threads => "Threads (all personas)",
-            Icon::ThreadAdd => "Add a writer",
-            Icon::Selvedge => "Selvedge (verified identity, safety number)",
+            Icon::Persona => "A persona",
+            Icon::Personas => "All personas",
+            Icon::AddWriter => "Add a writer",
+            Icon::Verified => "Verified identity (safety number)",
             Icon::Key => "Identity key",
             Icon::Devices => "Linked devices",
             Icon::Backup => "Backup and recovery",
-            Icon::Guild => "Guild (a server)",
-            Icon::Federation => "Other guilds (federation)",
-            Icon::Rules => "Guild rules",
+            Icon::Server => "A server",
+            Icon::Federation => "Other servers (federation)",
+            Icon::Rules => "Server rules",
             Icon::Notices => "Notices",
             Icon::News => "News (announcements)",
             Icon::Tag => "Tag",

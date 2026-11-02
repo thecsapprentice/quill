@@ -1,7 +1,8 @@
 # Rebranding Quill as Plait
 
 Status: proposed. Decided 2026-11-02: the project is renamed **Plait**,
-and its vocabulary comes from weaving. This document records what the
+and its art and voice come from weaving. The interface keeps writing
+words. This document records what the
 rename covers, which words change where, and how to carry it out. The
 brand assets and their usage rules are in
 [`assets/brand/README.md`](../assets/brand/README.md).
@@ -17,92 +18,105 @@ nearest uses are a restaurant scheduling app, a medical-practice inbox and
 a dormant JavaScript framework.
 
 Plait is for writing *together*, which a plait shows: separate strands
-that hold only because they cross. One family of words, weaving, covers
-both halves of the product: the public board where ideas are strung up,
-and the private looms where writers weave through them. The same family
-gives the art something to draw.
+that hold only because they cross. Weaving gives the brand a coherent
+world to draw from: a public board where ideas are strung up like warp
+threads, and private sessions where writers weave through them. That
+world belongs in the logo, the art and the docs. People using the app
+still read writing words.
 
-## Vocabulary
+## Vocabulary: writing words on screen, weaving words around them
 
-Every theme word has one of three reaches:
+People arrive to write, not to learn a craft. Most of them don't know
+what a warp or a selvedge is, and a new word on every button makes an
+unfamiliar app feel harder than it is. Our own principle asks for
+"smooth, low-barrier clients" (CLAUDE.md). So:
 
-- **Everywhere.** The brand: code, crates, binaries, files, docs and UI.
-- **Surface.** Labels, copy, docs and art. Code, the API, the CLI's
-  subcommands, the database and the `wr:` protocol keep the plain word.
-- **Art only.** Icons, illustrations and marketing. The UI label stays
-  plain, because the theme word would cost clarity.
+- **Every label, button, heading, setting and error uses the writing
+  word**: prompt, session, request, persona, server. These are unchanged
+  from today.
+- **Only the brand name changes everywhere**: Quill becomes Plait.
+- **The weaving words are a layer of meaning around the interface**,
+  never a replacement for it. They appear where people can enjoy them
+  but never need them to find their way.
 
-| Today | Theme word | Reach | In the UI | Code, API, protocol |
-| --- | --- | --- | --- | --- |
-| Quill | **Plait** | Everywhere | Plait | `plait`, `plait-*`, `PLAIT_*` |
-| Prompt | **Warp** | Surface | "Warp", "Post a warp", "My warps" | `Prompt`, `/prompts`, `wr:Prompt` |
-| Prompt board | Board (of warps) | Surface | "Board" (unchanged), warp-board icon | unchanged |
-| Writing session | **Loom** | Surface | "Looms", "Open the loom", "locked loom" for the encryption badge | `Session`, `/sessions`, MLS group |
-| Session request | Shuttle | Art only, plus a verb | Noun stays "Request"; the button becomes **"Ask to weave"**; shuttle icons | `Request`, `/requests` |
-| A contribution | Strand | Art only (surface later, if the writing screen wants a noun) | | AS2 `Note` / `Article` |
-| Story and planning channels | Cloth and draft | Art only | "Story", "Planning"; cloth and draft icons | `wr:channel` values `story`, `planning` |
-| Finished, exported piece | Bolt | Art only | "Export"; bolt icon | |
-| Persona | Thread | Art only | "Persona" | `Persona` |
-| Server | Guild | Art only | "Server" | unchanged |
-| Safety number, verified | Selvedge | Art only | "Safety number" | unchanged |
-| Edit | Needle | Art only | "Edit"; needle icon | |
-| Tags, notices, news, reports, rules, moderation | none | | unchanged | unchanged |
+| Writing word (UI, code, API) | Weaving counterpart | Where the counterpart appears |
+| --- | --- | --- |
+| Prompt | Warp | Art, docs, tagline, one onboarding line |
+| Prompt board | (the warp strung on the loom) | Hero and empty-board art |
+| Writing session | Loom | Art, docs, the session icon |
+| Request to write together | Shuttle | Art; the request icons |
+| A contribution | Strand | Art and docs |
+| Story and planning channels | Cloth and draft | Icons only |
+| Exported piece | Bolt | Icon only |
+| Persona | Thread | Art only: each writer is a thread of their own colour |
+| Server | Guild | Not used: fediverse users say server or instance |
+| Safety number | Selvedge | Not used: security wording must be plain |
 
-Why some theme words stay off the labels:
+### Where the weaving words do appear
 
-- **Persona is not "thread".** Threads is Meta's network, and it federates
-  over ActivityPub. "Your threads" in a fediverse app would be read as
-  posts on Threads. The spool icon carries the idea without the clash.
-- **Server is not "guild".** Fediverse users already say server or
-  instance, and one of our principles is a low barrier for people coming
-  from established apps (CLAUDE.md). Guild suits marketing, not settings.
-- **Channels keep their names.** `story` and `planning` are values inside
-  encrypted payloads (protocol draft, `wr:channel`). Renaming what the UI
-  shows is free; renaming the values would be a protocol change for
-  nothing.
-- **Code keeps the plain domain words.** The protocol draft, the OpenAPI
-  file, the JSON Schemas and the test vectors are written for other
-  implementers. "Prompt", "session" and "request" are self-explanatory
-  there. "Warp" and "loom" are presentation. Renaming the domain model
-  would touch most of the codebase and every conformance artifact, and
-  gain nothing a reader of the code needs.
+From most to least visible:
 
-The two surface words need one line of explanation where people first
-meet them: on Home and in the first-run copy. For example: "A **warp** is
-a prompt: the idea others weave through. A **loom** is a private,
-encrypted space where you write with someone." The board's empty state
-and the Looms page's empty state repeat it.
+1. **The brand.** The name, the plait mark and the hero art. The tagline
+   is plain: "Prompts in public. Writing together, in private."
+2. **The art.** Illustrations and icons draw the metaphor: the board's
+   empty state is warp threads waiting, the requests empty state is a
+   shuttle at rest, the session icon is a loom. Their accessible names
+   are the writing words ("A writing session"), so screen-reader users
+   never meet the metaphor unexplained.
+3. **One line of onboarding**, optional and skippable, on the first-run
+   card or Home: "Why Plait? Writing together is like weaving: a prompt
+   is the warp, strung up for others to weave through." It explains the
+   name. Nothing later depends on remembering it.
+4. **The docs and the website**, where there's room to tell the story.
+   Lead with the writing word and give the weaving word as the aside:
+   "**Prompts** (the warp)", "**Sessions** (looms)". Never the other
+   way round, and never a weaving word alone in a heading.
+5. **Light flavour in non-functional copy**, sparingly: an empty state's
+   second line ("Nothing on the loom yet"), a release-notes headline.
+   The first line of any empty state still says plainly what's missing
+   and what to do ("No sessions yet. Find a prompt on the board and ask
+   to write it together.").
+
+Things to avoid:
+
+- **Hybrid labels such as "Warps (Prompts)".** They double the reading
+  load in the busiest places (navigation, buttons, page titles), and they
+  put the unfamiliar word first. If a hybrid is wanted anywhere, make it
+  "Prompts (warps)", and only in docs.
+- **Weaving words in errors, security and moderation text.** "This
+  session's safety number changed" must stay as plain as it is today.
+- **Renaming code to match the art.** The domain model, routes, CLI
+  subcommands, `wr:` terms and icon names all use the writing words, so
+  the code reads the same as the screen. The icon module follows this:
+  `Icon::Session` is drawn as a loom.
+
+If, after launch, people start using "warp" and "loom" on their own, the
+words can be promoted to the interface then. That's easy to add later,
+and hard to take back once it confuses people.
 
 ## How the rename lands in each part of the app
 
 **Desktop app (`plait-ui`, `plait-gui`).**
-- Window title, the root element's class (`.quill` → `.plait`) and the nav's
-  `aria_label` change with the brand.
-- Nav labels live in `Section::label()` (`model.rs`): "My prompts" →
-  "My warps", "Sessions" → "Looms". The `Section` variants keep their
-  names.
+- Window title, the root element's class (`.quill` → `.plait`) and the
+  nav's `aria_label` change with the brand. `Section::label()` is
+  unchanged: Board, My prompts, Requests, Sessions, Personas.
 - First run (`first_run.rs`): the hero, a plait band on the card, and the
-  shuttle loader on `Starting` and `PreparingStep`. Copy that says
-  "Quill" changes with the brand ("Plait is making the keys…").
-- Requests page: "Ask to weave" for the action, shuttle-sent and
-  shuttle-received icons for the two lists.
-- Looms page and the writing space: loom icons; the locked loom marks
-  end-to-end encryption; cloth and draft icons on the channel tabs; needle
-  for edit; bolt for export.
-- Personas keep their name and get the spool icon.
+  shuttle loader on `Starting` and `PreparingStep`. Copy that says "Quill"
+  changes with the brand ("Welcome to Plait", "Plait is making the keys…").
+  Optionally, one "Why Plait?" line (see Vocabulary).
+- Icons beside every nav entry and on the Requests and Sessions pages,
+  from the shared module. Each keeps its text label.
+- Empty states use the illustrations, with plain first lines.
 
 **Public board (`plait-board-ui`, `plait-server/src/web`).**
-- Header and page titles: the lockup, and "warp" in place of "prompt"
-  wherever writers read it: "Post a warp", "My warps", the warp page.
-  Admin pages keep the plain words, because administrators work across the
-  API and the CLI as well.
+- Header and page titles: the lockup. Labels are unchanged.
 - The nav icons in `layout.rs` are replaced by the shared icon module
-  (below).
+  (below), with the same paths for the icons it already has.
 - A favicon, an Apple touch icon, and `og:` tags with the social card.
+- The sign-in page can carry the hero like the desktop app.
 
 **CLI (`plait`).** The binary is renamed. Subcommands mirror the API and
-keep their names (`plait prompt post`, `plait session …`). If wanted, add
-`visible_alias = "warp"` and `"loom"` in clap so either word works.
+keep their names (`plait prompt post`, `plait session …`).
 
 **Server and API.** Routes, JSON fields, the database, `wr:` terms and the
 MLS signature labels (`wr device cert v1` and the rest) are unchanged.
@@ -147,9 +161,9 @@ happen now:
 ## Carrying it out
 
 Work goes in as GitHub issues under one epic (CLAUDE.md), each a small
-PR. The order matters: mechanical renames first, while nothing else is in
-flight; vocabulary last, because it changes the labels the interaction
-tests select by.
+PR. Mechanical renames come first, while nothing else is in flight. The
+interface keeps its labels, so the interaction tests keep selecting by the
+same words throughout.
 
 Most of the brand rename is mechanical and done by
 [`scripts/rebrand-to-plait.sh`](../scripts/rebrand-to-plait.sh), in two
@@ -229,7 +243,7 @@ reduced motion on.
 
 **R6: Shared icons and empty states.** Scope: `icons.rs` and `art.rs` in
 `plait-board-ui`; the board's `layout.rs` nav uses them; the desktop nav
-gets an icon per `Section`; the empty board, requests and looms
+gets an icon per `Section`; the empty board, requests and sessions
 illustrations; the offline illustration in the status area's "can't
 reach" state. Done when: every nav entry has an icon with its text label;
 icon-only buttons have an `aria-label`; interaction tests still pass.
@@ -240,14 +254,15 @@ expects 204 now); `link rel="icon"` and `og:` tags in the board's `head`;
 the lockup in the header; the hero on the sign-in page. Done when: the
 e2e tests cover the three routes and the tags.
 
-**R8: Vocabulary.** Scope: a `vocab` module in `plait-board-ui` holding
-the user-facing nouns and verbs ("warp", "loom", "Ask to weave"), used by
-both UIs, so the next change is one file; `Section::label()`; board and
-desktop copy; the explanations on Home, first run and empty states;
-optional CLI aliases; a glossary section in `docs/plan.md`. Done when:
-interaction tests select by the `vocab` constants, not by literals; the
-GUI flows in `plait-e2e` pass; no user-facing "prompt" or "session" is
-left outside admin pages (grep the UI crates).
+**R8: Copy pass.** Scope: every user-facing "Quill" in both UIs and the
+docs becomes "Plait" (most of this lands in R3). Rewrite empty states
+with a plain first line and an optional flavour line. Add the optional
+"Why Plait?" line to first run or Home. Add a short "About the name"
+section to the README and the docs, using "Prompts (the warp)" style
+asides. No label, button or heading changes its writing word. Done when:
+the interaction tests and the GUI flows in `plait-e2e` pass unchanged;
+`grep -ri "warp\|loom" crates/plait-ui crates/plait-board-ui` finds only
+icon art, flavour lines and comments.
 
 **R9: Repository and infrastructure.** Scope: rename the GitHub
 repository to `plait` (GitHub redirects the old URLs) *before* R3 merges,
@@ -270,8 +285,9 @@ keychain entries, and the old Docker volumes, and start a fresh profile.
 - **The server dependency ban.** It matches names, so it must be renamed
   in the same commit as the crates, and shown to still fail (R2).
 - **Applied migrations.** Never touched (keep list).
-- **Labels in tests.** R8 changes what tests click. Doing it last, and
-  through `vocab` constants, keeps that to one PR.
+- **Comprehension.** The weaving theme is unfamiliar to most people. It
+  stays out of labels and functional text (see Vocabulary), so nobody has
+  to learn it to use the app.
 - **Name clashes for "plait".** No writing or fediverse software uses it.
   An old Ubuntu package installed a `plait` command (a jukebox), so the
   Linux packages should check for a conflicting `/usr/bin/plait`. Domains

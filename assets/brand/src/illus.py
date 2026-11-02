@@ -46,7 +46,7 @@ def empty_board() -> str:
         'stroke-width="2.5" stroke-dasharray="6 6"/>'
     )
     parts.append(f'<path d="M120 76v26M107 89h26" stroke="{TEAL}" stroke-width="3"/>')
-    return _svg("".join(parts), "An empty board: warp threads waiting for a first prompt")
+    return _svg("".join(parts), "No prompts yet")
 
 
 def shuttle_shape(x: float, y: float, length: float, bobbin: str) -> str:
@@ -72,7 +72,7 @@ def empty_requests() -> str:
         f'<path d="{tail}" stroke="{OCHRE}" stroke-width="3"/>',
         shuttle_shape(110, 96, 120, OCHRE),
     ]
-    return _svg("".join(parts), "No requests: a shuttle resting, ready to be thrown")
+    return _svg("".join(parts), "No requests yet")
 
 
 def empty_sessions() -> str:
@@ -99,7 +99,7 @@ def empty_sessions() -> str:
         f'<path d="M186 112l20 6M186 122l20 6" stroke="{SURFACE}" stroke-width="1.5" opacity="0.6"/>',
         f'<path d="M206 120c8 4 10 14 4 22" stroke="{INDIGO}" stroke-width="2.5"/>',
     ]
-    return _svg("".join(parts), "No sessions yet: a loom strung and waiting")
+    return _svg("".join(parts), "No sessions yet")
 
 
 def no_results() -> str:
@@ -122,7 +122,7 @@ def offline() -> str:
         f'<path d="{right}" stroke="{TEAL}" stroke-width="5"/>',
         f'<path d="M108 78l4-6M108 78l5 3M108 78l3 6M132 84l-4-6M132 84l-5 2M132 84l-2 6" stroke="{TEAL}" stroke-width="2"/>',
     ]
-    return _svg("".join(parts), "Can't reach the guild right now")
+    return _svg("".join(parts), "Can't reach the server right now")
 
 
 def loader() -> str:
