@@ -176,6 +176,8 @@ Single-line (`Field`), multi-line (`Area`), select, checkbox, radio, and segment
 | `.hint` with `role="status"` | What just happened ("Prompt posted.", "Link copied.") |
 | `.status` (the status line) | The connection, and offline with "Try now" |
 
+**Error codes (#76).** Every problem has a code, such as `Q-3001` (`docs/error-codes.md`). Advanced mode shows it beside the words (`app::Code`, `.code`): in problem lines, notices, the status line when offline or signed out, and inline "can't show this" reasons. The default view never shows codes; the words still say what happened and what to do. A code is for reporting, so it sits after the sentence, small and muted, never in its place.
+
 ### Small things
 
 - **Chips** (`.chip`): a tag. They're pill-shaped, `--text-sm`, and coloured by the tag type's own colour. A chip that can be removed has a "×" button named "Remove {type}: {name}".

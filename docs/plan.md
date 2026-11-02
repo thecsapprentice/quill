@@ -655,6 +655,16 @@ Dioxus desktop runs the app in native Rust and sends DOM changes to the webview,
 - **Removal is learned at upkeep.** Another device's removal arrives as a device-group commit, so this computer learns it at catch-up. The keys go then, and upkeep reports it. The frame then reloads where the login stands, so the personas show as elsewhere, and the keys-elsewhere screen says the computer was removed rather than new.
 - **Starting over is a last resort.** A persona whose keys are on an unreachable device can get a new identity key here (`keys init --replace`). This sits behind a warning that its other devices stop working for it and other writers are told the key changed. Linking is always offered first.
 
+### Error codes (#76)
+
+Every problem the server or a client can show has a stable code, `Q-AACC`: `AA` the area (10 connection, 30 requests, 90 input checks and so on), `CC` the case. A number is faster to report and to search for than a sentence, and it stays the same when the wording changes. The registry is `quill_proto::codes`, and `docs/error-codes.md` is generated from it and checked by a test, as `docs/openapi.json` is.
+
+- **Who decides, by range.** In each area, 01–49 are the server's refusals and 50–99 are what a client decides (it couldn't reach the server, this computer's store refused, a check on received keys failed). So a code says where to look as well as what happened.
+- **One code per case.** The server sets the code at each place it refuses something, and sends it as a `code` member of its problem+json reply. The same case in several places shares a code. Input checks (`ValidationError`) carry one code per kind, the same from the server and a client.
+- **Core.** `CoreError::code()` gives the server's code for its refusals (or, from a server older than #76, the code its HTTP status implies), and core's own otherwise. Each core module's error helper gives its area's "a check failed" code, and the cases people see get codes of their own (a pitch too long, a link expired, a changed key).
+- **Shown.** The CLI prints `error Q-3001: …` for every error, its own usage errors included (`Q-9050`). The desktop app shows codes only in advanced mode, beside the words; the default view stays plain.
+- **Stable.** A code never changes meaning. A retired code is listed in `RETIRED` and never reused. Something with no code of its own yet is `Q-9950`, with the detail in advanced mode, so it can still be reported.
+
 ### Testing the desktop app
 
 Bugs found by hand in 3b were all in how screens react to clicks and typing: work dropped when its screen went away, and a sign-up screen that never learned the rules had become required. The tests then in place rendered static HTML or called the backend directly, so they couldn't catch these. The GUI is now tested in four layers:

@@ -230,6 +230,8 @@ fieldset > .hint { margin-bottom: var(--space-3); }
 .notice p { margin: 0 0 var(--space-1); }
 .problem { color: var(--bad); margin: var(--space-2) 0 0; }
 .detail { font-family: var(--mono); font-size: var(--text-xs); color: var(--muted); white-space: pre-wrap; }
+/* An error code beside its words, in advanced mode (#76). */
+.code { font-family: var(--mono); font-size: var(--text-xs); color: var(--muted); white-space: nowrap; }
 .coming { color: var(--muted); line-height: 1.6; }
 
 /* ---- Small things: chips, tags, badges, slots ---- */

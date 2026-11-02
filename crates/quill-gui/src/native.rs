@@ -26,7 +26,7 @@ use quill_ui::backend::{
     AppSettings, Backend, BoardSettings, Call, Details, Keys, PASSPHRASE_MIN_CHARS, PersonaState,
     Problem, Protection, ServerEntry, ServerInfo, ServerRules, Standing, Step, Theme,
 };
-use quill_ui::backend::{Approval, Device, LinkStart, PersonaKeys, RemoveReason};
+use quill_ui::backend::{Approval, Device, LinkStart, PersonaKeys, RemoveReason, codes};
 use quill_ui::backend::{Inbox, IncomingRequest, KeyChange, SentRequest, Unread, WaitingPrompt};
 use tokio::runtime::Handle;
 use uuid::Uuid;
@@ -134,6 +134,7 @@ fn device_status(s: &keys::DeviceStatus) -> String {
 
 fn failed(detail: impl std::fmt::Display) -> Problem {
     Problem::Failed {
+        code: codes::UNCLASSIFIED,
         detail: detail.to_string(),
     }
 }
@@ -148,21 +149,26 @@ fn problem(server: &str, e: CoreError) -> Problem {
         CoreError::NotLoggedIn => Problem::SignedOut,
         CoreError::KeyChanged { handle } => Problem::KeyChanged(handle.clone()),
         CoreError::Api(p) if p.status == 401 => Problem::SignedOut,
-        CoreError::Api(p) if p.status == 409 => Problem::Taken,
+        CoreError::Api(p) if p.status == 409 => Problem::Taken(e.code()),
         CoreError::Api(p) if p.status == 404 || p.status == 410 => Problem::Gone,
         CoreError::Api(p) if p.kind.ends_with("/rules-not-accepted") => Problem::RulesNotAccepted(
+            e.code(),
             p.detail
                 .clone()
                 .unwrap_or_else(|| "Read and accept the server rules to continue.".into()),
         ),
-        CoreError::Api(p) if (400..500).contains(&p.status) => {
-            Problem::Refused(p.detail.clone().unwrap_or_else(|| p.title.clone()))
-        }
-        CoreError::Url(_) | CoreError::InsecureUrl => Problem::Refused(
-            "That isn't a server address. It looks like writers.example or https://writers.example."
-                .into(),
+        CoreError::Api(p) if (400..500).contains(&p.status) => Problem::Refused(
+            e.code(),
+            p.detail.clone().unwrap_or_else(|| p.title.clone()),
         ),
-        _ => failed(e),
+        CoreError::Url(_) | CoreError::InsecureUrl => Problem::refused(
+            codes::BAD_ADDRESS,
+            "That isn't a server address. It looks like writers.example or https://writers.example.",
+        ),
+        _ => Problem::Failed {
+            code: e.code(),
+            detail: e.to_string(),
+        },
     }
 }
 
@@ -171,16 +177,15 @@ fn problem(server: &str, e: CoreError) -> Problem {
 /// author has no devices) are said as they are.
 fn request_problem(server: &str, e: CoreError) -> Problem {
     match &e {
-        CoreError::Api(p) if p.status == 409 => {
-            Problem::Refused(p.detail.clone().unwrap_or_else(|| p.title.clone()))
+        CoreError::Api(p) if p.status == 409 => Problem::Refused(
+            e.code(),
+            p.detail.clone().unwrap_or_else(|| p.title.clone()),
+        ),
+        CoreError::Keys(c, m) if *c == codes::AUTHOR_HAS_NO_DEVICES => {
+            Problem::Refused(*c, format!("{m}. Try again later."))
         }
-        CoreError::Keys(m) if m.contains("has no devices that can take a request") => {
-            Problem::Refused(format!("{m}. Try again later."))
-        }
-        CoreError::Keys(m)
-            if m.contains("the pitch is too long") || m.contains("say something") =>
-        {
-            Problem::Refused(m.clone())
+        CoreError::Keys(c, m) if *c == codes::PITCH_TOO_LONG || *c == codes::PITCH_EMPTY => {
+            Problem::Refused(*c, m.clone())
         }
         _ => problem(server, e),
     }
@@ -199,7 +204,10 @@ fn is_local(address: &str) -> bool {
 fn normalize(address: &str) -> Result<String, Problem> {
     let trimmed = address.trim().trim_end_matches('/');
     if trimmed.is_empty() {
-        return Err(Problem::Refused("Type the server's address.".into()));
+        return Err(Problem::refused(
+            codes::BAD_ADDRESS,
+            "Type the server's address.",
+        ));
     }
     let with_scheme = if trimmed.contains("://") {
         trimmed.to_owned()
@@ -217,16 +225,20 @@ fn normalize(address: &str) -> Result<String, Problem> {
 /// Checks a new store passphrase against the CLI's rule.
 fn check_passphrase(p: &str) -> Result<(), Problem> {
     if p.chars().count() < PASSPHRASE_MIN_CHARS {
-        return Err(Problem::Refused(format!(
-            "Use at least {PASSPHRASE_MIN_CHARS} characters."
-        )));
+        return Err(Problem::refused(
+            codes::PASSPHRASE_TOO_SHORT,
+            format!("Use at least {PASSPHRASE_MIN_CHARS} characters."),
+        ));
     }
     Ok(())
 }
 
 /// A store still in use somewhere (a call in flight) can't be changed.
 fn busy() -> Problem {
-    Problem::Refused("Quill is still using this server's store. Try again in a moment.".into())
+    Problem::refused(
+        codes::STORE_BUSY,
+        "Quill is still using this server's store. Try again in a moment.",
+    )
 }
 
 fn entry(s: &Server) -> ServerEntry {
@@ -462,7 +474,7 @@ impl NativeBackend {
                     Ok(list.into_iter().find(|p| p.id == persona))
                 })
                 .await?
-                .ok_or_else(|| Problem::Refused("That persona is gone.".into()))?;
+                .ok_or_else(|| Problem::refused(codes::PERSONA_GONE, "That persona is gone."))?;
             progress(Step::IdentityKey);
             let (o, p) = (open.clone(), found.clone());
             self.run(async move {
@@ -471,8 +483,9 @@ impl NativeBackend {
                     .map(|_| ())
                     .map_err(|e| match e {
                         // Made on another device: linking is the way (3d).
-                        CoreError::Keys(_) => Problem::Refused(
-                            "This persona's keys are on another of your devices. Link this computer to it, or restore a backup.".into(),
+                        CoreError::Keys(..) => Problem::refused(
+                            codes::KEYS_ELSEWHERE,
+                            "This persona's keys are on another of your devices. Link this computer to it, or restore a backup.",
                         ),
                         e => problem(&o.name, e),
                     })
@@ -590,10 +603,10 @@ impl Backend for NativeBackend {
                 .iter()
                 .any(|s| s.address == info.address)
             {
-                return Err(Problem::Refused(format!(
-                    "{} is already in your list of servers.",
-                    info.domain
-                )));
+                return Err(Problem::refused(
+                    codes::SERVER_ALREADY_ADDED,
+                    format!("{} is already in your list of servers.", info.domain),
+                ));
             }
             if let Some(p) = passphrase {
                 check_passphrase(p)?;
@@ -664,7 +677,7 @@ impl Backend for NativeBackend {
                 .run(async move {
                     Store::open(&path, Unlock::Passphrase(&passphrase)).map_err(|e| match e {
                         StoreError::WrongKey => {
-                            Problem::Refused("That isn't the passphrase.".into())
+                            Problem::refused(codes::WRONG_PASSPHRASE, "That isn't the passphrase.")
                         }
                         e => failed(e),
                     })
@@ -707,7 +720,10 @@ impl Backend for NativeBackend {
     fn rename_server(&self, id: Uuid, name: &str) -> Result<(), Problem> {
         let name = name.trim();
         if name.is_empty() || name.chars().count() > 60 {
-            return Err(Problem::Refused("Use 1 to 60 characters.".into()));
+            return Err(Problem::refused(
+                codes::SERVER_NAME_BAD,
+                "Use 1 to 60 characters.",
+            ));
         }
         lock(&self.settings)
             .server_mut(id)
@@ -856,9 +872,10 @@ impl Backend for NativeBackend {
                         .await
                         .map(|t| t.token)
                         .map_err(|e| match e {
-                            CoreError::Api(p) if p.status == 401 => {
-                                Problem::Refused("That login name and password don't match.".into())
-                            }
+                            CoreError::Api(p) if p.status == 401 => Problem::refused(
+                                codes::WRONG_LOGIN,
+                                "That login name and password don't match.",
+                            ),
                             e => problem(&name, e),
                         })
                 })
@@ -913,7 +930,8 @@ impl Backend for NativeBackend {
                     .await
                     .map_err(|e| match e {
                         // Changed again while being read.
-                        CoreError::Api(p) if p.status == 409 => Problem::RulesNotAccepted(
+                        CoreError::Api(_) if e.status() == Some(409) => Problem::RulesNotAccepted(
+                            e.code(),
                             "The rules changed again while you were reading. Read the new version."
                                 .into(),
                         ),
@@ -1004,7 +1022,8 @@ impl Backend for NativeBackend {
         let name = name.to_owned();
         Box::pin(async move {
             let open = self.opened()?;
-            devices::set_name(&open.store, &name).map_err(|e| Problem::Refused(sentence(&e)))?;
+            devices::set_name(&open.store, &name)
+                .map_err(|e| Problem::refused(codes::DEVICE_NAME_BAD, sentence(&e)))?;
             let label = open.name.clone();
             self.run(async move {
                 let _group = open.exclusive().await;
@@ -1077,7 +1096,8 @@ impl Backend for NativeBackend {
         let name = name.to_owned();
         Box::pin(async move {
             let open = self.opened()?;
-            devices::set_name(&open.store, &name).map_err(|e| Problem::Refused(sentence(&e)))?;
+            devices::set_name(&open.store, &name)
+                .map_err(|e| Problem::refused(codes::DEVICE_NAME_BAD, sentence(&e)))?;
             let label = open.name.clone();
             let pending = self
                 .run(async move {
@@ -1114,8 +1134,10 @@ impl Backend for NativeBackend {
                     .await
                     {
                         Ok(words) => Ok(Some(words.iter().map(|w| (*w).to_owned()).collect())),
-                        Err(CoreError::Keys(m)) if m == devices::LINK_NOT_ANSWERED => Ok(None),
-                        Err(CoreError::Keys(m)) if m == devices::LINK_EXPIRED => Err(Problem::Gone),
+                        Err(CoreError::Keys(c, _)) if c == codes::LINK_NOT_ANSWERED => Ok(None),
+                        Err(CoreError::Keys(c, _)) if c == codes::LINK_EXPIRED => {
+                            Err(Problem::Gone)
+                        }
                         Err(e) => Err(problem(&label, e)),
                     }
                 })
@@ -1153,9 +1175,9 @@ impl Backend for NativeBackend {
         let typed = typed.to_owned();
         Box::pin(async move {
             let code: devices::LinkCode = typed.parse().map_err(|_| {
-                Problem::Refused(
-                    "Type the six words the new computer shows, or paste its whole link code."
-                        .into(),
+                Problem::refused(
+                    codes::LINK_CODE_BAD,
+                    "Type the six words the new computer shows, or paste its whole link code.",
                 )
             })?;
             let open = self.opened()?;
@@ -1174,10 +1196,10 @@ impl Backend for NativeBackend {
                     Ok(a) => Ok(Approval::Approved {
                         confirm: a.confirm.iter().map(|w| (*w).to_owned()).collect(),
                     }),
-                    Err(CoreError::Keys(m)) if m == devices::LINK_MISMATCH => {
+                    Err(CoreError::Keys(c, _)) if c == codes::LINK_MISMATCH => {
                         Ok(Approval::WordsDiffer)
                     }
-                    Err(CoreError::Keys(m)) if m == devices::LINK_EXPIRED => {
+                    Err(CoreError::Keys(c, _)) if c == codes::LINK_EXPIRED => {
                         Ok(Approval::NoneWaiting)
                     }
                     Err(e) => Err(p(e)),
@@ -1251,7 +1273,9 @@ impl Backend for NativeBackend {
                         .await?
                         .into_iter()
                         .find(|p| p.id == persona)
-                        .ok_or_else(|| CoreError::Keys("that persona is gone".into()))?;
+                        .ok_or_else(|| {
+                            CoreError::coded(codes::PERSONA_GONE, "that persona is gone")
+                        })?;
                     let target = client.prompt(prompt).await?;
                     let sent = requests::send(&open.store, client, &me, prompt, &pitch, Some(days))
                         .await?;
@@ -1380,7 +1404,7 @@ impl Backend for NativeBackend {
                 .await?
                 .into_iter()
                 .find(|p| p.id == as_persona)
-                .ok_or_else(|| CoreError::Keys("that persona is gone".into()))?;
+                .ok_or_else(|| CoreError::coded(codes::PERSONA_GONE, "that persona is gone"))?;
             Ok(keys::key_change(&store, &client, &handle, &me)
                 .await?
                 .map(|c| KeyChange {
@@ -1403,7 +1427,7 @@ impl Backend for NativeBackend {
                 .await?
                 .into_iter()
                 .find(|p| p.id == as_persona)
-                .ok_or_else(|| CoreError::Keys("that persona is gone".into()))?;
+                .ok_or_else(|| CoreError::coded(codes::PERSONA_GONE, "that persona is gone"))?;
             Ok(keys::identity_words(&store, &client, &handle, &me)
                 .await?
                 .map(|w| w.into_iter().map(str::to_owned).collect()))
@@ -1430,7 +1454,7 @@ impl Backend for NativeBackend {
         requests::set_answers_seen(&open.store, &ids.iter().copied().collect()).map_err(failed)
     }
 
-    fn upkeep(&self) -> Call<'_, Option<String>> {
+    fn upkeep(&self) -> Call<'_, Option<Problem>> {
         Box::pin(async move {
             let open = self.opened()?;
             if open.store.token().map_err(failed)?.is_none() {
@@ -1448,11 +1472,17 @@ impl Backend for NativeBackend {
             let (line, tell) = match &report {
                 Ok(r) if r.caught_up.removed => (
                     "removed from the login's devices".to_owned(),
-                    Some("This computer was removed from your devices. Link it again to keep writing here.".to_owned()),
+                    Some(Problem::refused(
+                        codes::REMOVED_HERE,
+                        "This computer was removed from your devices. Link it again to keep writing here.",
+                    )),
                 ),
                 Ok(r) if r.caught_up.stale => (
                     "fell behind the device group".to_owned(),
-                    Some("This computer was away too long to catch up. Link it again from another device.".to_owned()),
+                    Some(Problem::refused(
+                        codes::FELL_BEHIND,
+                        "This computer was away too long to catch up. Link it again from another device.",
+                    )),
                 ),
                 Ok(r) => (
                     format!(
@@ -1621,7 +1651,10 @@ impl Backend for NativeBackend {
         Box::pin(async move {
             let to = PathBuf::from(folder.trim());
             if !to.is_absolute() {
-                return Err(Problem::Refused("Choose a full folder path.".into()));
+                return Err(Problem::refused(
+                    codes::STORES_NOT_MOVED,
+                    "Choose a full folder path.",
+                ));
             }
             let from = self.stores_folder();
             if to == from {
@@ -1631,10 +1664,13 @@ impl Backend for NativeBackend {
             for id in &ids {
                 let target = to.join(format!("{id}.quill"));
                 if target.exists() {
-                    return Err(Problem::Refused(format!(
-                        "{} already holds a store for one of your servers.",
-                        to.display()
-                    )));
+                    return Err(Problem::refused(
+                        codes::STORES_NOT_MOVED,
+                        format!(
+                            "{} already holds a store for one of your servers.",
+                            to.display()
+                        ),
+                    ));
                 }
             }
             // Close the stores while their files move.

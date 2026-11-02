@@ -34,6 +34,7 @@ pub fn Frame() -> Element {
     let key = format!("{}-{}", m.current.unwrap_or_default(), m.upkeep_round);
     let server = m.current;
     let notice = m.notice.clone();
+    let advanced = m.settings.advanced;
     let problem = m.problem.clone();
     drop(m);
     // A new section starts at the top, not wherever the last one was left.
@@ -65,8 +66,14 @@ pub fn Frame() -> Element {
                             button { class: "primary", onclick: move |_| model.write().go(Section::Rules), "Read the rules" }
                         }
                     }
-                    if let Some(text) = notice {
-                        div { class: "notice", role: "status", "{text}" }
+                    if let Some(n) = notice {
+                        div { class: "notice", role: "status",
+                            "{n}"
+                            if advanced {
+                                " "
+                                crate::app::Code { code: n.code() }
+                            }
+                        }
                     }
                     if let Some(p) = problem {
                         ProblemLine { problem: p }
@@ -208,7 +215,15 @@ fn StatusLine() -> Element {
     let m = model.read();
     let name = m.server_name();
     let status = m.status;
+    let advanced = m.settings.advanced;
     drop(m);
+    // Offline and signed out are problems, with codes in advanced mode.
+    let code = match status {
+        Status::Offline => Some(crate::backend::codes::UNREACHABLE),
+        Status::SignedOut => Some(crate::backend::codes::SIGNED_OUT),
+        _ => None,
+    }
+    .filter(|_| advanced);
     let (class, text) = match status {
         Status::Connecting => ("status", format!("Connecting to {name}…")),
         Status::Connected => ("status", format!("Connected to {name}")),
@@ -223,6 +238,9 @@ fn StatusLine() -> Element {
         footer { class, role: "status",
             span { class: "dot", aria_hidden: "true" }
             span { "{text}" }
+            if let Some(code) = code {
+                crate::app::Code { code }
+            }
             match status {
                 Status::Offline => rsx! {
                     button { class: "quiet", onclick: move |_| model.write().try_now(), "Try now" }
