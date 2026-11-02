@@ -15,6 +15,7 @@ pub use quill_proto::{
         TagNamespace, TagPage, TagPageQuery, TagPolicy, TagQuery, UpdatePrompt,
     },
     notices::AccountNotice,
+    requests::RequestStatus,
 };
 use uuid::Uuid;
 
@@ -47,6 +48,10 @@ pub enum Problem {
     /// on joining, or after they change.
     #[error("{0}")]
     RulesNotAccepted(String),
+    /// Another writer's identity key changed since this computer last saw
+    /// it: nothing goes to them until the writer checks it (3e).
+    #[error("@{0}'s identity key changed since you last wrote with them.")]
+    KeyChanged(String),
     /// The server refused, with its reason (already in plain words).
     #[error("{0}")]
     Refused(String),
@@ -200,6 +205,155 @@ pub struct Details {
     pub rows: Vec<(String, String)>,
 }
 
+/// A link this computer opened, waiting for a device already in use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkStart {
+    /// The whole `quill-link:` code, for the QR code and for copying.
+    pub code: String,
+    /// The six words to type on the device in use.
+    pub words: Vec<String>,
+    /// How long the link lasts.
+    pub expires_in_secs: u64,
+}
+
+/// What approving a new computer's link came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Approval {
+    /// Linked: both devices should now show these words.
+    Approved { confirm: Vec<String> },
+    /// No new computer is waiting (or its link expired).
+    NoneWaiting,
+    /// More than one is waiting: someone else may be linking, so none is
+    /// approved by words alone.
+    Several(usize),
+    /// The words don't match the computer that's waiting.
+    WordsDiffer,
+}
+
+/// One of the login's devices.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Device {
+    pub id: Uuid,
+    pub this_device: bool,
+    pub name: Option<String>,
+    /// When it joined the login's devices, in seconds since 1970.
+    pub since: Option<u64>,
+    /// The personas it can write as, by handle.
+    pub personas: Vec<String>,
+}
+
+/// Why a device is removed, recorded with its persona keys' revocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RemoveReason {
+    Lost,
+    Compromised,
+    Retired,
+    #[default]
+    Unspecified,
+}
+
+impl RemoveReason {
+    pub const ALL: [RemoveReason; 4] = [
+        RemoveReason::Retired,
+        RemoveReason::Lost,
+        RemoveReason::Compromised,
+        RemoveReason::Unspecified,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            RemoveReason::Retired => "I don't use it any more",
+            RemoveReason::Lost => "It was lost or stolen",
+            RemoveReason::Compromised => "Someone else may have used it",
+            RemoveReason::Unspecified => "I'd rather not say",
+        }
+    }
+}
+
+/// A persona's keys as advanced mode shows them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonaKeys {
+    pub handle: String,
+    /// Label and value pairs, in order.
+    pub rows: Vec<(String, String)>,
+}
+
+/// The longest pitch, in characters (as `quill-core` allows).
+pub const PITCH_MAX: usize = 4000;
+/// The most days a request waits for an answer.
+pub const REQUEST_DAYS_MAX: u32 = quill_proto::requests::MAX_EXPIRY_DAYS;
+
+/// One of the login's own requests.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SentRequest {
+    pub id: Uuid,
+    /// The prompt and its title; `None` once it's deleted.
+    pub prompt: Option<(Uuid, String)>,
+    /// The asking persona's handle.
+    pub persona: String,
+    /// `Waiting`, `Session` or `NoResponse`: a requester never sees more.
+    pub status: RequestStatus,
+    pub expires_at: time::OffsetDateTime,
+}
+
+/// One of the login's prompts with requests waiting on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WaitingPrompt {
+    pub prompt: Uuid,
+    pub title: String,
+    pub pending: u32,
+    /// Held while the prompt was busy; reading them releases them.
+    pub held: u32,
+    pub newest: time::OffsetDateTime,
+}
+
+/// A request in one of the login's queues, as this computer reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncomingRequest {
+    pub id: Uuid,
+    pub handle: String,
+    pub display_name: Option<String>,
+    pub received_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
+    /// The pitch (Markdown), or why this computer can't show it.
+    pub pitch: Result<String, Unread>,
+}
+
+/// Why this computer can't show a pitch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unread {
+    /// It was sent before this computer was linked.
+    NotForThisComputer,
+    /// This computer sent it, under another login on the same server: its
+    /// note of sending stops it reading it as the author.
+    SentFromHere,
+    /// The requester's identity key changed: check it first.
+    KeyChanged,
+    /// It failed a check, and is never shown. `detail` is for advanced mode.
+    Refused { detail: String },
+}
+
+/// A prompt's queue.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Inbox {
+    pub requests: Vec<IncomingRequest>,
+    /// Held requests not yet released.
+    pub held: u32,
+}
+
+/// Another writer's changed identity key, to check before going on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyChange {
+    pub handle: String,
+    /// 12 words from both personas' keys: the same for both writers.
+    pub words: Vec<String>,
+    /// The new key's fingerprint, which accepting names.
+    pub fingerprint: String,
+}
+
+/// The longest device name, in characters (as `quill-core` allows).
+pub const DEVICE_NAME_MAX: usize = 40;
+
 /// The client's side of the app.
 pub trait Backend {
     // ---- Servers -------------------------------------------------------------------
@@ -269,6 +423,41 @@ pub trait Backend {
     /// calling `progress` as each step starts. Safe to call again after a
     /// failure: it carries on from where it stopped.
     fn prepare<'a>(&'a self, persona: Uuid, progress: &'a dyn Fn(Step)) -> Call<'a, ()>;
+    /// As `prepare`, but makes a new identity key in place of one made on
+    /// another device. That device stops working for the persona, and
+    /// other writers are told the key changed.
+    fn start_over<'a>(&'a self, persona: Uuid, progress: &'a dyn Fn(Step)) -> Call<'a, ()>;
+
+    // ---- Devices ---------------------------------------------------------------------------
+
+    /// What this computer is called on the login's other devices.
+    fn device_name(&self) -> Option<String>;
+    /// Whether another of the login's devices removed this computer.
+    fn removed_here(&self) -> bool;
+    /// A name to suggest for this computer: its own, as the system knows it.
+    fn suggested_device_name(&self) -> String;
+    /// Renames this computer, telling the other devices if it's linked.
+    fn rename_device<'a>(&'a self, name: &'a str) -> Call<'a, ()>;
+    /// The login's devices; empty until a second one is linked.
+    fn devices(&self) -> Call<'_, Vec<Device>>;
+    /// Removes another of the login's devices; its persona keys are revoked.
+    fn remove_device(&self, id: Uuid, reason: RemoveReason) -> Call<'_, ()>;
+    /// On a new computer: names it and opens a link for a device in use.
+    fn start_link<'a>(&'a self, name: &'a str) -> Call<'a, LinkStart>;
+    /// Whether the link was answered: the words to compare, `None` while
+    /// waiting (it returns within a few seconds), `Gone` once it expired.
+    fn link_answer(&self) -> Call<'_, Option<Vec<String>>>;
+    /// The words matched: takes the keys and gets the personas ready.
+    fn finish_link(&self) -> Call<'_, Standing>;
+    /// The words didn't match, or the person gave up: takes nothing.
+    fn abandon_link(&self) -> Result<(), Problem>;
+    /// On a device in use: approves the waiting link whose words (or whole
+    /// code) are `typed`.
+    fn approve_link<'a>(&'a self, typed: &'a str) -> Call<'a, Approval>;
+    /// How many new computers are waiting to link to this login.
+    fn waiting_links(&self) -> Call<'_, usize>;
+    /// Each persona's keys, for advanced mode.
+    fn key_details(&self) -> Call<'_, Vec<PersonaKeys>>;
 
     // ---- The board ------------------------------------------------------------------------
 
@@ -295,6 +484,45 @@ pub trait Backend {
     /// The login's notices, newest first, before notice `before`.
     fn notices(&self, before: Option<i64>) -> Call<'_, Vec<AccountNotice>>;
     fn mark_notices_read(&self) -> Call<'_, ()>;
+
+    // ---- Requests (3e) ------------------------------------------------------------------
+
+    /// Asks to write with `prompt`'s author as `persona`.
+    fn send_request<'a>(
+        &'a self,
+        persona: Uuid,
+        prompt: Uuid,
+        pitch: &'a str,
+        days: u32,
+    ) -> Call<'a, SentRequest>;
+    /// The login's own requests, newest first.
+    fn sent_requests(&self) -> Call<'_, Vec<SentRequest>>;
+    /// Withdraws a request, or dismisses one that got no answer.
+    fn withdraw_request(&self, id: Uuid) -> Call<'_, ()>;
+    /// The login's prompts with requests waiting, newest arrival first.
+    fn waiting_requests(&self) -> Call<'_, Vec<WaitingPrompt>>;
+    /// Reads a prompt's queue on this computer; `held` releases held ones.
+    fn inbox(&self, prompt: Uuid, held: bool) -> Call<'_, Inbox>;
+    /// Accepts a request read on this computer: it becomes a session.
+    fn accept_request(&self, id: Uuid) -> Call<'_, ()>;
+    /// Declines a request. The requester isn't told.
+    fn decline_request(&self, id: Uuid) -> Call<'_, ()>;
+    /// How `handle`'s identity key changed, as seen by `as_persona`, or
+    /// `None` if it hasn't (any more).
+    fn key_change<'a>(&'a self, handle: &'a str, as_persona: Uuid) -> Call<'a, Option<KeyChange>>;
+    /// The 12 words for `as_persona` and `handle`, from the keys published
+    /// now; `None` while `handle` has no identity key (#72).
+    fn identity_words<'a>(
+        &'a self,
+        handle: &'a str,
+        as_persona: Uuid,
+    ) -> Call<'a, Option<Vec<String>>>;
+    /// Trusts `handle`'s new key, if it's still the one with `fingerprint`.
+    fn accept_key_change<'a>(&'a self, handle: &'a str, fingerprint: &'a str) -> Call<'a, ()>;
+    /// The login's requests whose answer the writer has seen, kept on this
+    /// computer (in the server's store) so Home can say what's new.
+    fn answers_seen(&self) -> Vec<Uuid>;
+    fn set_answers_seen(&self, ids: &[Uuid]) -> Result<(), Problem>;
 
     // ---- Upkeep and settings --------------------------------------------------------------
 

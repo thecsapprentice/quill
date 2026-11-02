@@ -191,7 +191,7 @@ async fn signing_in_where_the_keys_are_elsewhere_says_so_once() {
     d.click("Sign in").await;
     d.wait_for_text("This computer is new to your login").await;
     assert!(d.has_text("@ink_fox"));
-    d.click("Continue").await;
+    d.click("Not now").await;
     d.wait_for_text("Connected to writers.example").await;
 }
 
@@ -515,4 +515,23 @@ async fn the_theme_and_text_size_apply_at_once() {
     assert_eq!(d.root_attr("data-theme").as_deref(), Some("dark"));
     d.choose("text-size", "130").await;
     assert!(d.page_style().contains("font-size: 130%"));
+}
+
+/// Found by hand (#69): opening the design reference from the bottom of
+/// Settings left the new page scrolled as far down as Settings was. Moving
+/// to another section starts it at the top; staying put leaves it alone.
+#[tokio::test]
+async fn going_to_another_section_starts_it_at_the_top() {
+    use quill_ui::testing::Asked;
+    let sim = Sim::new().with_server(SERVER).rc();
+    let mut d = app(&sim);
+    first_run(&mut d, SERVER, "ink", "ink_fox").await;
+    let _ = d.asked_of("main");
+    d.click("Settings").await;
+    assert_eq!(d.asked_of("main"), [Asked::ScrollTo { x: 0.0, y: 0.0 }]);
+    d.set_checked("advanced", true).await;
+    d.wait_for_text("Details").await;
+    assert_eq!(d.asked_of("main"), [], "the same section keeps its place");
+    d.click("Design reference").await;
+    assert_eq!(d.asked_of("main"), [Asked::ScrollTo { x: 0.0, y: 0.0 }]);
 }

@@ -73,7 +73,8 @@ pub fn App() -> Element {
                 Screen::Unlock => rsx! { first_run::UnlockStep {} },
                 Screen::Account => rsx! { first_run::AccountStep {} },
                 Screen::FirstPersona => rsx! { first_run::PersonaStep {} },
-                Screen::Preparing { persona } => rsx! { first_run::PreparingStep { key: "{persona}", persona } },
+                Screen::Preparing { persona, replace } => rsx! { first_run::PreparingStep { key: "{persona}-{replace}", persona, replace } },
+                Screen::Linking => rsx! { crate::devices::LinkingStep {} },
                 Screen::Elsewhere => rsx! { first_run::ElsewhereStep {} },
                 Screen::Frame => rsx! { frame::Frame {} },
             }

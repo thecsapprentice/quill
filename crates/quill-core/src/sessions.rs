@@ -207,10 +207,9 @@ impl Dir {
         } else if let PinStatus::Changed { .. } =
             keys::check_pin(store, &m.actor_uri, &key, version)?
         {
-            return Err(err(format!(
-                "@{}'s identity key changed since it was pinned; check it with `quill keys show {}`",
-                m.handle, m.handle
-            )));
+            return Err(CoreError::KeyChanged {
+                handle: m.handle.clone(),
+            });
         }
         let mut dir = Self {
             uri: m.actor_uri.clone(),
@@ -1964,10 +1963,9 @@ pub async fn safety_numbers(
     if let PinStatus::Changed { .. } =
         keys::check_pin(store, &partner.actor_uri, &their_key, version)?
     {
-        return Err(err(format!(
-            "@{}'s identity key changed since it was pinned; check it with `quill keys show {}`",
-            partner.handle, partner.handle
-        )));
+        return Err(CoreError::KeyChanged {
+            handle: partner.handle.clone(),
+        });
     }
     let provider = Provider::new(store);
     let group =

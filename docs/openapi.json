@@ -6230,6 +6230,54 @@
       }
     },
     "/link": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "List this login's links waiting for an answer",
+        "description": "Unanswered, unexpired linking mailboxes opened by this login, soonest to expire first. A device already in use looks them up when the writer chooses to link, then checks the KeyPackage against the words the new device shows.",
+        "operationId": "get_link",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WaitingLink"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
       "post": {
         "tags": [
           "groups"
@@ -8198,6 +8246,56 @@
           },
           "429": {
             "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on the server; the detail is only in its logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/requests/waiting": {
+      "get": {
+        "tags": [
+          "requests"
+        ],
+        "summary": "How many requests wait on each of the login's prompts",
+        "description": "Only prompts with pending or held requests, newest arrival first. Held requests are counted, not released: reading a prompt's held queue releases them.",
+        "operationId": "get_requests_waiting",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WaitingOnPrompt"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid bearer token.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -13576,6 +13674,61 @@
               "null"
             ],
             "description": "The new script's name; the template's own if left out."
+          }
+        }
+      },
+      "WaitingLink": {
+        "type": "object",
+        "description": "One entry of `GET /link`: a link this login opened that no device has\nanswered yet. The KeyPackage is fetched by id as before.",
+        "required": [
+          "linkId",
+          "expiresInSecs"
+        ],
+        "properties": {
+          "expiresInSecs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "linkId": {
+            "type": "string"
+          }
+        }
+      },
+      "WaitingOnPrompt": {
+        "type": "object",
+        "description": "One of the login's prompts with requests waiting on it, in\n`GET /requests/waiting`.",
+        "required": [
+          "prompt",
+          "title",
+          "pending",
+          "held",
+          "newest"
+        ],
+        "properties": {
+          "held": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Requests held while the prompt was busy, not yet released.",
+            "minimum": 0
+          },
+          "newest": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the newest of them arrived."
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Requests in the queue.",
+            "minimum": 0
+          },
+          "prompt": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
           }
         }
       }

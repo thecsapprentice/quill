@@ -24,6 +24,7 @@ use quill_proto::{
     keys::{actor_uri, b64, unb64},
     requests::{
         IncomingRequest, OutgoingRequest, RequestPersona, RequestSent, RequestStatus, SendRequest,
+        WaitingOnPrompt,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -350,6 +351,12 @@ pub async fn withdraw(store: &Store, client: &Client, id: Uuid) -> Result<(), Co
 
 // ---- The author's side ---------------------------------------------------------------------
 
+/// The login's prompts with requests waiting on them: how many are in each
+/// queue and how many are held. Releases nothing.
+pub async fn waiting(client: &Client) -> Result<Vec<WaitingOnPrompt>, CoreError> {
+    client.waiting_requests().await
+}
+
 /// A request in the author's queue, as this device reads it.
 #[derive(Debug, Clone)]
 pub struct Incoming {
@@ -358,8 +365,38 @@ pub struct Incoming {
     pub received_at: time::OffsetDateTime,
     pub expires_at: time::OffsetDateTime,
     /// The pitch, or why this device can't show it.
-    pub pitch: Result<String, String>,
+    pub pitch: Result<String, Unread>,
 }
+
+/// Why this device can't show a request's pitch.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum Unread {
+    /// This device sent it: under another login on the same server, since
+    /// a store keeps its notes across sign-ins.
+    #[error("this device sent it")]
+    SentHere,
+    /// It was sent before this device was linked, so it holds no key for it.
+    #[error("it wasn't sent to this device (linked after it was sent?)")]
+    NotForThisDevice,
+    /// The requester's identity key isn't the one this device pinned.
+    #[error("@{handle}'s identity key changed since it was pinned")]
+    KeyChanged { handle: String },
+    /// It failed a check (a forged group, a bad pitch): never shown.
+    #[error("{0}")]
+    Refused(String),
+}
+
+impl From<CoreError> for Unread {
+    fn from(e: CoreError) -> Self {
+        match e {
+            CoreError::KeyChanged { handle } => Unread::KeyChanged { handle },
+            CoreError::Keys(m) if m == NOT_FOR_THIS_DEVICE => Unread::NotForThisDevice,
+            e => Unread::Refused(e.to_string()),
+        }
+    }
+}
+
+const NOT_FOR_THIS_DEVICE: &str = "it wasn't sent to this device (linked after it was sent?)";
 
 /// A prompt's queue.
 #[derive(Debug, Clone)]
@@ -406,7 +443,7 @@ pub async fn inbox(
             h.pitch
                 .filter(|_| incoming)
                 .and_then(|p| p.activity.note().map(|n| n.content.clone()))
-                .ok_or_else(|| "this device sent it".to_owned())
+                .ok_or(Unread::SentHere)
         } else {
             if author_keys.is_none() {
                 author_keys = Some(own_keys(store, client, me, &author_uri).await?);
@@ -414,7 +451,7 @@ pub async fn inbox(
             let author_keys = author_keys.as_ref().unwrap_or_else(|| unreachable!());
             read(store, client, me, &domain, &author_uri, author_keys, &r)
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(Unread::from)
         };
         out.push(Incoming {
             id: r.id,
@@ -476,10 +513,9 @@ async fn read(
         .clone()
         .ok_or_else(|| err("the requester has no identity key"))?;
     if let PinStatus::Changed { .. } = keys::check_pin(store, &requester_uri, &key, version)? {
-        return Err(err(format!(
-            "@{}'s identity key changed since it was pinned; check it with `quill keys show {}`",
-            r.requester.handle, r.requester.handle
-        )));
+        return Err(CoreError::KeyChanged {
+            handle: r.requester.handle.clone(),
+        });
     }
     let requester_keys = valid_keys(&published);
     let allowed = |credential: &openmls::prelude::Credential, key: &[u8]| -> Option<bool> {
@@ -514,9 +550,7 @@ async fn read(
         {
             Ok(s) => s,
             Err(WelcomeError::NoMatchingKeyPackage) => {
-                return Err(err(
-                    "it wasn't sent to this device (linked after it was sent?)",
-                ));
+                return Err(err(NOT_FOR_THIS_DEVICE));
             }
             Err(e) => return Err(mls_err("joining the request's group", e)),
         };
@@ -645,7 +679,47 @@ pub async fn tidy(store: &Store, client: &Client) -> Result<usize, CoreError> {
     Ok(dropped)
 }
 
+// ---- What a client has shown ---------------------------------------------------------------
+
+/// Where [`answers_seen`] lives in the store.
+const ANSWERS_SEEN: &[u8] = b"requests:answers-seen";
+
+/// The login's requests whose answer (a session, or no response) a client
+/// has shown the writer, so it can tell new answers apart.
+pub fn answers_seen(store: &Store) -> Result<HashSet<Uuid>, CoreError> {
+    Ok(match store.get(Table::Meta, ANSWERS_SEEN)? {
+        Some(v) => serde_json::from_slice(&v).map_err(|_| err("a stored note is damaged"))?,
+        None => HashSet::new(),
+    })
+}
+
+/// Replaces [`answers_seen`]: the answered requests the writer has seen.
+pub fn set_answers_seen(store: &Store, ids: &HashSet<Uuid>) -> Result<(), CoreError> {
+    let v = serde_json::to_vec(ids).map_err(|_| err("encoding"))?;
+    Ok(store.apply(&[Op::Put {
+        table: Table::Meta,
+        key: ANSWERS_SEEN,
+        value: &v,
+    }])?)
+}
+
 /// The group id of a request that became a session on this device, if any.
 pub fn session_group(store: &Store, id: Uuid) -> Result<Option<String>, CoreError> {
     Ok(held(store, id)?.filter(|h| h.accepted).map(|h| h.group_id))
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    #[test]
+    fn answers_seen_round_trip() {
+        let store = Store::in_memory();
+        assert!(answers_seen(&store).unwrap().is_empty());
+        let ids: HashSet<Uuid> = [Uuid::new_v4(), Uuid::new_v4()].into();
+        set_answers_seen(&store, &ids).unwrap();
+        assert_eq!(answers_seen(&store).unwrap(), ids);
+    }
 }

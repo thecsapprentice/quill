@@ -20,7 +20,7 @@ use quill_proto::{
     keys::{actor_uri, b64, unb64},
     requests::{
         IncomingRequest, MAX_EXPIRY_DAYS, OutgoingRequest, Queue, QueueQuery, RequestPersona,
-        RequestSent, RequestState, RequestStatus, SendRequest,
+        RequestSent, RequestState, RequestStatus, SendRequest, WaitingOnPrompt,
     },
 };
 use sqlx::PgConnection;
@@ -42,6 +42,7 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(accept))
         .routes(routes!(decline))
         .routes(routes!(queue))
+        .routes(routes!(waiting))
 }
 
 fn decode(field: &str, text: &str) -> Result<Vec<u8>, ApiError> {
@@ -297,6 +298,51 @@ async fn list_own(
                     expires_at,
                 },
             )
+            .collect(),
+    ))
+}
+
+type WaitingRow = (Uuid, String, i64, i64, OffsetDateTime);
+
+/// `GET /requests/waiting`: the login's prompts with requests waiting on
+/// them, and how many. Reading it releases nothing.
+#[utoipa::path(
+    get, path = "/requests/waiting", tag = "requests", security(("bearer" = [])),
+    summary = "How many requests wait on each of the login's prompts",
+    description = "Only prompts with pending or held requests, newest arrival first. Held requests are counted, not released: reading a prompt's held queue releases them.",
+    responses((status = 200, body = Vec<WaitingOnPrompt>)),
+)]
+async fn waiting(
+    State(state): State<AppState>,
+    authed: Authed,
+) -> Result<Json<Vec<WaitingOnPrompt>>, ApiError> {
+    let mut conn = state.pool.acquire().await?;
+    expire(&mut conn).await?;
+    let rows: Vec<WaitingRow> = sqlx::query_as(
+        "SELECT p.id, p.title,
+                count(*) FILTER (WHERE r.state = 'pending'),
+                count(*) FILTER (WHERE r.state = 'held'),
+                max(r.received_at)
+         FROM session_requests r
+         JOIN prompts p ON p.id = r.prompt_id
+         JOIN actors a ON a.id = p.actor_id
+         WHERE a.account_id = $1 AND r.state IN ('pending', 'held')
+         GROUP BY p.id, p.title
+         ORDER BY max(r.received_at) DESC, p.id",
+    )
+    .bind(authed.account_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let count = |n: i64| u32::try_from(n).unwrap_or(u32::MAX);
+    Ok(Json(
+        rows.into_iter()
+            .map(|(prompt, title, pending, held, newest)| WaitingOnPrompt {
+                prompt,
+                title,
+                pending: count(pending),
+                held: count(held),
+                newest,
+            })
             .collect(),
     ))
 }

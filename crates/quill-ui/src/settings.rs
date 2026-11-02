@@ -57,6 +57,17 @@ pub fn SettingsPage() -> Element {
                 }
             }
         }
+        if signed_in {
+            fieldset {
+                legend { "Devices" }
+                p { class: "hint", "The computers that can write as your personas: link a new one, rename this one, or remove one." }
+                button {
+                    class: "secondary",
+                    onclick: move |_| model.write().go(crate::model::Section::Devices),
+                    "Your devices"
+                }
+            }
+        }
         if has_store {
             for k in [server] {
                 StoreFieldset { key: "{k}" }
@@ -510,6 +521,17 @@ fn AdvancedFieldset() -> Element {
                 if let Some(p) = problem() {
                     ProblemLine { problem: p }
                 }
+                div { class: "actions",
+                    button {
+                        class: "secondary",
+                        onclick: move |_| {
+                            let mut m = model;
+                            m.write().go(crate::model::Section::Reference);
+                        },
+                        "Design reference"
+                    }
+                }
+                p { class: "hint", "Every part of the app's design, in each of its states, light and dark." }
             }
         }
     }
