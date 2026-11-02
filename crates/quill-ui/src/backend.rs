@@ -507,6 +507,13 @@ pub trait Backend {
     /// How `handle`'s identity key changed, as seen by `as_persona`, or
     /// `None` if it hasn't (any more).
     fn key_change<'a>(&'a self, handle: &'a str, as_persona: Uuid) -> Call<'a, Option<KeyChange>>;
+    /// The 12 words for `as_persona` and `handle`, from the keys published
+    /// now; `None` while `handle` has no identity key (#72).
+    fn identity_words<'a>(
+        &'a self,
+        handle: &'a str,
+        as_persona: Uuid,
+    ) -> Call<'a, Option<Vec<String>>>;
     /// Trusts `handle`'s new key, if it's still the one with `fingerprint`.
     fn accept_key_change<'a>(&'a self, handle: &'a str, fingerprint: &'a str) -> Call<'a, ()>;
     /// The login's requests whose answer the writer has seen, kept on this

@@ -511,3 +511,92 @@ async fn the_changed_key_stop_brings_itself_into_view() {
     d.wait_for_text("@wren's identity key changed").await;
     assert_eq!(d.asked_of("key-check"), [Asked::IntoView]);
 }
+
+// ---- Comparing words (#72) -----------------------------------------------------------
+
+fn words_shown(d: &Driver, sim: &Rc<Sim>, a: &str, b: &str) -> bool {
+    let words = sim.key_words(SERVER, a, b);
+    let text = d.text();
+    let mut at = 0;
+    // In order, as the list shows them.
+    words.iter().all(|w| match text[at..].find(w.as_str()) {
+        Some(i) => {
+            at += i + w.len();
+            true
+        }
+        None => false,
+    })
+}
+
+#[tokio::test]
+async fn both_writers_find_their_words_where_they_meet() {
+    let sim = sim();
+    let mut d = signed_in(&sim).await;
+    // On another writer's prompt.
+    reading(&sim, &mut d, "wren", "The lighthouse ledger").await;
+    d.click("Compare words with @wren").await;
+    d.wait_for_text("@wren sees these same 12 words").await;
+    assert!(words_shown(&d, &sim, "ink_fox", "wren"));
+    d.click("Hide the words").await;
+    assert!(!d.has_text("@wren sees these same 12 words"));
+
+    // On a request to your own prompt.
+    let id = own_prompt(&sim, "My own prompt");
+    sim.request_from(SERVER, "gull", id, PITCH);
+    d.click("Home").await;
+    d.wait_for_text("A request is waiting").await;
+    d.click("Read them").await;
+    d.wait_for_text(PITCH).await;
+    d.click("Compare words with @gull").await;
+    d.wait_for_text("@gull sees these same 12 words").await;
+    assert!(words_shown(&d, &sim, "ink_fox", "gull"));
+}
+
+#[tokio::test]
+async fn the_words_with_any_writer_are_on_personas() {
+    let sim = sim();
+    sim.take_handle(SERVER, "wren");
+    sim.writer_without_keys(SERVER, "newt");
+    let mut d = signed_in(&sim).await;
+    d.click("Personas").await;
+    assert!(d.button_disabled("Show the words"));
+    d.type_into("words-handle", "@wren").await;
+    d.click("Show the words").await;
+    d.wait_for_text("@wren sees these same 12 words").await;
+    assert!(words_shown(&d, &sim, "ink_fox", "wren"));
+
+    d.type_into("words-handle", "nobody").await;
+    d.click("Show the words").await;
+    d.wait_for_text("There's no writer @nobody on this server.")
+        .await;
+    d.type_into("words-handle", "newt").await;
+    d.click("Show the words").await;
+    d.wait_for_text("@newt has no identity key yet").await;
+}
+
+#[tokio::test]
+async fn after_a_key_changes_the_stop_shows_the_words_the_other_writer_sees() {
+    let sim = sim();
+    let mut d = signed_in(&sim).await;
+    sent_one(&sim, &mut d).await;
+    sim.change_key(SERVER, "wren");
+    sim.post_as(
+        SERVER,
+        "wren",
+        "A second prompt",
+        "More ledgers.",
+        &[],
+        Maturity::General,
+    );
+    d.click("‹ Back to the board").await;
+    d.click("Refresh").await;
+    d.wait_for_text("A second prompt").await;
+    d.click_containing("A second prompt").await;
+    d.click("Ask to write together").await;
+    d.type_into("request-pitch", "Another one.").await;
+    d.click("Send request").await;
+    d.wait_for_text("@wren's identity key changed").await;
+    // Where Wren finds the same words, and that they're the new ones.
+    assert!(d.has_text("under “Compare words with @ink_fox”"));
+    assert!(words_shown(&d, &sim, "ink_fox", "wren"));
+}

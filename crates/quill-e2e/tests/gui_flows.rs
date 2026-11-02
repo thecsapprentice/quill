@@ -564,6 +564,18 @@ async fn requests_both_ways_on_a_real_server() {
         .await;
     d.click("Send request").await;
     d.wait_for_text("Request sent.").await;
+    // The words the app shows are the ones Wren's side derives (#72).
+    d.click("Compare words with @wren_pen").await;
+    d.wait_for_text("sees these same 12 words").await;
+    let theirs_words = quill_core::keys::identity_words(&wren, &wren_c, "ink_fox", &wren_pen)
+        .await
+        .unwrap()
+        .unwrap();
+    let text = d.text();
+    assert!(
+        text.contains(&theirs_words.join(" ")),
+        "{theirs_words:?} in {text}"
+    );
     let inbox = requests::inbox(&wren, &wren_c, theirs, false)
         .await
         .unwrap();

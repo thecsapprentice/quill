@@ -95,14 +95,15 @@ impl Here {
     }
 }
 
-/// The words both writers compare: stand-ins for the identity number.
-fn words(a: &str, b: &str, version: u32) -> Vec<String> {
+/// The words both writers compare: stand-ins for the identity number, from
+/// both personas' handles and key versions, the same whichever side asks.
+fn words(a: (&str, u32), b: (&str, u32)) -> Vec<String> {
     const LIST: [&str; 16] = [
         "amber", "birch", "cinder", "delta", "ember", "fjord", "garnet", "harbor", "iris",
         "juniper", "kestrel", "lantern", "meadow", "nectar", "orchid", "pebble",
     ];
-    let (first, second) = if a <= b { (a, b) } else { (b, a) };
-    let seed = format!("{first}|{second}|{version}");
+    let (first, second) = if a.0 <= b.0 { (a, b) } else { (b, a) };
+    let seed = format!("{}:{}|{}:{}", first.0, first.1, second.0, second.1);
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     (0..12)
         .map(|i| {
@@ -128,6 +129,10 @@ fn expire(server: &mut SimServer, now: OffsetDateTime) {
 }
 
 impl SimServer {
+    fn pair_words(&self, a: &str, b: &str) -> Vec<String> {
+        words((a, self.requests.version(a)), (b, self.requests.version(b)))
+    }
+
     fn handle_of(&self, persona: Uuid) -> Option<String> {
         self.personas
             .iter()
@@ -307,10 +312,9 @@ impl Sim {
         })
     }
 
-    /// The words `a` and `b` compare for `b`'s current key.
+    /// The words `a` and `b` compare, for their current keys.
     pub fn key_words(&self, domain: &str, a: &str, b: &str) -> Vec<String> {
-        let v = self.server(domain, |s| s.requests.version(b));
-        words(a, b, v)
+        self.server(domain, |s| s.pair_words(a, b))
     }
 
     // ---- The backend's side ------------------------------------------------------
@@ -556,11 +560,26 @@ impl Sim {
         Ok(match self.here().pins.get(handle) {
             Some(v) if *v != now => Some(KeyChange {
                 handle: handle.to_owned(),
-                words: words(&me, handle, now),
+                words: server.pair_words(&me, handle),
                 fingerprint: fingerprint(handle, now),
             }),
             _ => None,
         })
+    }
+
+    pub(super) fn sim_identity_words(
+        &self,
+        handle: &str,
+        as_persona: Uuid,
+    ) -> Result<Option<Vec<String>>, Problem> {
+        let (_, _, server) = self.reach()?;
+        let me = server.handle_of(as_persona).ok_or(Problem::Gone)?;
+        let handle = handle.trim().trim_start_matches('@');
+        match server.personas.iter().find(|(_, p, _)| p.handle == handle) {
+            None => Err(Problem::Gone),
+            Some((_, _, false)) => Ok(None),
+            Some(_) => Ok(Some(server.pair_words(&me, handle))),
+        }
     }
 
     pub(super) fn sim_accept_key_change(&self, handle: &str, checked: &str) -> Result<(), Problem> {

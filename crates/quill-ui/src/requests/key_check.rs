@@ -16,7 +16,7 @@ use crate::{
 /// "Not now".
 #[component]
 pub fn KeyCheck(handle: String, as_persona: Uuid, on_done: EventHandler<bool>) -> Element {
-    let (backend, _) = use_ui();
+    let (backend, model) = use_ui();
     let mut change = use_signal(|| None::<Result<Option<KeyChange>, Problem>>);
     let mut busy = use_signal(|| false);
     let mut problem = use_signal(|| None::<Problem>);
@@ -64,6 +64,13 @@ pub fn KeyCheck(handle: String, as_persona: Uuid, on_done: EventHandler<bool>) -
         Some(Ok(Some(c))) => c,
     };
     let fingerprint = c.fingerprint.clone();
+    let me = model
+        .read()
+        .personas()
+        .iter()
+        .find(|p| p.persona.id == as_persona)
+        .map(|p| p.persona.handle.clone())
+        .unwrap_or_default();
     rsx! {
         section {
             class: "panel key-check",
@@ -80,7 +87,8 @@ pub fn KeyCheck(handle: String, as_persona: Uuid, on_done: EventHandler<bool>) -
                 "It could also mean someone is using the server to pass as them."
             }
             p {
-                "Ask @{c.handle}, some other way than Quill's requests, to read you their 12 words for the two of you. "
+                "Ask @{c.handle} to read you their 12 words for the two of you, some other way than Quill. "
+                "In Quill they're under “Compare words with @{me}” on your prompt or request, or on their Personas page. "
                 "Carry on only if they match these:"
             }
             ol { class: "words", aria_label: "The words to compare",

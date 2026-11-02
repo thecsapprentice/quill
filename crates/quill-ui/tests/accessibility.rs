@@ -225,4 +225,14 @@ async fn requests() {
     d.assert_accessible("asking to write");
     d.type_into("request-pitch", &"x".repeat(4_001)).await;
     d.assert_accessible("asking to write, pitch too long");
+    d.click("Cancel").await;
+    d.click("Compare words with @gull").await;
+    d.wait_for_text("@gull sees these same 12 words").await;
+    d.assert_accessible("comparing words on a prompt");
+
+    d.click("Personas").await;
+    d.type_into("words-handle", "gull").await;
+    d.click("Show the words").await;
+    d.wait_for_text("@gull sees these same 12 words").await;
+    d.assert_accessible("Personas, comparing words");
 }

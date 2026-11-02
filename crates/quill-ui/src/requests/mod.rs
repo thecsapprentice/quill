@@ -19,9 +19,11 @@ use crate::{
 mod ask;
 mod key_check;
 mod queue;
+mod words;
 
 pub use ask::AskToWrite;
 pub use key_check::KeyCheck;
+pub use words::{CompareWords, WordsLookup};
 
 /// Loads the open server's requests into the model.
 pub async fn load(b: &dyn Backend, mut model: Signal<Model>, server: Uuid) -> Result<(), Problem> {

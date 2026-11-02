@@ -287,6 +287,9 @@ impl Backend for Fake {
     ) -> Call<'a, Option<crate::backend::KeyChange>> {
         ready(Ok(None))
     }
+    fn identity_words<'a>(&'a self, _: &'a str, _: Uuid) -> Call<'a, Option<Vec<String>>> {
+        ready(Ok(None))
+    }
     fn accept_key_change<'a>(&'a self, _: &'a str, _: &'a str) -> Call<'a, ()> {
         ready(Ok(()))
     }

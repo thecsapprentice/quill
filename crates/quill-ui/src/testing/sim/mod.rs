@@ -219,6 +219,14 @@ impl Sim {
         });
     }
 
+    /// Another writer whose persona has no identity key published yet.
+    pub fn writer_without_keys(&self, domain: &str, handle: &str) {
+        self.server(domain, |s| {
+            s.personas
+                .push((format!("owner_of_{handle}"), persona(handle), false));
+        });
+    }
+
     /// Takes a handle on a server, as another writer would.
     pub fn take_handle(&self, domain: &str, handle: &str) {
         self.existing_login(
@@ -816,6 +824,14 @@ impl Backend for Sim {
         as_persona: Uuid,
     ) -> Call<'a, Option<crate::backend::KeyChange>> {
         now(self.sim_key_change(handle, as_persona))
+    }
+
+    fn identity_words<'a>(
+        &'a self,
+        handle: &'a str,
+        as_persona: Uuid,
+    ) -> Call<'a, Option<Vec<String>>> {
+        now(self.sim_identity_words(handle, as_persona))
     }
 
     fn accept_key_change<'a>(&'a self, handle: &'a str, fingerprint: &'a str) -> Call<'a, ()> {

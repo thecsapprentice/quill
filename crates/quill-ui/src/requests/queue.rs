@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use quill_board_ui::short_date;
 use uuid::Uuid;
 
-use super::{KeyCheck, reload, requests_n};
+use super::{CompareWords, KeyCheck, reload, requests_n};
 use crate::{
     app::{ProblemLine, use_ui},
     backend::{Inbox, IncomingRequest, Problem, Unread},
@@ -207,6 +207,9 @@ fn Incoming(r: IncomingRequest, author: Option<Uuid>, done: EventHandler<String>
             match r.pitch.clone() {
                 Ok(text) => rsx! {
                     div { class: "pitch", Markdown { source: text } }
+                    if let Some(me) = author {
+                        CompareWords { handle: handle.clone(), as_persona: me }
+                    }
                 },
                 Err(Unread::KeyChanged) => rsx! {
                     if skipped() {

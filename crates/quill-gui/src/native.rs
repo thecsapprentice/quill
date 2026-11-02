@@ -1390,6 +1390,25 @@ impl Backend for NativeBackend {
         })
     }
 
+    fn identity_words<'a>(
+        &'a self,
+        handle: &'a str,
+        as_persona: Uuid,
+    ) -> Call<'a, Option<Vec<String>>> {
+        let handle = handle.trim().trim_start_matches('@').to_owned();
+        self.call_with_store(move |store, client| async move {
+            let me = client
+                .personas()
+                .await?
+                .into_iter()
+                .find(|p| p.id == as_persona)
+                .ok_or_else(|| CoreError::Keys("that persona is gone".into()))?;
+            Ok(keys::identity_words(&store, &client, &handle, &me)
+                .await?
+                .map(|w| w.into_iter().map(str::to_owned).collect()))
+        })
+    }
+
     fn accept_key_change<'a>(&'a self, handle: &'a str, fingerprint: &'a str) -> Call<'a, ()> {
         let (handle, fingerprint) = (handle.to_owned(), fingerprint.to_owned());
         self.call_with_store(move |store, client| async move {

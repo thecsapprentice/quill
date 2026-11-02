@@ -4,7 +4,7 @@
 use dioxus::prelude::*;
 use quill_proto::board::{Prompt, PromptState};
 
-use super::{KeyCheck, reload};
+use super::{CompareWords, KeyCheck, reload};
 use crate::{
     app::{ProblemLine, use_ui},
     backend::{Keys, PITCH_MAX, Problem, REQUEST_DAYS_MAX},
@@ -64,6 +64,7 @@ pub fn AskToWrite(prompt: Prompt) -> Element {
             div { class: "actions",
                 button { class: "quiet", onclick: move |_| model.write().open_requests(None), "See your requests" }
             }
+            CompareWords { handle: author.clone(), as_persona: persona }
         };
     }
     if !open() {
@@ -71,6 +72,7 @@ pub fn AskToWrite(prompt: Prompt) -> Element {
             div { class: "actions",
                 button { class: "secondary", onclick: move |_| open.set(true), "Ask to write together" }
             }
+            CompareWords { handle: author.clone(), as_persona: persona }
         };
     }
 
