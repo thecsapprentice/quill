@@ -11,6 +11,7 @@ use axum::{
     extract::{Path, Query, State},
 };
 use quill_certs::{CertError, DeviceCertificate, DeviceRevocation, Expected};
+use quill_proto::codes;
 use quill_proto::keys::{
     ClaimedKeyPackage, DeviceInfo, KeyPackageClaim, KeyPackageStatus, PersonaKeys, RegisterDevice,
     RevokeDevice, SetIdentityKey, UploadKeyPackages, actor_uri, b64, unb64,
@@ -72,11 +73,13 @@ async fn owned(state: &AppState, account: Uuid, id: Uuid) -> Result<Persona, Api
 }
 
 fn bytes(field: &str, text: &str) -> Result<Vec<u8>, ApiError> {
-    unb64(text).ok_or_else(|| ApiError::BadRequest(format!("{field} is not base64url")))
+    unb64(text).ok_or_else(|| {
+        ApiError::BadRequest(codes::KEYS_NOT_BASE64, format!("{field} is not base64url"))
+    })
 }
 
 fn rejected(what: &str, e: &CertError) -> ApiError {
-    ApiError::BadRequest(format!("{what} refused: {e}"))
+    ApiError::BadRequest(codes::KEYS_REFUSED, format!("{what} refused: {e}"))
 }
 
 fn now_ms() -> u64 {
@@ -147,20 +150,30 @@ async fn set_identity_key(
     let key = bytes("publicKey", &body.public_key)?;
     quill_certs::public_key(&key).map_err(|e| rejected("identity key", &e))?;
     if body.key_version == 0 {
-        return Err(ApiError::BadRequest("keyVersion starts at 1".into()));
+        return Err(ApiError::BadRequest(
+            codes::KEYS_VERSION_OUT_OF_RANGE,
+            "keyVersion starts at 1".into(),
+        ));
     }
     if let Some((current, version)) = &p.identity {
         if *current == key && *version == body.key_version {
             return keys_of(&state, &p).await.map(Json);
         }
         if body.key_version <= *version {
-            return Err(ApiError::Conflict(format!(
-                "This persona already has identity key version {version}; a replacement needs a higher version."
-            )));
+            return Err(ApiError::Conflict(
+                codes::KEYS_VERSION_NOT_HIGHER,
+                format!(
+                    "This persona already has identity key version {version}; a replacement needs a higher version."
+                ),
+            ));
         }
     }
-    let version = i32::try_from(body.key_version)
-        .map_err(|_| ApiError::BadRequest("keyVersion is too large".into()))?;
+    let version = i32::try_from(body.key_version).map_err(|_| {
+        ApiError::BadRequest(
+            codes::KEYS_VERSION_OUT_OF_RANGE,
+            "keyVersion is too large".into(),
+        )
+    })?;
     let updated =
         sqlx::query("UPDATE actors SET identity_key = $2, identity_key_version = $3 WHERE id = $1")
             .bind(p.id)
@@ -172,6 +185,7 @@ async fn set_identity_key(
         Ok(_) => {}
         Err(e) if is_unique_violation(&e) => {
             return Err(ApiError::Conflict(
+                codes::KEYS_IDENTITY_IN_USE,
                 "That identity key is already in use.".into(),
             ));
         }
@@ -220,6 +234,7 @@ async fn register_device(
     let p = owned(&state, authed.account_id, id).await?;
     let Some((identity, version)) = &p.identity else {
         return Err(ApiError::Conflict(
+            codes::KEYS_NO_IDENTITY,
             "Set this persona's identity key first.".into(),
         ));
     };
@@ -248,11 +263,13 @@ async fn register_device(
     let device_id = match existing {
         Some((_, actor, ..)) if actor != p.id => {
             return Err(ApiError::Conflict(
+                codes::DEVICE_KEY_REGISTERED,
                 "That device key is already registered.".into(),
             ));
         }
         Some((_, _, _, _, true)) => {
             return Err(ApiError::Conflict(
+                codes::DEVICE_REVOKED_FOR_GOOD,
                 "That device was revoked; revocation is permanent. Make a new device key.".into(),
             ));
         }
@@ -276,6 +293,7 @@ async fn register_device(
         }
         Some(_) => {
             return Err(ApiError::Conflict(
+                codes::DEVICE_ALREADY_CERTIFIED,
                 "That device is already certified.".into(),
             ));
         }
@@ -297,6 +315,7 @@ async fn register_device(
                 Ok(_) => device,
                 Err(e) if is_unique_violation(&e) => {
                     return Err(ApiError::Conflict(
+                        codes::DEVICE_KEY_REGISTERED,
                         "That device key is already registered.".into(),
                     ));
                 }
@@ -356,13 +375,17 @@ async fn revoke_device(
     };
     if key != revocation.device_key {
         return Err(ApiError::BadRequest(
+            codes::DEVICE_REVOCATION_MISMATCH,
             "The revocation is for a different device.".into(),
         ));
     }
     match existing {
         Some(stored) if stored == raw => {}
         Some(_) => {
-            return Err(ApiError::Conflict("That device is already revoked.".into()));
+            return Err(ApiError::Conflict(
+                codes::DEVICE_ALREADY_REVOKED,
+                "That device is already revoked.".into(),
+            ));
         }
         None => {
             sqlx::query("UPDATE devices SET revocation = $2 WHERE id = $1")
@@ -448,8 +471,12 @@ async fn publishing_device(
     .await?;
     match row {
         None => Err(ApiError::NotFound),
-        Some((_, _, true)) => Err(ApiError::Conflict("That device is revoked.".into())),
+        Some((_, _, true)) => Err(ApiError::Conflict(
+            codes::DEVICE_REVOKED,
+            "That device is revoked.".into(),
+        )),
         Some((_, v, _)) if u32::try_from(v).ok() != Some(*version) => Err(ApiError::Conflict(
+            codes::DEVICE_NEEDS_CERTIFYING,
             "That device needs certifying with the current identity key first.".into(),
         )),
         Some((key, ..)) => Ok(key),
@@ -501,7 +528,12 @@ fn check_upload(
     if raw.len() > MAX_KEY_PACKAGE_BYTES {
         return Err(ApiError::PayloadTooLarge);
     }
-    let refuse = |why: &str| ApiError::BadRequest(format!("KeyPackage refused: {why}"));
+    let refuse = |why: &str| {
+        ApiError::BadRequest(
+            codes::KEYPACKAGE_REFUSED,
+            format!("KeyPackage refused: {why}"),
+        )
+    };
     let info = quill_mls_envelope::key_package::parse(&raw).map_err(|e| refuse(&e.to_string()))?;
     if info.cipher_suite != quill_mls_envelope::key_package::CIPHERSUITE_X25519_AES128GCM_ED25519 {
         return Err(refuse("unsupported ciphersuite"));
@@ -583,9 +615,10 @@ async fn upload_key_packages(
     .fetch_one(&mut *tx)
     .await?;
     if pooled + i64::try_from(one_time.len()).unwrap_or(i64::MAX) > MAX_POOL {
-        return Err(ApiError::Conflict(format!(
-            "A device can have at most {MAX_POOL} KeyPackages waiting; it has {pooled}."
-        )));
+        return Err(ApiError::Conflict(
+            codes::KEYPACKAGE_POOL_FULL,
+            format!("A device can have at most {MAX_POOL} KeyPackages waiting; it has {pooled}."),
+        ));
     }
     for (raw, not_after) in &one_time {
         sqlx::query(
@@ -654,6 +687,7 @@ async fn claim_key_packages(
     let p = row.map(|r| persona(&state, r)).ok_or(ApiError::NotFound)?;
     let Some((_, version)) = &p.identity else {
         return Err(ApiError::Conflict(
+            codes::KEYS_PERSONA_HAS_NONE,
             "That persona has no keys, so it can't take part in sessions.".into(),
         ));
     };

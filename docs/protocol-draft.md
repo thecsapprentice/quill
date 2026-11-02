@@ -416,7 +416,7 @@ A JSON-over-HTTPS API under `/api/v1`, authenticated with bearer tokens, used by
 | Safety   | `POST /blocks`, `DELETE /blocks/{id}`, `POST /reports`                                                | Account-level blocks; prompt reports (section 10)                                        |
 | Events   | `GET /events`                                                                                         | Server-Sent Events (2g): content-free notices of new messages, waiting requests, sessions starting or ending, and low KeyPackage pools |
 
-Errors use RFC 9457 problem details. Every request body is size-checked against the instance limits before parsing.
+Errors use RFC 9457 problem details. Each one also carries a numeric `code` member, a stable error code listed in [error-codes.md](error-codes.md). Every request body is size-checked against the instance limits before parsing.
 
 ## 8. Term index
 

@@ -17,6 +17,7 @@ use quill_proto::automod::{
     DataOverride, DryRun, Hook, OnError, ReplaceScript, SaveModerationData, SetScriptMode,
     UpdateChain, UploadScript,
 };
+use quill_proto::codes;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -284,7 +285,7 @@ pub async fn script_mode(
         _ => {
             return error_page(
                 &chrome(&state, Some(&s), Nav::ServerSettings, None),
-                ApiError::BadRequest("Choose a setting.".into()),
+                ApiError::BadRequest(codes::FORM_NO_CHOICE, "Choose a setting.".into()),
             );
         }
     };
@@ -719,7 +720,7 @@ pub async fn data_restore(
     let Some(version) = form.version else {
         return error_page(
             &chrome(&state, Some(&s), Nav::ServerSettings, None),
-            ApiError::BadRequest("Choose a version.".into()),
+            ApiError::BadRequest(codes::FORM_NO_CHOICE, "Choose a version.".into()),
         );
     };
     match data::restore(&state, s.account_id, &name, version).await {

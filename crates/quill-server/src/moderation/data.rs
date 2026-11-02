@@ -13,6 +13,7 @@ use quill_proto::automod::{
     valid_data_name,
 };
 use quill_proto::board::AdminAction;
+use quill_proto::codes;
 use rhai::ImmutableString;
 use sqlx::PgPool;
 use time::OffsetDateTime;
@@ -186,9 +187,12 @@ fn check_name(name: &str) -> Result<(), ApiError> {
     if valid_data_name(name) {
         Ok(())
     } else {
-        Err(ApiError::BadRequest(format!(
-            "{name:?} can't name common data: use lowercase letters, digits and underscores, up to 64 characters"
-        )))
+        Err(ApiError::BadRequest(
+            codes::AUTOMOD_DATA_BAD_NAME,
+            format!(
+                "{name:?} can't name common data: use lowercase letters, digits and underscores, up to 64 characters"
+            ),
+        ))
     }
 }
 
@@ -275,15 +279,19 @@ async fn save_inner(
     check_name(name)?;
     let limits = &state.config.automod;
     if body.content.len() > limits.data_entry_bytes {
-        return Err(ApiError::BadRequest(format!(
-            "{name} is {} bytes; common data entries can be up to {} bytes",
-            body.content.len(),
-            limits.data_entry_bytes
-        )));
+        return Err(ApiError::BadRequest(
+            codes::AUTOMOD_DATA_TOO_LARGE,
+            format!(
+                "{name} is {} bytes; common data entries can be up to {} bytes",
+                body.content.len(),
+                limits.data_entry_bytes
+            ),
+        ));
     }
     let description = body.description.trim();
     if description.chars().count() > 500 {
         return Err(ApiError::BadRequest(
+            codes::AUTOMOD_DATA_DESCRIPTION_TOO_LONG,
             "descriptions can be up to 500 characters".into(),
         ));
     }
@@ -301,9 +309,12 @@ async fn save_inner(
     if let (Some(base), Some(now)) = (body.base_version, current)
         && base != now
     {
-        return Err(ApiError::Conflict(format!(
-            "{name} was saved again (version {now}) after you started editing version {base}; reload it and make your change again"
-        )));
+        return Err(ApiError::Conflict(
+            codes::AUTOMOD_DATA_STALE,
+            format!(
+                "{name} was saved again (version {now}) after you started editing version {base}; reload it and make your change again"
+            ),
+        ));
     }
     let others: i64 = sqlx::query_scalar(
         "SELECT coalesce(sum(octet_length(content)), 0)::bigint FROM moderation_data WHERE name <> $1",
@@ -315,10 +326,13 @@ async fn save_inner(
         .unwrap_or(usize::MAX)
         .saturating_add(body.content.len());
     if total > limits.data_total_bytes {
-        return Err(ApiError::BadRequest(format!(
-            "all common data together can be up to {} bytes; this save would make it {total}",
-            limits.data_total_bytes
-        )));
+        return Err(ApiError::BadRequest(
+            codes::AUTOMOD_DATA_FULL,
+            format!(
+                "all common data together can be up to {} bytes; this save would make it {total}",
+                limits.data_total_bytes
+            ),
+        ));
     }
 
     let version = current.map_or(1, |v| v + 1);
@@ -399,12 +413,18 @@ pub async fn delete(state: &AppState, admin: Uuid, name: &str) -> Result<(), Api
 
 fn in_use(name: &str, scripts: &[String]) -> ApiError {
     if scripts.is_empty() {
-        ApiError::Conflict(format!("{name} is used by a moderation script"))
+        ApiError::Conflict(
+            codes::AUTOMOD_DATA_IN_USE,
+            format!("{name} is used by a moderation script"),
+        )
     } else {
-        ApiError::Conflict(format!(
-            "{name} is used by these moderation scripts: {}. Change them first.",
-            scripts.join(", ")
-        ))
+        ApiError::Conflict(
+            codes::AUTOMOD_DATA_IN_USE,
+            format!(
+                "{name} is used by these moderation scripts: {}. Change them first.",
+                scripts.join(", ")
+            ),
+        )
     }
 }
 

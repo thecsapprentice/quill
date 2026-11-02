@@ -3,6 +3,7 @@
 
 use quill_proto::automod::{ChainStep, Hook, ModerationChain, OnError, UpdateChain};
 use quill_proto::board::AdminAction;
+use quill_proto::codes;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -64,13 +65,15 @@ pub async fn update(
     body: &UpdateChain,
 ) -> Result<ModerationChain, ApiError> {
     if body.scripts.len() > MAX_STEPS {
-        return Err(ApiError::BadRequest(format!(
-            "a chain can run up to {MAX_STEPS} scripts"
-        )));
+        return Err(ApiError::BadRequest(
+            codes::AUTOMOD_CHAIN_TOO_LONG,
+            format!("a chain can run up to {MAX_STEPS} scripts"),
+        ));
     }
     for (i, id) in body.scripts.iter().enumerate() {
         if body.scripts[..i].contains(id) {
             return Err(ApiError::BadRequest(
+                codes::AUTOMOD_CHAIN_REPEATS,
                 "a chain can run each script once".into(),
             ));
         }
@@ -109,7 +112,10 @@ pub async fn update(
         if e.as_database_error()
             .is_some_and(|d| d.is_foreign_key_violation())
         {
-            ApiError::BadRequest("one of those scripts doesn't exist".into())
+            ApiError::BadRequest(
+                codes::AUTOMOD_CHAIN_UNKNOWN_SCRIPT,
+                "one of those scripts doesn't exist".into(),
+            )
         } else {
             e.into()
         }

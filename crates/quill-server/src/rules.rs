@@ -12,6 +12,7 @@ use std::sync::atomic::Ordering;
 use axum::{Json, extract::State, http::StatusCode};
 use quill_proto::{
     board::AdminAction,
+    codes,
     rules::{AcceptRules, Rules, UpdateRules},
     validate,
 };
@@ -89,6 +90,7 @@ pub async fn require_accepted(state: &AppState, account: Uuid) -> Result<(), Api
     let mut conn = state.pool.acquire().await?;
     if must_accept(&mut conn, account).await? {
         return Err(ApiError::RulesNotAccepted(
+            codes::RULES_NOT_ACCEPTED,
             "The server rules have changed. Read and accept them to continue.".into(),
         ));
     }
@@ -236,6 +238,7 @@ pub async fn accept(state: &AppState, account: Uuid, version: u32) -> Result<(),
     match current_version(&mut conn).await? {
         None => Err(ApiError::NotFound),
         Some(v) if v != version => Err(ApiError::Conflict(
+            codes::RULES_CHANGED,
             "The rules have changed since you read them. Read them again.".into(),
         )),
         Some(v) => record_acceptance(&mut conn, account, v).await,
@@ -258,9 +261,11 @@ pub async fn check_on_join(
     match accepted {
         Some(v) if v == current => Ok(Some(v)),
         Some(_) if required => Err(ApiError::RulesNotAccepted(
+            codes::RULES_CHANGED_AT_SIGNUP,
             "The server rules changed while you were signing up. Read them again.".into(),
         )),
         None if required => Err(ApiError::RulesNotAccepted(
+            codes::RULES_REQUIRED_AT_SIGNUP,
             "Accept the server rules to create an account.".into(),
         )),
         // Not required: an outdated acceptance is simply not recorded.

@@ -125,7 +125,7 @@ pub async fn create_from(
                 };
                 // Someone else creating it at the same moment is fine.
                 match data::save(state, admin, entry.name, &body).await {
-                    Ok(_) | Err(ApiError::Conflict(_)) => {}
+                    Ok(_) | Err(ApiError::Conflict(..)) => {}
                     Err(e) => return Err(e),
                 }
             }

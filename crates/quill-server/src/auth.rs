@@ -6,6 +6,7 @@
 use argon2::{Algorithm, Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier, Version};
 use axum::{extract::FromRequestParts, http::request::Parts};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use quill_proto::codes;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -157,7 +158,10 @@ impl FromRequestParts<AppState> for Admin {
         if is_admin {
             Ok(Self(authed))
         } else {
-            Err(ApiError::Forbidden("administrators only".into()))
+            Err(ApiError::Forbidden(
+                codes::ADMIN_ONLY,
+                "administrators only".into(),
+            ))
         }
     }
 }

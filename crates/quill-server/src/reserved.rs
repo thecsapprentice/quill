@@ -20,6 +20,7 @@ use axum::{
 };
 use quill_proto::{
     board::AdminAction,
+    codes,
     handles::{
         self, AddReserved, AddedReserved, DEFAULT_EXACT, DEFAULT_WORDS, ReservedCheck,
         ReservedHandle, ReservedKind, ReservedList, ReservedQuery, ReservedSource,
@@ -260,6 +261,7 @@ pub async fn add(
     patterns.dedup();
     if patterns.is_empty() {
         return Err(ApiError::BadRequest(
+            codes::RESERVED_NONE_GIVEN,
             "Enter at least one handle to reserve.".into(),
         ));
     }
@@ -323,7 +325,7 @@ pub async fn remove(
     match source.as_deref() {
         None => return Err(ApiError::NotFound),
         Some("file") => {
-            return Err(ApiError::BadRequest(
+            return Err(ApiError::BadRequest(codes::RESERVED_FROM_FILE,
                 "This entry comes from the reserved-handles file. Remove it there and restart the server."
                     .into(),
             ));

@@ -493,8 +493,10 @@ pub(crate) fn error_page(chrome: &Chrome, err: ApiError) -> Response {
             "There's nothing here. It may have been deleted.",
         ),
         ApiError::Unauthorized => redirect("/login"),
-        ApiError::Forbidden(text) => message(chrome, StatusCode::FORBIDDEN, "Not allowed", &text),
-        ApiError::RulesNotAccepted(text) => html(
+        ApiError::Forbidden(_, text) => {
+            message(chrome, StatusCode::FORBIDDEN, "Not allowed", &text)
+        }
+        ApiError::RulesNotAccepted(_, text) => html(
             StatusCode::FORBIDDEN,
             quill_board_ui::message_page(
                 chrome,
