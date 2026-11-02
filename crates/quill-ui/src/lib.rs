@@ -23,6 +23,8 @@ mod settings;
 pub mod testing;
 #[cfg(test)]
 mod view_tests;
+#[cfg(test)]
+mod style_tests;
 
 pub use app::{App, Ui};
 pub use backend::Backend;
