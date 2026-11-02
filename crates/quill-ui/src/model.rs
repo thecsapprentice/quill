@@ -8,7 +8,8 @@
 use uuid::Uuid;
 
 use crate::backend::{
-    AppSettings, Backend, Keys, Persona, PersonaState, Problem, ServerEntry, ServerRules, Standing,
+    AppSettings, Backend, Keys, Persona, PersonaState, Problem, RequestStatus, SentRequest,
+    ServerEntry, ServerRules, Standing, WaitingPrompt,
 };
 
 /// What fills the window.
@@ -130,6 +131,40 @@ pub struct Model {
     pub backup_nudge_dismissed: bool,
     /// Bumped to restart the upkeep loop now (the "Try now" button).
     pub upkeep_round: u32,
+    /// The open server's requests, as last loaded (3e).
+    pub requests: Requests,
+}
+
+/// What the login's requests come to: kept in the model so Home, the side
+/// bar and the Requests screen agree, and reloaded on each live notice.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Requests {
+    pub loaded: bool,
+    /// The login's prompts with requests waiting.
+    pub waiting: Vec<WaitingPrompt>,
+    /// The login's own requests.
+    pub sent: Vec<SentRequest>,
+    /// Answered requests the writer has seen on the Requests screen.
+    pub seen: Vec<Uuid>,
+    /// Bumped on each load, so an open queue reads itself again.
+    pub epoch: u32,
+    /// The prompt whose queue is open on the Requests screen.
+    pub open: Option<Uuid>,
+}
+
+impl Requests {
+    /// Requests waiting on the login's prompts, held ones included.
+    pub fn waiting_count(&self) -> u32 {
+        self.waiting.iter().map(|w| w.pending + w.held).sum()
+    }
+
+    /// The login's requests answered since the writer last looked.
+    pub fn new_answers(&self) -> Vec<&SentRequest> {
+        self.sent
+            .iter()
+            .filter(|r| r.status != RequestStatus::Waiting && !self.seen.contains(&r.id))
+            .collect()
+    }
 }
 
 impl Model {
@@ -164,6 +199,7 @@ impl Model {
             elsewhere_seen: false,
             backup_nudge_dismissed: false,
             upkeep_round: 0,
+            requests: Requests::default(),
         }
     }
 
@@ -213,6 +249,7 @@ impl Model {
             self.notice = None;
             self.rules = None;
             self.unread = 0;
+            self.requests = Requests::default();
         }
         self.current = Some(id);
         self.standing = None;
@@ -467,6 +504,31 @@ impl Model {
         if self.current == Some(id) {
             self.unread = unread;
         }
+    }
+
+    /// Server `id`'s requests, as upkeep or the Requests screen loaded them.
+    pub fn requests_loaded(
+        &mut self,
+        id: Uuid,
+        waiting: Vec<WaitingPrompt>,
+        sent: Vec<SentRequest>,
+        seen: Vec<Uuid>,
+    ) {
+        if self.current != Some(id) {
+            return;
+        }
+        let r = &mut self.requests;
+        r.loaded = true;
+        r.waiting = waiting;
+        r.sent = sent;
+        r.seen = seen;
+        r.epoch = r.epoch.wrapping_add(1);
+    }
+
+    /// Opens the Requests screen, at one prompt's queue if `prompt`.
+    pub fn open_requests(&mut self, prompt: Option<Uuid>) {
+        self.requests.open = prompt;
+        self.go(Section::Requests);
     }
 
     pub fn rules_loaded(&mut self, id: Uuid, result: Result<Option<ServerRules>, Problem>) {

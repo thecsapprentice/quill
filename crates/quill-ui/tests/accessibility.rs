@@ -181,3 +181,48 @@ async fn unlocking() {
     d.wait_for_text("Unlock").await;
     d.assert_accessible("unlocking");
 }
+
+#[tokio::test]
+async fn requests() {
+    let sim = Sim::new().with_server(SERVER).rc();
+    let mut d = first_run(&sim).await;
+    let mine = sim.post_as(
+        SERVER,
+        "ink_fox",
+        "My prompt",
+        "Text.",
+        &[],
+        Maturity::General,
+    );
+    let first = sim.request_from(SERVER, "wren", mine, "A pitch.");
+    d.wait_for_text("A request is waiting").await;
+    d.assert_accessible("Home, a request waiting");
+    d.click("Read them").await;
+    d.wait_for_text("A pitch.").await;
+    d.assert_accessible("a prompt's requests");
+    d.click("Decline…").await;
+    d.assert_accessible("a prompt's requests, declining");
+    sim.withdraw_elsewhere(SERVER, first);
+    sim.change_key(SERVER, "wren");
+    sim.request_from(SERVER, "wren", mine, "Again.");
+    d.wait_for_text("identity key changed").await;
+    d.assert_accessible("a prompt's requests, a changed key");
+    d.click("‹ All requests").await;
+    d.assert_accessible("Requests");
+
+    sim.post_as(
+        SERVER,
+        "gull",
+        "Their prompt",
+        "Text too.",
+        &[],
+        Maturity::General,
+    );
+    d.click("Board").await;
+    d.wait_for_text("Their prompt").await;
+    d.click_containing("Their prompt").await;
+    d.click("Ask to write together").await;
+    d.assert_accessible("asking to write");
+    d.type_into("request-pitch", &"x".repeat(4_001)).await;
+    d.assert_accessible("asking to write, pitch too long");
+}

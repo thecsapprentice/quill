@@ -775,6 +775,17 @@ impl Sim {
         }
     }
 
+    /// The author sets a prompt's state (open, busy, closed) elsewhere.
+    pub fn set_prompt_state(&self, domain: &str, id: Uuid, state: PromptState) {
+        self.server(domain, |s| {
+            for p in &mut s.board.prompts {
+                if p.prompt.id == id {
+                    p.prompt.state = state;
+                }
+            }
+        });
+    }
+
     /// An administrator removes a prompt (after a report, say).
     pub fn remove_prompt(&self, domain: &str, id: Uuid) {
         self.server(domain, |s| {

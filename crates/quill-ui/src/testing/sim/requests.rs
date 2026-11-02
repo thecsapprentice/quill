@@ -295,13 +295,14 @@ impl Sim {
         self.server(domain, |s| s.requests.all.retain(|r| r.id != id));
     }
 
-    /// Each request on a server: requester handle, prompt, state.
-    pub fn requests_on(&self, domain: &str) -> Vec<(String, Uuid, State)> {
+    /// Each request on a server, oldest first: its id, the requester's
+    /// handle, the prompt and its state.
+    pub fn requests_on(&self, domain: &str) -> Vec<(Uuid, String, Uuid, State)> {
         self.server(domain, |s| {
             s.requests
                 .all
                 .iter()
-                .map(|r| (r.handle.clone(), r.prompt, r.state))
+                .map(|r| (r.id, r.handle.clone(), r.prompt, r.state))
                 .collect()
         })
     }

@@ -18,6 +18,7 @@ pub mod model;
 mod notices;
 mod personas;
 mod reference;
+mod requests;
 mod server_rules;
 mod settings;
 #[cfg(test)]

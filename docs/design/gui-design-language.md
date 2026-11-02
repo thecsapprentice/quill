@@ -220,6 +220,16 @@ Offline is a state, not an error. The page keeps what it has, the status line sa
 
 A list that's replaced (Refresh, a new search, a filter) starts at its top. Loading more keeps the place. New items found in the background are offered ("2 new prompts. Show them") rather than pushed in under the reader.
 
+### A changed key
+
+Quill keeps the identity key it first sees for each writer (core's pins). When a writer's key isn't the one kept, nothing goes to them and nothing from them is read until the person says so. This happens before a request is sent, before a pitch is shown, and, from 3f, in sessions. The app stops in place with a `.panel` (`requests::KeyCheck`), never a dialog:
+
+- **What happened**, plainly: "@wren's identity key changed."
+- **Why it usually happens, and why it matters:** they started over on a new computer without their old keys; or someone is using the server to pass as them. Quill's promise is that the server can't read what's written, and a server that swapped a key could. This is the one place that promise depends on the writer.
+- **What to do:** compare the 12 words with the other writer some other way than Quill's requests. Both apps derive them from both personas' keys, so they match only if neither key was swapped (core's identity number, 2j). A fingerprint would ask people to compare 32 hex digits; words are easier to read aloud.
+- **Two buttons:** "The words match: carry on" pins the new key and does what was asked (sends, or shows the pitch). "Not now" leaves it, and keeps everything typed. A request from a writer whose key changed can still be declined unread, since declining tells the server nothing about the pitch.
+- **Only the compared key is trusted.** Accepting names the new key's fingerprint, and core refuses if the published key changed again meanwhile, so the screen shows new words rather than trusting a key nobody saw.
+
 ## Writing
 
 The app speaks plainly, as one considerate person to another.
