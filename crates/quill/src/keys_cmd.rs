@@ -47,6 +47,14 @@ pub enum KeysCommand {
         #[arg(long)]
         accept_change: bool,
     },
+    /// The 12 words for one of your personas and another writer: they see
+    /// the same words, so read them to each other to check a changed key.
+    Words {
+        handle: String,
+        /// Your persona (handle).
+        #[arg(long = "as", value_name = "HANDLE")]
+        persona: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -273,6 +281,18 @@ pub async fn keys(ctx: &Ctx, cmd: KeysCommand) -> Result<()> {
                 bail!("some KeyPackages failed their checks");
             }
             Ok(())
+        }
+        KeysCommand::Words { handle, persona } => {
+            let handle = bare(&handle).to_owned();
+            let me = own_persona(ctx, &persona).await?;
+            let client = ctx.client()?;
+            let Some(words) = keys::identity_words(&ctx.store, &client, &handle, &me).await? else {
+                bail!("@{handle} has no identity key yet");
+            };
+            let body = json!({ "handle": handle, "as": me.handle, "words": words });
+            ctx.print(&body, |_| {
+                println!("@{} and @{handle}: {}", me.handle, words.join(" "));
+            })
         }
         KeysCommand::Show {
             handle,

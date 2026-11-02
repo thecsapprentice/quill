@@ -908,7 +908,12 @@ async fn a_changed_key_stops_a_request_until_it_is_checked() {
         .await
         .unwrap()
         .unwrap();
-    // The same words Alice would see.
+    // The same words Alice sees, before they share any session (#72).
+    let alice_side = keys::identity_words(&alice, &alice_c, "quiet_wren", &fox)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(alice_side, change.words);
     let public = |s: &Store, p: Uuid| keys::load_identity(s, p).unwrap().unwrap().public();
     assert_eq!(
         change.words,

@@ -862,6 +862,31 @@ pub async fn key_change(
     }))
 }
 
+/// The 12-word identity number for `as_persona` and `handle`, from the keys
+/// published now: the words both writers see, to compare some other way
+/// when either key changes (3e, #72). `None` while `handle` has no identity
+/// key. Pins nothing and trusts nothing.
+pub async fn identity_words(
+    store: &Store,
+    client: &Client,
+    handle: &str,
+    as_persona: &Persona,
+) -> Result<Option<Vec<&'static str>>, CoreError> {
+    let domain = client.instance().await?.domain;
+    let uri = actor_uri(&domain, handle);
+    let checked = check_published(&client.actor_keys(handle).await?, &uri, now_ms())?;
+    let Some((key, _)) = checked.identity else {
+        return Ok(None);
+    };
+    let mine = load_identity(store, as_persona.id)?
+        .ok_or_else(|| keys_err(format!("@{} has no keys on this device", as_persona.handle)))?;
+    let my_uri = actor_uri(&domain, &as_persona.handle);
+    Ok(Some(crate::sessions::identity_number(
+        (&my_uri, &mine.public()),
+        (&uri, &key),
+    )))
+}
+
 /// Pins `handle`'s new identity key, once the writer has compared the words
 /// from [`key_change`]. Refuses if the key changed again since, so only the
 /// key whose fingerprint is `checked` is ever accepted.
