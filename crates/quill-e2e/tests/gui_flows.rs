@@ -499,3 +499,119 @@ async fn a_second_computer_is_linked_and_then_removed_on_a_real_server() {
         .await;
     server.stop().await.unwrap();
 }
+
+/// A writer with keys, posting a prompt, through `quill-core` (3e).
+async fn writer_with_prompt(
+    server: &TestServer,
+    login: &str,
+    title: &str,
+) -> (
+    quill_core::Client,
+    quill_core::Store,
+    quill_proto::api::Persona,
+    uuid::Uuid,
+) {
+    let client = server.account(login).await.unwrap();
+    let persona = client
+        .create_persona(&CreatePersona {
+            handle: format!("{login}_pen"),
+            display_name: None,
+            summary: None,
+        })
+        .await
+        .unwrap();
+    let store = quill_core::Store::in_memory();
+    quill_core::keys::init(&store, &client, &persona, false)
+        .await
+        .unwrap();
+    quill_core::keys::publish(&store, &client, &persona, 5)
+        .await
+        .unwrap();
+    let prompt = client
+        .create_prompt(&CreatePrompt {
+            persona: persona.id,
+            title: title.into(),
+            body: "A keeper finds a ledger.".into(),
+            maturity: Maturity::General,
+            tags: vec!["genre:horror".into()],
+            state: None,
+        })
+        .await
+        .unwrap()
+        .id;
+    (client, store, persona, prompt)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn requests_both_ways_on_a_real_server() {
+    use quill_core::requests;
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let (wren_c, wren, wren_pen, theirs) =
+        writer_with_prompt(&server, "wren", "The lighthouse ledger").await;
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Arc::new(MemoryVault::default());
+    let mut d = app(dir.path(), &vault);
+    on_the_board(&mut d, &server).await;
+
+    // Asking: only Wren's device reads the pitch, and her answer shows.
+    d.wait_for_text("The lighthouse ledger").await;
+    d.click_containing("The lighthouse ledger").await;
+    d.wait_for_text("A keeper finds a ledger.").await;
+    d.click("Ask to write together").await;
+    d.type_into("request-pitch", "I'd write the *keeper*.")
+        .await;
+    d.click("Send request").await;
+    d.wait_for_text("Request sent.").await;
+    let inbox = requests::inbox(&wren, &wren_c, theirs, false)
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox.requests[0].pitch.as_deref(),
+        Ok("I'd write the *keeper*.")
+    );
+    requests::accept(&wren, &wren_c, inbox.requests[0].id)
+        .await
+        .unwrap();
+    d.click("Home").await;
+    d.wait_for_text("Your request on “The lighthouse ledger” was accepted")
+        .await;
+
+    // Answering: Wren asks on Ink's prompt, live, and Ink accepts.
+    d.click("Board").await;
+    d.click("Post a prompt").await;
+    d.wait_for_text("Add tags").await;
+    d.type_into("post-title", "The night porter").await;
+    d.type_into(
+        "post-body",
+        "A hotel with one more floor than the lift admits.",
+    )
+    .await;
+    d.click("Post prompt").await;
+    d.wait_for_text("Prompt posted.").await;
+    let mine = wren_c
+        .prompts(&quill_proto::board::PromptQuery {
+            q: Some("night porter".into()),
+            ..quill_proto::board::PromptQuery::default()
+        })
+        .await
+        .unwrap()
+        .items[0]
+        .id;
+    let sent = requests::send(&wren, &wren_c, &wren_pen, mine, "**Porters** know.", None)
+        .await
+        .unwrap();
+    d.click("Home").await;
+    d.wait_for_text("A request is waiting on “The night porter”.")
+        .await;
+    d.click("Read them").await;
+    d.wait_for_text("Porters know.").await;
+    d.click("Accept").await;
+    d.wait_for_text("Accepted @wren_pen's request").await;
+    assert_eq!(
+        wren_c.request_status(sent.request.id).await.unwrap().status,
+        quill_proto::requests::RequestStatus::Session
+    );
+    server.stop().await.unwrap();
+}
