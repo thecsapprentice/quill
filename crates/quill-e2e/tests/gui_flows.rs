@@ -590,6 +590,23 @@ async fn requests_both_ways_on_a_real_server() {
     d.wait_for_text("Your request on “The lighthouse ledger” was accepted")
         .await;
 
+    // It's a session now (3f): Wren writes in it, and it arrives live.
+    let session = quill_core::sessions::list(&wren, &wren_c).await.unwrap()[0]
+        .session
+        .id
+        .clone();
+    quill_core::sessions::write(&wren, &wren_c, &session, "The lamp went out.", None)
+        .await
+        .unwrap();
+    d.wait_for_text("1 new note in your session with @wren_pen on “The lighthouse ledger”.")
+        .await;
+    d.click("Read the session with @wren_pen on “The lighthouse ledger”")
+        .await;
+    d.wait_for_text("The lamp went out.").await;
+    d.click("Planning").await;
+    d.wait_for_text("I'd write the").await;
+    d.click("Home").await;
+
     // Answering: Wren asks on Ink's prompt, live, and Ink accepts.
     d.click("Board").await;
     d.click("Post a prompt").await;

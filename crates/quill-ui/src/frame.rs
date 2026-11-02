@@ -106,12 +106,7 @@ fn Sections(section: Section) -> Element {
                         Section::MyPrompts => rsx! { MyPromptsPage {} },
                         Section::Notices => rsx! { NoticesPage {} },
                         Section::Requests => rsx! { crate::requests::RequestsPage {} },
-                        Section::Sessions => rsx! {
-                            Coming {
-                                title: "Sessions",
-                                text: "Your writing sessions will live here, with a writing space that checks your spelling and previews Markdown as you type.",
-                            }
-                        },
+                        Section::Sessions => rsx! { crate::sessions::SessionsPage {} },
                         Section::Personas => rsx! { PersonasPage {} },
                         Section::Settings => rsx! { SettingsPage {} },
                         Section::Rules => rsx! { RulesPage {} },
@@ -133,6 +128,7 @@ fn Nav() -> Element {
     let signed_in = m.signed_in();
     let unread = m.unread;
     let requests = m.requests.waiting_count() as usize + m.requests.new_answers().len();
+    let unseen = m.sessions.unseen();
     drop(m);
 
     let b = backend.clone();
@@ -202,6 +198,9 @@ fn Nav() -> Element {
                     }
                     if s == Section::Requests && requests > 0 {
                         span { class: "badge", " {requests}" span { class: "sr-only", " new" } }
+                    }
+                    if s == Section::Sessions && unseen > 0 {
+                        span { class: "badge", " {unseen}" span { class: "sr-only", " unread" } }
                     }
                 }
             }
@@ -319,8 +318,10 @@ fn Upkeep(server: Uuid) -> Element {
                     if let Ok(account) = b.account().await {
                         model.write().unread_loaded(server, account.unread_notices);
                     }
-                    // And what waits on requests, for Home and the side bar.
+                    // And what waits on requests and sessions, for Home
+                    // and the side bar.
                     let _ = crate::requests::load(&*b, model, server).await;
+                    let _ = crate::sessions::load(&*b, model, server).await;
                 }
                 // The rules too, to notice a change that needs accepting.
                 let reachable = {
@@ -413,8 +414,9 @@ fn Home() -> Element {
             }
         }
         crate::requests::RequestsOnHome {}
+        crate::sessions::SessionsOnHome {}
         p { class: "coming",
-            "Find a prompt to write on the Board and ask to write on it, or post your own. Writing sessions are on their way."
+            "Find a prompt to write on the Board and ask to write on it, or post your own."
         }
     }
 }
