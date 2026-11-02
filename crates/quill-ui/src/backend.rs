@@ -386,6 +386,100 @@ pub struct KeyChange {
     pub fingerprint: String,
 }
 
+// ---- Sessions (3f) ---------------------------------------------------------
+
+/// A writer as a session shows them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Writer {
+    pub handle: String,
+    pub display_name: Option<String>,
+}
+
+impl Writer {
+    /// "Wren (@wren)", or "@wren" without a display name.
+    pub fn name(&self) -> String {
+        match &self.display_name {
+            Some(n) => format!("{n} (@{})", self.handle),
+            None => format!("@{}", self.handle),
+        }
+    }
+}
+
+/// Where this computer stands in a session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionStanding {
+    /// In it, reading and writing.
+    Joined,
+    /// Another of the persona's devices adds this one when it next runs.
+    Waiting,
+    /// The persona's keys aren't on this computer.
+    NoKeys,
+    /// Away too long: waiting to be let back in.
+    Rejoining,
+    /// It stopped reading this session; `detail` for advanced mode.
+    Broken { code: ErrorCode, detail: String },
+}
+
+/// One of the login's sessions, for the list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionSummary {
+    /// The session's id. Never shown outside advanced mode.
+    pub id: String,
+    pub me: Writer,
+    /// The other writer; `None` once they've left.
+    pub partner: Option<Writer>,
+    /// The prompt it began from and its title; `None` once deleted.
+    pub prompt: Option<(Uuid, String)>,
+    pub standing: SessionStanding,
+    pub ended: bool,
+    pub notes: usize,
+    /// Notes this computer hasn't shown yet, in every channel.
+    pub unseen: usize,
+    /// When the latest note was written.
+    pub latest: Option<time::OffsetDateTime>,
+}
+
+/// A channel in a session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChannelView {
+    pub name: String,
+    pub summary: Option<String>,
+    pub notes: usize,
+    pub unseen: usize,
+}
+
+/// A note, as this computer holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Note {
+    /// Its number in the session (the log position of its first version).
+    pub seq: u64,
+    pub mine: bool,
+    pub author: Writer,
+    pub channel: String,
+    /// Markdown: the latest version, or the last before it was deleted.
+    pub content: String,
+    pub deleted: bool,
+    pub edited: bool,
+    /// The number of the note it answers, if this computer has it.
+    pub reply_to: Option<u64>,
+    pub at: time::OffsetDateTime,
+    /// Files it carries (shown in 3g).
+    pub attachments: usize,
+}
+
+/// A session, read on this computer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionView {
+    pub summary: SessionSummary,
+    pub channels: Vec<ChannelView>,
+    /// In display order.
+    pub notes: Vec<Note>,
+    /// Notes the server seems to have held back from this computer.
+    pub held_back: bool,
+    /// Part of the session's history isn't on this computer yet.
+    pub history_missing: bool,
+}
+
 /// The longest device name, in characters (as `quill-core` allows).
 pub const DEVICE_NAME_MAX: usize = 40;
 
@@ -559,6 +653,16 @@ pub trait Backend {
     fn answers_seen(&self) -> Vec<Uuid>;
     fn set_answers_seen(&self, ids: &[Uuid]) -> Result<(), Problem>;
 
+    // ---- Sessions (3f) ------------------------------------------------------------------
+
+    /// The login's sessions, synced, most recent activity first.
+    fn sessions(&self) -> Call<'_, Vec<SessionSummary>>;
+    /// One session, synced and read on this computer.
+    fn session<'a>(&'a self, id: &'a str) -> Call<'a, SessionView>;
+    /// Notes this computer has shown a channel's notes up to `upto`, for the
+    /// unread counts. Kept only on this computer.
+    fn mark_shown<'a>(&'a self, id: &'a str, channel: &'a str, upto: u64) -> Result<(), Problem>;
+
     // ---- Upkeep and settings --------------------------------------------------------------
 
     /// Background upkeep for the open server. Returns something to tell the
@@ -574,6 +678,11 @@ pub trait Backend {
     /// Moves the stores to another folder (advanced).
     fn move_stores<'a>(&'a self, folder: &'a str) -> Call<'a, ()>;
     fn details(&self) -> Call<'_, Details>;
+    /// This computer's offset from UTC, for showing times. UTC unless the
+    /// platform says otherwise.
+    fn utc_offset(&self) -> time::UtcOffset {
+        time::UtcOffset::UTC
+    }
     /// Waits `ms` milliseconds, on whatever timer the platform has.
     fn sleep(&self, ms: u64) -> Pin<Box<dyn Future<Output = ()> + '_>>;
 }

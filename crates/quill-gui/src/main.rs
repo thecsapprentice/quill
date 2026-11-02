@@ -23,6 +23,9 @@ fn main() {
 
 /// The window's root and settings, and the runtime quill-core runs on.
 fn setup() -> anyhow::Result<(VirtualDom, dioxus_desktop::Config, tokio::runtime::Runtime)> {
+    // The local time zone, read while this is the only thread: `time`
+    // won't read it once others exist (Unix). UTC if it can't tell.
+    let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
     // quill-core's work runs here, off the window's thread.
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -33,7 +36,8 @@ fn setup() -> anyhow::Result<(VirtualDom, dioxus_desktop::Config, tokio::runtime
     let vault = OsKeychain::new()
         .ok()
         .map(|k| Arc::new(k) as Arc<dyn Vault>);
-    let backend = NativeBackend::new(Paths::default_paths()?, vault, runtime.handle().clone())?;
+    let backend = NativeBackend::new(Paths::default_paths()?, vault, runtime.handle().clone())?
+        .with_utc_offset(offset);
 
     let dom = VirtualDom::new(Root);
     dom.provide_root_context(Ui(Rc::new(backend)));

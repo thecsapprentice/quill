@@ -13,6 +13,7 @@ use uuid::Uuid;
 mod board;
 mod devices;
 mod requests;
+mod sessions;
 
 pub use requests::State as RequestState;
 
@@ -69,6 +70,7 @@ pub struct SimServer {
     board: board::Board,
     devices: devices::Devices,
     requests: requests::Requests,
+    sessions: sessions::Sessions,
 }
 
 impl SimServer {
@@ -85,6 +87,7 @@ impl SimServer {
             board: board::Board::default(),
             devices: devices::Devices::default(),
             requests: requests::Requests::default(),
+            sessions: sessions::Sessions::default(),
         }
     }
 }
@@ -103,6 +106,8 @@ struct Store {
     here: devices::Here,
     /// Pinned keys and requests read here.
     requests: requests::Here,
+    /// How far each session's channels are shown here, and standings.
+    sessions: sessions::Here,
 }
 
 #[derive(Debug)]
@@ -434,6 +439,7 @@ impl Backend for Sim {
                     keys: Vec::new(),
                     here: devices::Here::default(),
                     requests: requests::Here::default(),
+                    sessions: sessions::Here::default(),
                 },
             );
             s.current = Some(entry.id);
@@ -861,6 +867,18 @@ impl Backend for Sim {
 
     fn accept_key_change<'a>(&'a self, handle: &'a str, fingerprint: &'a str) -> Call<'a, ()> {
         now(self.sim_accept_key_change(handle, fingerprint))
+    }
+
+    fn sessions(&self) -> Call<'_, Vec<crate::backend::SessionSummary>> {
+        now(self.sim_sessions())
+    }
+
+    fn session<'a>(&'a self, id: &'a str) -> Call<'a, crate::backend::SessionView> {
+        now(self.sim_session(id))
+    }
+
+    fn mark_shown<'a>(&'a self, id: &'a str, channel: &'a str, upto: u64) -> Result<(), Problem> {
+        self.sim_mark_shown(id, channel, upto)
     }
 
     fn answers_seen(&self) -> Vec<Uuid> {

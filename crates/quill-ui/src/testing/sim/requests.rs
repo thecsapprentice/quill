@@ -132,6 +132,28 @@ fn expire(server: &mut SimServer, now: OffsetDateTime) {
 }
 
 impl SimServer {
+    /// Accepts request `id`: its group becomes a session, once.
+    fn accept(&mut self, id: Uuid) {
+        let Some(r) = self.requests.all.iter().find(|r| r.id == id).cloned() else {
+            return;
+        };
+        if r.state == State::Accepted {
+            return;
+        }
+        let Some((_, author_login, _, author)) = self.prompt_info(r.prompt) else {
+            return;
+        };
+        if let Some(x) = self.requests.all.iter_mut().find(|x| x.id == id) {
+            x.state = State::Accepted;
+        }
+        self.begin_session(
+            r.prompt,
+            (r.login.clone(), r.handle.clone()),
+            (author_login, author),
+            &r.pitch,
+        );
+    }
+
     fn pair_words(&self, a: &str, b: &str) -> Vec<String> {
         words((a, self.requests.version(a)), (b, self.requests.version(b)))
     }
@@ -266,17 +288,11 @@ impl Sim {
     /// their own devices. Accepting fires the live notice.
     pub fn answer_request(&self, domain: &str, id: Uuid, accept: bool) {
         self.server(domain, |s| {
-            let r = s
-                .requests
-                .all
-                .iter_mut()
-                .find(|r| r.id == id)
-                .expect("the request");
-            r.state = if accept {
-                State::Accepted
-            } else {
-                State::Declined
-            };
+            if accept {
+                s.accept(id);
+            } else if let Some(r) = s.requests.all.iter_mut().find(|r| r.id == id) {
+                r.state = State::Declined;
+            }
         });
         if accept {
             self.live();
@@ -566,7 +582,9 @@ impl Sim {
                 }
                 _ => return Err(refused(codes::REQUEST_EXPIRED, "It expired.")),
             };
-            if let Some(r) = server.requests.all.iter_mut().find(|r| r.id == id) {
+            if state == State::Accepted {
+                server.accept(id);
+            } else if let Some(r) = server.requests.all.iter_mut().find(|r| r.id == id) {
                 r.state = state;
             }
             Ok(())
