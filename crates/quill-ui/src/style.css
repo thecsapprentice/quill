@@ -169,6 +169,26 @@ button.link { border: 0; background: none; padding: 0; color: var(--accent); tex
 .field textarea { font-family: var(--write); font-size: var(--text-read); line-height: 1.6; resize: vertical; }
 .field input:hover, .field textarea:hover, .field select:hover, .control.is-hover { border-color: var(--ink); }
 .field.invalid input, .field.invalid textarea, .field.invalid select { border-color: var(--bad); }
+/* The webview draws its own grey, taller select; draw it like the other
+   controls, with a chevron made of two gradients so it follows the theme. */
+.field select, .switchers select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: calc(var(--space-3) + 1.25rem);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 1.1rem center, right 0.8rem center;
+  background-size: 0.3rem 0.3rem;
+  background-repeat: no-repeat;
+}
+/* Disabled controls step back: paper instead of surface, muted text. */
+.field input:disabled, .field textarea:disabled, .field select:disabled {
+  background-color: var(--paper);
+  border-color: var(--line);
+  color: var(--muted);
+  cursor: not-allowed;
+}
 .hint { margin: 0; min-height: 1.45em; font-size: var(--text-sm); line-height: 1.45; color: var(--muted); }
 .field.invalid .hint { color: var(--bad); }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
@@ -275,7 +295,7 @@ fieldset > .hint { margin-bottom: var(--space-3); }
 }
 .switchers { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.2rem 0.3rem 0.8rem; border-bottom: 1px solid var(--line); margin-bottom: 0.5rem; }
 .switchers label { font-size: 0.78rem; color: var(--muted); }
-.switchers select { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-s); padding: 0.35rem 0.4rem; background: var(--surface); }
+.switchers select { width: 100%; min-height: var(--control); border: 1px solid var(--edge); border-radius: var(--radius-s); padding: var(--space-2) calc(var(--space-3) + 1.25rem) var(--space-2) var(--space-3); background-color: var(--surface); }
 .section { display: flex; align-items: center; gap: 0.5rem; border: 0; background: none; text-align: left; padding: 0.5rem 0.65rem; border-radius: var(--radius-s); cursor: pointer; color: var(--muted); }
 .section:hover { background: var(--paper); color: var(--ink); }
 .section[aria-current="page"] { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
