@@ -120,7 +120,7 @@ impl Backend for Fake {
         ready(Ok(self.standing.borrow().clone()))
     }
     fn register<'a>(&'a self, _: &'a str, _: &'a str, _: Option<u32>) -> Call<'a, Standing> {
-        ready(Err(Problem::Taken))
+        ready(Err(Problem::Taken(crate::backend::codes::UNCLASSIFIED)))
     }
     fn sign_in<'a>(&'a self, _: &'a str, _: &'a str) -> Call<'a, Standing> {
         ready(Ok(self.standing.borrow().clone()))
@@ -139,10 +139,13 @@ impl Backend for Fake {
         ready(Ok(()))
     }
     fn create_persona<'a>(&'a self, _: &'a str, _: &'a str) -> Call<'a, Persona> {
-        ready(Err(Problem::Taken))
+        ready(Err(Problem::Taken(crate::backend::codes::UNCLASSIFIED)))
     }
     fn update_persona<'a>(&'a self, _: Uuid, _: &'a str, _: &'a str) -> Call<'a, Persona> {
-        ready(Err(Problem::Refused("no".into())))
+        ready(Err(Problem::refused(
+            crate::backend::codes::UNCLASSIFIED,
+            "no",
+        )))
     }
     fn delete_persona(&self, _: Uuid) -> Call<'_, ()> {
         ready(Ok(()))
@@ -213,10 +216,16 @@ impl Backend for Fake {
         ready(Err(Problem::Gone))
     }
     fn create_prompt(&self, _: CreatePrompt) -> Call<'_, Prompt> {
-        ready(Err(Problem::Refused("no".into())))
+        ready(Err(Problem::refused(
+            crate::backend::codes::UNCLASSIFIED,
+            "no",
+        )))
     }
     fn update_prompt(&self, _: Uuid, _: UpdatePrompt) -> Call<'_, Prompt> {
-        ready(Err(Problem::Refused("no".into())))
+        ready(Err(Problem::refused(
+            crate::backend::codes::UNCLASSIFIED,
+            "no",
+        )))
     }
     fn delete_prompt(&self, _: Uuid) -> Call<'_, ()> {
         ready(Ok(()))
@@ -259,6 +268,7 @@ impl Backend for Fake {
         _: u32,
     ) -> Call<'a, crate::backend::SentRequest> {
         ready(Err(Problem::Failed {
+            code: crate::backend::codes::UNCLASSIFIED,
             detail: "not in the fake".into(),
         }))
     }
@@ -299,7 +309,7 @@ impl Backend for Fake {
     fn set_answers_seen(&self, _: &[Uuid]) -> Result<(), Problem> {
         Ok(())
     }
-    fn upkeep(&self) -> Call<'_, Option<String>> {
+    fn upkeep(&self) -> Call<'_, Option<Problem>> {
         ready(Ok(None))
     }
     fn next_notice(&self) -> Call<'_, ()> {

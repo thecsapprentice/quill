@@ -22,7 +22,7 @@ use crate::CoreError;
 const TAG: usize = 16;
 
 fn err(msg: impl Into<String>) -> CoreError {
-    CoreError::Keys(msg.into())
+    CoreError::Keys(quill_proto::codes::ATTACHMENT_CHECK_FAILED, msg.into())
 }
 
 /// An attachment as a note carries it (protocol draft, section 5).

@@ -11,6 +11,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use quill_proto::{
+    codes,
     limits::BACKUP_PART_BYTES,
     sessions::{BackupInfo, CommitBackup},
 };
@@ -32,10 +33,10 @@ pub fn router() -> OpenApiRouter<AppState> {
 }
 
 fn too_big(max: u64) -> ApiError {
-    ApiError::Forbidden(format!(
-        "A backup can be at most {} MiB here.",
-        max / (1024 * 1024)
-    ))
+    ApiError::Forbidden(
+        codes::BACKUP_TOO_LARGE,
+        format!("A backup can be at most {} MiB here.", max / (1024 * 1024)),
+    )
 }
 
 /// `PUT /backup/{generation}/{part}`: one part of a new backup.
@@ -76,7 +77,10 @@ async fn upload(
     .await
     .map_err(|_| ApiError::PayloadTooLarge)?;
     if data.is_empty() {
-        return Err(ApiError::BadRequest("an empty part".into()));
+        return Err(ApiError::BadRequest(
+            codes::BACKUP_EMPTY_PART,
+            "an empty part".into(),
+        ));
     }
     let mut tx = state.pool.begin().await?;
     // One upload at a time per login; a new generation drops unfinished
@@ -155,6 +159,7 @@ async fn commit(
     let parts = i64::from(body.parts);
     if parts == 0 || count != parts || max_part.map(i64::from) != Some(parts - 1) {
         return Err(ApiError::BadRequest(
+            codes::BACKUP_INCOMPLETE,
             "the backup's parts aren't all there".into(),
         ));
     }

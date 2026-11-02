@@ -247,7 +247,7 @@ async fn demo_posts(
     let mut refused = Vec::new();
     for body in refusals {
         match prompts::post_prompt(state, writer, &body).await {
-            Err(ApiError::ContentRejected(message)) => refused.push(message),
+            Err(ApiError::ContentRejected(_, message)) => refused.push(message),
             Ok(_) => bail!("the demo prompt {:?} should have been refused", body.title),
             Err(e) => return Err(e).context("posting a demo prompt"),
         }

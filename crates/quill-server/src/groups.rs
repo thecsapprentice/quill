@@ -15,6 +15,7 @@ use axum::{
 };
 use quill_mls_envelope::private_message::{self, ContentType};
 use quill_proto::{
+    codes,
     groups::{
         CreateGroup, GroupState, LinkMailbox, LinkReply, LinkStarted, LoggedMessage, Messages,
         MessagesQuery, PostMessage, Posted, StartLink, WaitingLink,
@@ -49,7 +50,9 @@ pub fn router() -> OpenApiRouter<AppState> {
 }
 
 fn decode(field: &str, text: &str) -> Result<Vec<u8>, ApiError> {
-    unb64(text).ok_or_else(|| ApiError::BadRequest(format!("{field} is not base64url")))
+    unb64(text).ok_or_else(|| {
+        ApiError::BadRequest(codes::GROUP_NOT_BASE64, format!("{field} is not base64url"))
+    })
 }
 
 fn as_u64(v: i64) -> u64 {
@@ -118,11 +121,15 @@ async fn create_group(
     ApiJson(body): ApiJson<CreateGroup>,
 ) -> Result<(StatusCode, Json<GroupState>), ApiError> {
     if body.kind != "personal" {
-        return Err(ApiError::BadRequest("kind must be personal".into()));
+        return Err(ApiError::BadRequest(
+            codes::DEVICE_GROUP_NOT_PERSONAL,
+            "kind must be personal".into(),
+        ));
     }
     let id = decode("groupId", &body.group_id)?;
     if !(16..=64).contains(&id.len()) {
         return Err(ApiError::BadRequest(
+            codes::DEVICE_GROUP_BAD_ID,
             "groupId must be 16 to 64 bytes".into(),
         ));
     }
@@ -137,6 +144,7 @@ async fn create_group(
         Ok(_) => {}
         Err(e) if is_unique_violation(&e) => {
             return Err(ApiError::Conflict(
+                codes::DEVICE_GROUP_EXISTS,
                 "This login already has a personal device group.".into(),
             ));
         }
@@ -199,9 +207,10 @@ async fn post_message(
         return Err(ApiError::PayloadTooLarge);
     }
     if body.blobs.len() > MAX_BLOBS_PER_MESSAGE {
-        return Err(ApiError::BadRequest(format!(
-            "at most {MAX_BLOBS_PER_MESSAGE} attachments per message"
-        )));
+        return Err(ApiError::BadRequest(
+            codes::MESSAGE_TOO_MANY_ATTACHMENTS,
+            format!("at most {MAX_BLOBS_PER_MESSAGE} attachments per message"),
+        ));
     }
     if !state.limiter.allow(
         &format!("post:{}", authed.account_id),
@@ -210,10 +219,12 @@ async fn post_message(
     ) {
         return Err(ApiError::TooManyRequests);
     }
-    let header = private_message::parse(&raw)
-        .map_err(|e| ApiError::BadRequest(format!("message refused: {e}")))?;
+    let header = private_message::parse(&raw).map_err(|e| {
+        ApiError::BadRequest(codes::MESSAGE_UNREADABLE, format!("message refused: {e}"))
+    })?;
     if header.group_id != group {
         return Err(ApiError::BadRequest(
+            codes::MESSAGE_WRONG_GROUP,
             "message refused: it's for another group".into(),
         ));
     }
@@ -226,12 +237,16 @@ async fn post_message(
     .fetch_one(&mut *tx)
     .await?;
     if ended {
-        return Err(ApiError::Forbidden("The session has ended.".into()));
+        return Err(ApiError::Forbidden(
+            codes::SESSION_ENDED,
+            "The session has ended.".into(),
+        ));
     }
     if i64::try_from(header.epoch).ok() != Some(epoch) {
-        return Err(ApiError::Conflict(format!(
-            "The group is at epoch {epoch}; catch up and try again."
-        )));
+        return Err(ApiError::Conflict(
+            codes::MESSAGE_STALE_EPOCH,
+            format!("The group is at epoch {epoch}; catch up and try again."),
+        ));
     }
     // Counted on the group, so numbers never repeat once old messages are
     // deleted.
@@ -277,6 +292,7 @@ async fn post_message(
         .await?;
         if usize::try_from(bound.rows_affected()).unwrap_or(0) != body.blobs.len() {
             return Err(ApiError::BadRequest(
+                codes::ATTACHMENT_NOT_YOURS,
                 "message refused: it names blobs that aren't yours to attach here".into(),
             ));
         }
@@ -327,9 +343,12 @@ async fn read_messages(
     if after < pruned {
         // The reader has missed commits that are gone: it can't follow
         // the group any more (2k).
-        return Err(ApiError::Gone(format!(
-            "The group's messages up to {pruned} have been deleted; this device can't follow it from {after}."
-        )));
+        return Err(ApiError::Gone(
+            codes::SYNC_PRUNED,
+            format!(
+                "The group's messages up to {pruned} have been deleted; this device can't follow it from {after}."
+            ),
+        ));
     }
     let mut rows: Vec<(i64, Vec<u8>)> = sqlx::query_as(
         "SELECT seq, data FROM group_messages
@@ -387,8 +406,12 @@ async fn start_link(
     if package.len() > 16 * 1024 {
         return Err(ApiError::PayloadTooLarge);
     }
-    quill_mls_envelope::key_package::parse(&package)
-        .map_err(|e| ApiError::BadRequest(format!("KeyPackage refused: {e}")))?;
+    quill_mls_envelope::key_package::parse(&package).map_err(|e| {
+        ApiError::BadRequest(
+            codes::KEYPACKAGE_REFUSED,
+            format!("KeyPackage refused: {e}"),
+        )
+    })?;
     drop_expired_links(&state).await?;
     let mut id = [0u8; 16];
     getrandom::fill(&mut id).map_err(|e| ApiError::Internal(anyhow::anyhow!("randomness: {e}")))?;
@@ -506,7 +529,10 @@ async fn reply_link(
     }
     // An MLSMessage holding a Welcome: MLS 1.0, wire format 3.
     if welcome.get(..4) != Some(&[0, 1, 0, 3]) {
-        return Err(ApiError::BadRequest("welcome is not an MLS Welcome".into()));
+        return Err(ApiError::BadRequest(
+            codes::NOT_A_WELCOME,
+            "welcome is not an MLS Welcome".into(),
+        ));
     }
     drop_expired_links(&state).await?;
     let updated = sqlx::query(

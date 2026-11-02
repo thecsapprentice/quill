@@ -643,3 +643,31 @@ async fn the_cli_sets_up_automated_moderation() {
     assert!(!ok && err.contains("line 2"), "{err}");
     server.stop().await.unwrap();
 }
+
+/// Every error prints its code (#76): core's, the server's, or the CLI's
+/// own for what it can't use. No server needed.
+#[test]
+fn errors_print_their_codes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ok, _, err) = quill(dir.path(), PASSPHRASE, &["server", "http://localhost:9"]);
+    assert!(ok, "{err}");
+    // Wrong passphrase: the store's code.
+    let (ok, _, err) = quill(dir.path(), "not the passphrase at all", &["server"]);
+    assert!(!ok && err.starts_with("error Q-1356: "), "{err}");
+    // Not signed in: core's code.
+    let (ok, _, err) = quill(dir.path(), PASSPHRASE, &["persona", "list"]);
+    assert!(!ok && err.starts_with("error Q-1150: "), "{err}");
+    // Something the CLI can't use: its own code.
+    let (ok, _, err) = quill(
+        dir.path(),
+        PASSPHRASE,
+        &[
+            "request",
+            "send",
+            "00000000-0000-0000-0000-000000000000",
+            "--as",
+            "ink",
+        ],
+    );
+    assert!(!ok && err.starts_with("error Q-9050: "), "{err}");
+}

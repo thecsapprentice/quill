@@ -1,5 +1,6 @@
 //! Typed client for the `/api/v1` client API.
 
+use quill_proto::codes::ErrorCode;
 use quill_proto::{
     announcements::{
         Announcement, AnnouncementPage, AnnouncementQuery, Comment, CommentPage, CommentQuery,
@@ -54,8 +55,10 @@ pub enum CoreError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Store(#[from] crate::store::StoreError),
-    #[error("{0}")]
-    Keys(String),
+    /// Core's own refusals and failed checks, with their code
+    /// (`quill_proto::codes`).
+    #[error("{1}")]
+    Keys(ErrorCode, String),
     #[error("certificate: {0}")]
     Cert(#[from] quill_certs::CertError),
     /// Another writer's identity key isn't the one this device pinned.
@@ -68,6 +71,39 @@ pub enum CoreError {
 }
 
 impl CoreError {
+    /// Core's own error with its code.
+    pub fn coded(code: ErrorCode, msg: impl Into<String>) -> Self {
+        Self::Keys(code, msg.into())
+    }
+
+    /// The error's code: the server's for its refusals, core's otherwise
+    /// (`docs/error-codes.md`).
+    pub fn code(&self) -> ErrorCode {
+        use quill_proto::codes::*;
+        match self {
+            Self::Api(p) => p.code.map(ErrorCode).unwrap_or(match p.status {
+                // A server older than #76: the code its kind implies.
+                401 => SIGNED_OUT,
+                404 | 410 => NOT_FOUND,
+                413 => TOO_LARGE,
+                429 => TOO_MANY,
+                500..=599 => SERVER_FAULT,
+                _ => UNEXPECTED_REPLY,
+            }),
+            Self::Url(_) | Self::InsecureUrl => BAD_ADDRESS,
+            Self::Http(_) => UNREACHABLE,
+            Self::Unexpected { .. } => UNEXPECTED_REPLY,
+            Self::ResponseTooLarge => REPLY_TOO_LARGE,
+            Self::Json(_) => MALFORMED_REPLY,
+            Self::NotLoggedIn => NOT_SIGNED_IN,
+            Self::Io(_) => STORE_IO,
+            Self::Store(e) => e.code(),
+            Self::Keys(code, _) => *code,
+            Self::Cert(_) => BAD_CERTIFICATE,
+            Self::KeyChanged { .. } => KEY_CHANGED,
+        }
+    }
+
     /// The HTTP status of an API error, if this is one.
     pub fn status(&self) -> Option<u16> {
         match self {
@@ -862,8 +898,9 @@ impl Client {
         url.strip_prefix(&prefix)
             .and_then(|id| Uuid::parse_str(id).ok())
             .ok_or_else(|| {
-                CoreError::Keys(
-                    "the attachment is on another server; fetching it comes with federation".into(),
+                CoreError::coded(
+                    quill_proto::codes::ATTACHMENT_ELSEWHERE,
+                    "the attachment is on another server; fetching it comes with federation",
                 )
             })
     }

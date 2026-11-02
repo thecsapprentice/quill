@@ -36,7 +36,7 @@ const ROWS_PART_BYTES: usize = 4 * 1024 * 1024;
 const ASK_LIFETIME_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 
 fn err(msg: impl Into<String>) -> CoreError {
-    CoreError::Keys(msg.into())
+    CoreError::Keys(quill_proto::codes::HISTORY_SYNC_FAILED, msg.into())
 }
 
 /// What [`run`] did.

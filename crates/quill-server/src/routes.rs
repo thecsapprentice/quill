@@ -11,7 +11,7 @@ use quill_proto::{
         CreatePersona, Credentials, InstanceInfo, Persona, Registration, TokenResponse,
         UpdatePersona,
     },
-    validate,
+    codes, validate,
 };
 use time::{Duration, OffsetDateTime};
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -126,7 +126,10 @@ async fn register(
 /// server rules when it gave one.
 pub async fn create_account(state: &AppState, reg: Registration) -> Result<Uuid, ApiError> {
     if !state.config.registration_open {
-        return Err(ApiError::Forbidden("registration is closed".into()));
+        return Err(ApiError::Forbidden(
+            codes::REGISTRATION_CLOSED,
+            "registration is closed".into(),
+        ));
     }
     let accepted = crate::rules::check_on_join(state, reg.accept_rules).await?;
     let creds = Credentials {
@@ -148,7 +151,10 @@ pub async fn create_account(state: &AppState, reg: Registration) -> Result<Uuid,
     match inserted {
         Ok(_) => {}
         Err(e) if is_unique_violation(&e) => {
-            return Err(ApiError::Conflict("username unavailable".into()));
+            return Err(ApiError::Conflict(
+                codes::LOGIN_NAME_TAKEN,
+                "username unavailable".into(),
+            ));
         }
         Err(e) => return Err(e.into()),
     }
@@ -333,6 +339,7 @@ async fn insert_persona(
             .is_some()
     {
         return Err(ApiError::Conflict(
+            codes::HANDLE_STAFF_RESERVED,
             "That handle is reserved for this server's staff.".into(),
         ));
     }
@@ -342,7 +349,10 @@ async fn insert_persona(
         .fetch_one(&state.pool)
         .await?;
     if count >= state.config.max_personas_per_account {
-        return Err(ApiError::Forbidden("persona limit reached".into()));
+        return Err(ApiError::Forbidden(
+            codes::PERSONA_LIMIT,
+            "persona limit reached".into(),
+        ));
     }
 
     // A handle in use and a retired one (refused by a trigger) get the same
@@ -361,9 +371,10 @@ async fn insert_persona(
     .await;
     match inserted {
         Ok(row) => Ok(persona_from_row(&state.config.domain, row)),
-        Err(e) if is_unique_violation(&e) => {
-            Err(ApiError::Conflict("That handle isn't available.".into()))
-        }
+        Err(e) if is_unique_violation(&e) => Err(ApiError::Conflict(
+            codes::HANDLE_TAKEN,
+            "That handle isn't available.".into(),
+        )),
         Err(e) => Err(e.into()),
     }
 }

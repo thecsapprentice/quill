@@ -8,6 +8,7 @@
 use std::{future::Future, pin::Pin};
 
 use quill_proto::board::Maturity;
+pub use quill_proto::codes::{self, ErrorCode};
 pub use quill_proto::{
     api::Persona,
     board::{
@@ -25,7 +26,8 @@ pub const PASSPHRASE_MIN_CHARS: usize = 12;
 /// A backend call in flight. Not `Send`: the web client's futures aren't.
 pub type Call<'a, T> = Pin<Box<dyn Future<Output = Result<T, Problem>> + 'a>>;
 
-/// Something went wrong, said for the writer.
+/// Something went wrong, said for the writer. Each has an error code
+/// (`docs/error-codes.md`), shown beside the words in advanced mode.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Problem {
     /// The server couldn't be reached: offline, or the address is wrong.
@@ -40,32 +42,53 @@ pub enum Problem {
     NeedsPassphrase,
     /// The name asked for (a login or a handle) isn't available.
     #[error("That name isn't available.")]
-    Taken,
+    Taken(ErrorCode),
     /// What was asked for is gone: deleted, or no longer shown to you.
     #[error("That's gone: it was deleted, or isn't shown to you any more.")]
     Gone,
     /// The server rules must be accepted first (read them, then accept):
     /// on joining, or after they change.
-    #[error("{0}")]
-    RulesNotAccepted(String),
+    #[error("{1}")]
+    RulesNotAccepted(ErrorCode, String),
     /// Another writer's identity key changed since this computer last saw
     /// it: nothing goes to them until the writer checks it (3e).
     #[error("@{0}'s identity key changed since you last wrote with them.")]
     KeyChanged(String),
-    /// The server refused, with its reason (already in plain words).
-    #[error("{0}")]
-    Refused(String),
+    /// Refused, by the server or this computer, with the reason in plain
+    /// words.
+    #[error("{1}")]
+    Refused(ErrorCode, String),
     /// Anything else. `detail` is shown only in advanced mode.
     #[error("Something went wrong.")]
-    Failed { detail: String },
+    Failed { code: ErrorCode, detail: String },
 }
 
 impl Problem {
+    /// A refusal with its code.
+    pub fn refused(code: ErrorCode, text: impl Into<String>) -> Self {
+        Problem::Refused(code, text.into())
+    }
+
     /// The underlying error, for advanced mode.
     pub fn detail(&self) -> Option<&str> {
         match self {
-            Problem::Failed { detail } => Some(detail),
+            Problem::Failed { detail, .. } => Some(detail),
             _ => None,
+        }
+    }
+
+    /// Its error code (`docs/error-codes.md`).
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            Problem::Unreachable(_) => codes::UNREACHABLE,
+            Problem::SignedOut => codes::SIGNED_OUT,
+            Problem::NeedsPassphrase => codes::NO_KEYCHAIN,
+            Problem::Gone => codes::NOT_FOUND,
+            Problem::KeyChanged(_) => codes::KEY_CHANGED,
+            Problem::Taken(c)
+            | Problem::RulesNotAccepted(c, _)
+            | Problem::Refused(c, _)
+            | Problem::Failed { code: c, .. } => *c,
         }
     }
 }
@@ -333,6 +356,18 @@ pub enum Unread {
     Refused { detail: String },
 }
 
+impl Unread {
+    /// Its error code (`docs/error-codes.md`).
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            Unread::NotForThisComputer => codes::REQUEST_NOT_SENT_HERE,
+            Unread::SentFromHere => codes::REQUEST_SENT_FROM_HERE,
+            Unread::KeyChanged => codes::KEY_CHANGED,
+            Unread::Refused { .. } => codes::REQUEST_REFUSED,
+        }
+    }
+}
+
 /// A prompt's queue.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Inbox {
@@ -527,8 +562,8 @@ pub trait Backend {
     // ---- Upkeep and settings --------------------------------------------------------------
 
     /// Background upkeep for the open server. Returns something to tell the
-    /// writer, if anything needs them.
-    fn upkeep(&self) -> Call<'_, Option<String>>;
+    /// writer, if anything needs them (with its code).
+    fn upkeep(&self) -> Call<'_, Option<Problem>>;
     /// Waits for the server's next live notice for the login (a request,
     /// a session message, a device change). Upkeep runs after each.
     fn next_notice(&self) -> Call<'_, ()>;

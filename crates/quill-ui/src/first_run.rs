@@ -349,8 +349,8 @@ pub fn AccountStep() -> Element {
             busy.set(false);
             match result {
                 Ok(standing) => model.write().signed_in_now(&*b, id, standing),
-                Err(Problem::Taken) => taken.set(true),
-                Err(Problem::RulesNotAccepted(text)) => {
+                Err(Problem::Taken(_)) => taken.set(true),
+                Err(Problem::RulesNotAccepted(code, text)) => {
                     // The server wants the rules accepted: set since this
                     // screen asked, or changed while signing up. Show the
                     // current version, with the box to tick.
@@ -359,7 +359,7 @@ pub fn AccountStep() -> Element {
                     if let Ok(r) = b.rules().await {
                         rules.set(r);
                     }
-                    problem.set(Some(Problem::RulesNotAccepted(text)));
+                    problem.set(Some(Problem::RulesNotAccepted(code, text)));
                 }
                 Err(p) => problem.set(Some(p)),
             }
@@ -546,7 +546,7 @@ pub fn PersonaForm(
             busy.set(false);
             match result {
                 Ok(p) => on_created.call(p),
-                Err(Problem::Taken) => taken.set(Some(handle().trim().to_ascii_lowercase())),
+                Err(Problem::Taken(_)) => taken.set(Some(handle().trim().to_ascii_lowercase())),
                 Err(p) => problem.set(Some(p)),
             }
         });

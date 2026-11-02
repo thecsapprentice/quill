@@ -45,7 +45,7 @@ pub(crate) const MAX_PLAINTEXT_BYTES: u64 = 1024 * 1024 * 1024;
 const K_CODE: &[u8] = b"code";
 
 fn err(msg: impl Into<String>) -> CoreError {
-    CoreError::Keys(msg.into())
+    CoreError::Keys(quill_proto::codes::BACKUP_CHECK_FAILED, msg.into())
 }
 
 /// The backup's contents: JSON, tables as lists of `[key, value]` in

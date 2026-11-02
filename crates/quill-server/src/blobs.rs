@@ -15,6 +15,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use quill_proto::{
+    codes,
     keys::{b64, unb64},
     limits::is_blob_bucket,
     sessions::{BLOB_TOKEN_HEADER, BlobUploaded},
@@ -37,6 +38,7 @@ pub fn router() -> OpenApiRouter<AppState> {
 
 fn quota_full() -> ApiError {
     ApiError::Forbidden(
+        codes::ATTACHMENT_STORAGE_FULL,
         "Your attachment storage is full; it frees up as your sessions' messages are read.".into(),
     )
 }
@@ -88,8 +90,12 @@ async fn upload(
     headers: HeaderMap,
     body: Body,
 ) -> Result<(StatusCode, Json<BlobUploaded>), ApiError> {
-    let group =
-        unb64(&id).ok_or_else(|| ApiError::BadRequest("session id is not base64url".into()))?;
+    let group = unb64(&id).ok_or_else(|| {
+        ApiError::BadRequest(
+            codes::GROUP_NOT_BASE64,
+            "session id is not base64url".into(),
+        )
+    })?;
     let limits = state.config.limits;
     let max = limits.max_attachment_bytes;
     // Refuse what's declared too big before reading any of it.
@@ -106,6 +112,7 @@ async fn upload(
     let size = u64::try_from(data.len()).unwrap_or(u64::MAX);
     if !is_blob_bucket(size, max) {
         return Err(ApiError::BadRequest(
+            codes::ATTACHMENT_NOT_PADDED,
             "a blob must be padded to a size bucket (a power of two from 4 KiB, or the limit)"
                 .into(),
         ));
@@ -122,7 +129,7 @@ async fn upload(
     .await?;
     if !personal {
         if !crate::server_settings::attachments(&mut tx).await? {
-            return Err(ApiError::Forbidden(
+            return Err(ApiError::Forbidden(codes::ATTACHMENTS_OFF,
                 "This server doesn't take attachments: its administrators keep sessions to writing."
                     .into(),
             ));
@@ -139,7 +146,12 @@ async fn upload(
         .await?;
         match open {
             None => return Err(ApiError::NotFound),
-            Some(false) => return Err(ApiError::Forbidden("The session has ended.".into())),
+            Some(false) => {
+                return Err(ApiError::Forbidden(
+                    codes::SESSION_ENDED,
+                    "The session has ended.".into(),
+                ));
+            }
             Some(true) => {}
         }
     }

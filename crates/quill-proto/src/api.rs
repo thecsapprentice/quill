@@ -220,6 +220,10 @@ pub struct Problem {
     pub status: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// The error code (`quill_proto::codes`, `docs/error-codes.md`): `3009`
+    /// is shown as `Q-3009`. Absent from servers older than #76.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<u16>,
 }
 
 /// Media type for [`Problem`] responses.

@@ -9,6 +9,7 @@ pub mod announcements;
 pub mod api;
 pub mod automod;
 pub mod board;
+pub mod codes;
 pub mod color;
 pub mod events;
 pub mod groups;

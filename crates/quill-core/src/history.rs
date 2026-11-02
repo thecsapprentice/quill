@@ -43,7 +43,7 @@ const SHOWN: u8 = 4;
 const PENDING: u8 = 5;
 
 fn err(msg: impl Into<String>) -> CoreError {
-    CoreError::Keys(msg.into())
+    CoreError::Keys(quill_proto::codes::HISTORY_CHECK_FAILED, msg.into())
 }
 
 fn prefix(gid: &[u8], kind: u8) -> Vec<u8> {

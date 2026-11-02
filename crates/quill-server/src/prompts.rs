@@ -17,6 +17,7 @@ use quill_proto::{
         TAG_PAGE_MAX, Tag, TagNamespace, TagOrder as ApiTagOrder, TagOrigin, TagPage, TagPageQuery,
         TagPolicy, TagQuery, TagStatus, UpdateAccountSettings, UpdatePrompt,
     },
+    codes,
     limits::{
         DEFAULT_PAGE_SIZE, FREQUENT_TAGS, FREQUENT_TAGS_FROM_PROMPTS, MAX_PAGE_SIZE,
         SEARCH_QUERY_MAX_CHARS,
@@ -122,6 +123,7 @@ pub async fn update_account_settings(
         .transpose()?;
     if staff_name.is_some() && !viewer_is_admin(&state.pool, Some(account)).await? {
         return Err(ApiError::Forbidden(
+            codes::STAFF_ADMIN_ONLY,
             "Only administrators have a staff name.".into(),
         ));
     }
@@ -150,6 +152,7 @@ pub async fn update_account_settings(
             Ok(_) => {}
             Err(e) if crate::error::is_unique_violation(&e) => {
                 return Err(ApiError::Conflict(
+                    codes::STAFF_NAME_TAKEN,
                     "Another administrator already uses that staff name.".into(),
                 ));
             }
@@ -426,17 +429,20 @@ async fn create_user_tag_in(
             .fetch_optional(&mut *conn)
             .await?;
     let missing = |why: String| {
-        ApiError::BadRequest(format!(
-            "\"{}:{}\" is not a tag on this server, and {why}",
-            spec.namespace, spec.display
-        ))
+        ApiError::BadRequest(
+            codes::TAG_NEW_NOT_ALLOWED,
+            format!(
+                "\"{}:{}\" is not a tag on this server, and {why}",
+                spec.namespace, spec.display
+            ),
+        )
     };
     match locked {
         None => {
-            return Err(ApiError::BadRequest(format!(
-                "unknown tag namespace \"{}\"",
-                spec.namespace
-            )));
+            return Err(ApiError::BadRequest(
+                codes::TAG_TYPE_UNKNOWN,
+                format!("unknown tag namespace \"{}\"", spec.namespace),
+            ));
         }
         Some(true) => {
             return Err(missing(format!(
@@ -489,7 +495,7 @@ pub(crate) fn encode_cursor(created_at: OffsetDateTime, id: Uuid) -> String {
 }
 
 pub(crate) fn decode_cursor(cursor: &str) -> Result<(OffsetDateTime, Uuid), ApiError> {
-    let bad = || ApiError::BadRequest("invalid cursor".into());
+    let bad = || ApiError::BadRequest(codes::BAD_CURSOR, "invalid cursor".into());
     let bytes = URL_SAFE_NO_PAD.decode(cursor).map_err(|_| bad())?;
     let text = String::from_utf8(bytes).map_err(|_| bad())?;
     let (nanos, id) = text.split_once('.').ok_or_else(bad)?;
@@ -676,7 +682,10 @@ pub async fn post_prompt(
             .fetch_optional(&state.pool)
             .await?;
     if owns.is_none() {
-        return Err(ApiError::BadRequest("unknown persona".into()));
+        return Err(ApiError::BadRequest(
+            codes::PERSONA_UNKNOWN,
+            "unknown persona".into(),
+        ));
     }
     // Moderation scripts run before anything is saved, outside the
     // transaction so its locks aren't held while they run.
@@ -791,6 +800,7 @@ pub async fn edit_prompt(
         None => return Err(ApiError::NotFound),
         Some((true, _)) => {
             return Err(ApiError::Forbidden(
+                codes::PROMPT_REMOVED,
                 "this prompt was removed by a server administrator".into(),
             ));
         }
@@ -991,7 +1001,10 @@ async fn list_namespace_tags(
     let letter = q.letter.filter(char::is_ascii_alphabetic);
     let search = q.search.unwrap_or_default();
     if search.chars().count() > SEARCH_QUERY_MAX_CHARS {
-        return Err(ApiError::BadRequest("search is too long".into()));
+        return Err(ApiError::BadRequest(
+            codes::TAG_SEARCH_TOO_LONG,
+            "search is too long".into(),
+        ));
     }
     let (tags, total) = tag_page(
         &state,
@@ -1110,7 +1123,10 @@ async fn check_tag_limits(conn: &mut PgConnection, tag_ids: &[i64]) -> Result<()
     if problems.is_empty() {
         Ok(())
     } else {
-        Err(ApiError::BadRequest(problems.join(" ")))
+        Err(ApiError::BadRequest(
+            codes::TAGS_WRONG_COUNT,
+            problems.join(" "),
+        ))
     }
 }
 
@@ -1176,7 +1192,10 @@ pub async fn frequent_tags(
     .await?
     .ok_or(ApiError::Unauthorized)?;
     if persona.is_some() && owns.is_none() {
-        return Err(ApiError::BadRequest("unknown persona".into()));
+        return Err(ApiError::BadRequest(
+            codes::PERSONA_UNKNOWN,
+            "unknown persona".into(),
+        ));
     }
     let persona = persona.filter(|_| !all);
     // Safe: built only from compile-time constants; values are bound.

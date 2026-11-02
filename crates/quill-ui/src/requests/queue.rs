@@ -9,8 +9,8 @@ use uuid::Uuid;
 
 use super::{CompareWords, KeyCheck, reload, requests_n};
 use crate::{
-    app::{ProblemLine, use_ui},
-    backend::{Inbox, IncomingRequest, Problem, Unread},
+    app::{Code, ProblemLine, use_ui},
+    backend::{Inbox, IncomingRequest, Problem, Unread, codes},
     markdown::Markdown,
 };
 
@@ -191,6 +191,13 @@ fn Incoming(r: IncomingRequest, author: Option<Uuid>, done: EventHandler<String>
     };
     // Accepting needs the pitch read here; declining doesn't, and a pitch
     // that failed its checks can still be declined.
+    // Why the pitch can't be shown, as a code for advanced mode.
+    let advanced = model.read().settings.advanced;
+    let unread_code = r
+        .pitch
+        .as_ref()
+        .err()
+        .map_or(codes::REQUEST_REFUSED, Unread::code);
     let readable = r.pitch.is_ok();
     let answerable = readable
         || matches!(
@@ -216,6 +223,10 @@ fn Incoming(r: IncomingRequest, author: Option<Uuid>, done: EventHandler<String>
                         p { class: "hint",
                             "Not read: @{handle}'s identity key changed, and you haven't checked it. "
                             button { class: "link", onclick: move |_| skipped.set(false), "Check it now" }
+                        if advanced {
+                            " "
+                            Code { code: unread_code }
+                        }
                         }
                     } else if let Some(me) = author {
                         KeyCheck { handle: handle.clone(), as_persona: me, on_done: checked }
@@ -224,17 +235,26 @@ fn Incoming(r: IncomingRequest, author: Option<Uuid>, done: EventHandler<String>
                 Err(Unread::SentFromHere) => rsx! {
                     p { class: "hint",
                         "This computer sent it, from another login, so it can't read it as the author here. Read it on a computer where you use this login."
+                        if advanced {
+                            " "
+                            Code { code: unread_code }
+                        }
                     }
                 },
                 Err(Unread::NotForThisComputer) => rsx! {
                     p { class: "hint",
                         "It was sent before this computer was linked, so only your other devices can read it. Answer it there."
+                        if advanced {
+                            " "
+                            Code { code: unread_code }
+                        }
                     }
                 },
                 Err(Unread::Refused { detail }) => rsx! {
                     ProblemLine {
-                        problem: Problem::Refused(
-                            "It failed Quill's checks, so it isn't shown: it may have been changed on the way. Decline it, or let it lapse.".into(),
+                        problem: Problem::refused(
+                            codes::REQUEST_REFUSED,
+                            "It failed Quill's checks, so it isn't shown: it may have been changed on the way. Decline it, or let it lapse.",
                         ),
                     }
                     if model.read().settings.advanced {

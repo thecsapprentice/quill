@@ -85,6 +85,26 @@ pub enum StoreError {
     Backend(String),
 }
 
+impl StoreError {
+    /// Its error code (Q-13xx, `docs/error-codes.md`).
+    pub fn code(&self) -> quill_proto::codes::ErrorCode {
+        use quill_proto::codes::*;
+        match self {
+            Self::Io(_) => STORE_IO,
+            Self::AlreadyExists(_) => STORE_EXISTS,
+            Self::InUse => STORE_IN_USE,
+            Self::NotAStore => NOT_A_STORE,
+            Self::UnsupportedVersion(_) => STORE_TOO_NEW,
+            Self::Corrupt(_) => STORE_DAMAGED,
+            Self::WrongKey => WRONG_PASSPHRASE,
+            Self::WrongUnlock(_) => WRONG_UNLOCK,
+            Self::MissingKey => KEY_NOT_IN_KEYCHAIN,
+            Self::Keychain(_) => KEYCHAIN_FAILED,
+            Self::Backend(_) => STORE_DATABASE,
+        }
+    }
+}
+
 fn describe(source: KeySource) -> &'static str {
     match source {
         KeySource::Keychain => "the system keychain",

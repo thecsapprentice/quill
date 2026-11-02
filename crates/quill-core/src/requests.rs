@@ -21,6 +21,7 @@ use openmls::prelude::{
 use openmls_traits::{OpenMlsProvider as _, storage::StorageProvider as _};
 use quill_proto::{
     api::Persona,
+    codes,
     keys::{actor_uri, b64, unb64},
     requests::{
         IncomingRequest, OutgoingRequest, RequestPersona, RequestSent, RequestStatus, SendRequest,
@@ -46,7 +47,7 @@ use crate::{
 pub const MAX_PITCH_CHARS: usize = 4000;
 
 fn err(msg: impl Into<String>) -> CoreError {
-    CoreError::Keys(msg.into())
+    CoreError::Keys(quill_proto::codes::REQUEST_CHECK_FAILED, msg.into())
 }
 
 // ---- The pitch -------------------------------------------------------------------
@@ -58,7 +59,10 @@ pub(crate) fn pitch_of(plain: &[u8]) -> Result<Activity, CoreError> {
         return Err(err("the first message isn't a pitch"));
     };
     if note.content.chars().count() > MAX_PITCH_CHARS {
-        return Err(err("the pitch is too long"));
+        return Err(CoreError::coded(
+            codes::REQUEST_REFUSED,
+            "the pitch is too long",
+        ));
     }
     Ok(a)
 }
@@ -182,12 +186,16 @@ pub async fn send(
 ) -> Result<Sent, CoreError> {
     let pitch = pitch.trim();
     if pitch.is_empty() {
-        return Err(err("say something in the pitch"));
+        return Err(CoreError::coded(
+            codes::PITCH_EMPTY,
+            "say something in the pitch",
+        ));
     }
     if pitch.chars().count() > MAX_PITCH_CHARS {
-        return Err(err(format!(
-            "the pitch is too long (at most {MAX_PITCH_CHARS} characters)"
-        )));
+        return Err(CoreError::coded(
+            codes::PITCH_TOO_LONG,
+            format!("the pitch is too long (at most {MAX_PITCH_CHARS} characters)"),
+        ));
     }
     let device = keys::load_device(store, persona.id)?;
     let (device, my_device) = match device {
@@ -204,10 +212,13 @@ pub async fn send(
 
     let author = keys::claim(store, client, &target.author.handle, &author_uri).await?;
     if author.packages.is_empty() {
-        return Err(err(format!(
-            "@{} has no devices that can take a request right now",
-            target.author.handle
-        )));
+        return Err(CoreError::coded(
+            codes::AUTHOR_HAS_NO_DEVICES,
+            format!(
+                "@{} has no devices that can take a request right now",
+                target.author.handle
+            ),
+        ));
     }
     let mut skipped = author.refused.clone();
     // This persona's other devices join from the start, if it has any.
@@ -317,9 +328,10 @@ pub async fn send(
 }
 
 pub(crate) fn not_set_up(handle: &str) -> CoreError {
-    err(format!(
-        "@{handle} has no keys on this device: run `quill keys init --as {handle}` first"
-    ))
+    CoreError::coded(
+        codes::NO_KEYS_HERE,
+        format!("@{handle} has no keys on this device: run `quill keys init --as {handle}` first"),
+    )
 }
 
 /// Deletes the private key of one of this device's own KeyPackages.
@@ -386,11 +398,23 @@ pub enum Unread {
     Refused(String),
 }
 
+impl Unread {
+    /// Its error code (`docs/error-codes.md`).
+    pub fn code(&self) -> codes::ErrorCode {
+        match self {
+            Unread::SentHere => codes::REQUEST_SENT_FROM_HERE,
+            Unread::NotForThisDevice => codes::REQUEST_NOT_SENT_HERE,
+            Unread::KeyChanged { .. } => codes::KEY_CHANGED,
+            Unread::Refused(_) => codes::REQUEST_REFUSED,
+        }
+    }
+}
+
 impl From<CoreError> for Unread {
     fn from(e: CoreError) -> Self {
         match e {
             CoreError::KeyChanged { handle } => Unread::KeyChanged { handle },
-            CoreError::Keys(m) if m == NOT_FOR_THIS_DEVICE => Unread::NotForThisDevice,
+            CoreError::Keys(c, _) if c == codes::REQUEST_NOT_SENT_HERE => Unread::NotForThisDevice,
             e => Unread::Refused(e.to_string()),
         }
     }
@@ -550,7 +574,7 @@ async fn read(
         {
             Ok(s) => s,
             Err(WelcomeError::NoMatchingKeyPackage) => {
-                return Err(err(NOT_FOR_THIS_DEVICE));
+                return Err(CoreError::coded(codes::REQUEST_NOT_SENT_HERE, NOT_FOR_THIS_DEVICE));
             }
             Err(e) => return Err(mls_err("joining the request's group", e)),
         };
@@ -615,7 +639,8 @@ async fn read(
 /// session. Returns the session's group id.
 pub async fn accept(store: &Store, client: &Client, id: Uuid) -> Result<String, CoreError> {
     let Some(mut note) = held(store, id)? else {
-        return Err(err(
+        return Err(CoreError::coded(
+            codes::READ_IT_HERE_FIRST,
             "read the request on this device first (`quill request inbox PROMPT`)",
         ));
     };

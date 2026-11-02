@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use quill_proto::automod::{Hook, ModerationScript, ReplaceScript, SetScriptMode, UploadScript};
 use quill_proto::board::AdminAction;
+use quill_proto::codes;
 use rhai::serde::to_dynamic;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool};
@@ -88,6 +89,7 @@ fn check_name(name: &str) -> Result<String, ApiError> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 100 {
         return Err(ApiError::BadRequest(
+            codes::AUTOMOD_SCRIPT_BAD_NAME,
             "a script's name must be 1 to 100 characters".into(),
         ));
     }
@@ -98,12 +100,13 @@ fn check_name(name: &str) -> Result<String, ApiError> {
 /// common data as it is now. Returns the compiled script.
 async fn check(state: &AppState, source: &str, hooks: &[Hook]) -> Result<Script, ApiError> {
     if source.len() > MAX_SOURCE {
-        return Err(ApiError::BadRequest(format!(
-            "scripts can be up to {MAX_SOURCE} bytes"
-        )));
+        return Err(ApiError::BadRequest(
+            codes::AUTOMOD_SCRIPT_TOO_LARGE,
+            format!("scripts can be up to {MAX_SOURCE} bytes"),
+        ));
     }
     let script = Script::compile(source, &VARIABLES, &state.config.automod)
-        .map_err(|e| ApiError::BadRequest(describe(&e)))?;
+        .map_err(|e| ApiError::BadRequest(codes::AUTOMOD_SCRIPT_INVALID, describe(&e)))?;
     let names: Vec<String> = script.data_names().iter().cloned().collect();
     let existing: Vec<String> =
         sqlx::query_scalar("SELECT name FROM moderation_data WHERE name = ANY($1)")
@@ -116,10 +119,13 @@ async fn check(state: &AppState, source: &str, hooks: &[Hook]) -> Result<Script,
         .map(String::as_str)
         .collect();
     if !missing.is_empty() {
-        return Err(ApiError::BadRequest(format!(
-            "there is no common data named {}; add it first",
-            missing.join(", ")
-        )));
+        return Err(ApiError::BadRequest(
+            codes::AUTOMOD_SCRIPT_MISSING_DATA,
+            format!(
+                "there is no common data named {}; add it first",
+                missing.join(", ")
+            ),
+        ));
     }
     let snapshot = data::snapshot(&state.pool, &state.automod_data, &names).await?;
     let time_limit = Duration::from_millis(state.config.automod.time_ms);
@@ -134,11 +140,14 @@ async fn check(state: &AppState, source: &str, hooks: &[Hook]) -> Result<Script,
     .await
     .map_err(|e| ApiError::Internal(e.into()))?;
     match failure {
-        Some((hook, err)) => Err(ApiError::BadRequest(format!(
-            "on a sample {} post ({hook}), {}",
-            hook.kind(),
-            describe(&err)
-        ))),
+        Some((hook, err)) => Err(ApiError::BadRequest(
+            codes::AUTOMOD_SCRIPT_FAILS_SAMPLE,
+            format!(
+                "on a sample {} post ({hook}), {}",
+                hook.kind(),
+                describe(&err)
+            ),
+        )),
         None => Ok(script),
     }
 }
@@ -217,7 +226,10 @@ async fn set_data_names(
         if e.as_database_error()
             .is_some_and(|d| d.is_foreign_key_violation())
         {
-            ApiError::Conflict("a common data entry this script reads was just deleted".into())
+            ApiError::Conflict(
+                codes::AUTOMOD_SCRIPT_DATA_DELETED,
+                "a common data entry this script reads was just deleted".into(),
+            )
         } else {
             e.into()
         }
@@ -226,7 +238,10 @@ async fn set_data_names(
 }
 
 fn name_taken(name: &str) -> ApiError {
-    ApiError::Conflict(format!("there is already a script named {name:?}"))
+    ApiError::Conflict(
+        codes::AUTOMOD_SCRIPT_NAME_TAKEN,
+        format!("there is already a script named {name:?}"),
+    )
 }
 
 pub async fn upload(
@@ -456,7 +471,9 @@ pub(crate) async fn check_saved(state: &AppState, id: Uuid, hook: Hook) -> Resul
         .await
         .map(drop)
         .map_err(|e| match e {
-            ApiError::BadRequest(m) => ApiError::BadRequest(format!("{}: {m}", script.name)),
+            ApiError::BadRequest(code, m) => {
+                ApiError::BadRequest(code, format!("{}: {m}", script.name))
+            }
             other => other,
         })
 }

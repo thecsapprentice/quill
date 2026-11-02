@@ -21,6 +21,7 @@ use quill_proto::{
         RemoveComment, ReportComment,
     },
     board::{PromptAuthor, ReportReason},
+    codes,
     limits::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE},
     notices::{NoticeFields, NoticeKind},
     validate,
@@ -223,7 +224,10 @@ async fn speaker(
             None => None,
         };
         if owns.is_none() {
-            return Err(ApiError::BadRequest("unknown persona".into()));
+            return Err(ApiError::BadRequest(
+                codes::PERSONA_UNKNOWN,
+                "unknown persona".into(),
+            ));
         }
         return Ok(Speaker {
             actor: body.persona,
@@ -233,6 +237,7 @@ async fn speaker(
     }
     if body.persona.is_some() {
         return Err(ApiError::BadRequest(
+            codes::COMMENT_TWO_SPEAKERS,
             "A comment speaks as a persona or as staff, not both.".into(),
         ));
     }
@@ -243,12 +248,16 @@ async fn speaker(
             .await?;
     let Some((true, staff_name)) = row else {
         return Err(ApiError::Forbidden(
+            codes::STAFF_ADMIN_ONLY,
             "Only administrators comment as staff.".into(),
         ));
     };
     let staff_name = match body.voice {
         CommentVoice::Staff => Some(staff_name.ok_or_else(|| {
-            ApiError::BadRequest("Set a staff name in your settings first.".into())
+            ApiError::BadRequest(
+                codes::STAFF_NAME_UNSET,
+                "Set a staff name in your settings first.".into(),
+            )
         })?),
         _ => None,
     };
@@ -271,6 +280,7 @@ pub async fn post(
     let a = crate::announcements::get(state, announcement).await?;
     if !a.comments_open {
         return Err(ApiError::Forbidden(
+            codes::COMMENTS_CLOSED,
             "Comments are closed on this announcement.".into(),
         ));
     }
@@ -306,6 +316,7 @@ pub async fn post(
     .await?;
     if inserted.rows_affected() == 0 {
         return Err(ApiError::Forbidden(
+            codes::COMMENTS_CLOSED,
             "Comments are closed on this announcement.".into(),
         ));
     }
@@ -372,11 +383,15 @@ pub(crate) async fn remove_locked(
     // Staff comments have no persona: the administrators delete them.
     let Some(handle) = handle else {
         return Err(ApiError::BadRequest(
+            codes::COMMENT_STAFF_NOT_REMOVABLE,
             "Comments from the administrators can't be removed; delete it instead.".into(),
         ));
     };
     if removed {
-        return Err(ApiError::Conflict("comment already removed".into()));
+        return Err(ApiError::Conflict(
+            codes::COMMENT_ALREADY_REMOVED,
+            "comment already removed".into(),
+        ));
     }
     sqlx::query(
         "UPDATE announcement_comments SET removed_at = now(), removed_reason = $2::report_reason

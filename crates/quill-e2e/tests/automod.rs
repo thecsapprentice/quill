@@ -157,7 +157,7 @@ async fn common_data_keeps_every_version() {
 
     // An edit started from version 1 would overwrite version 2: refused.
     let stale = data::save(&state, admin, "blocked_words", &body("other", Some(1))).await;
-    assert!(matches!(stale, Err(ApiError::Conflict(_))), "{stale:?}");
+    assert!(matches!(stale, Err(ApiError::Conflict(..))), "{stale:?}");
 
     // Undo saves the old content again as a new version.
     assert_eq!(
@@ -216,11 +216,11 @@ async fn common_data_names_and_sizes_are_checked() {
 
     for bad in ["Blocked", "two words", ""] {
         let r = data::save(&state, admin, bad, &body("x", None)).await;
-        assert!(matches!(r, Err(ApiError::BadRequest(_))), "{bad}: {r:?}");
+        assert!(matches!(r, Err(ApiError::BadRequest(..))), "{bad}: {r:?}");
     }
     let too_big = data::save(&state, admin, "big", &body("12345678901", None)).await;
     assert!(
-        matches!(too_big, Err(ApiError::BadRequest(_))),
+        matches!(too_big, Err(ApiError::BadRequest(..))),
         "{too_big:?}"
     );
 
@@ -229,7 +229,7 @@ async fn common_data_names_and_sizes_are_checked() {
         .unwrap();
     let over_total = data::save(&state, admin, "second", &body("123456", None)).await;
     assert!(
-        matches!(over_total, Err(ApiError::BadRequest(_))),
+        matches!(over_total, Err(ApiError::BadRequest(..))),
         "{over_total:?}"
     );
     // Replacing an entry counts its new size, not old plus new.
@@ -270,7 +270,7 @@ async fn common_data_in_use_cannot_be_deleted() {
         .unwrap();
 
     let refused = data::delete(&state, admin, "blocked_words").await;
-    let Err(ApiError::Conflict(message)) = refused else {
+    let Err(ApiError::Conflict(_, message)) = refused else {
         panic!("{refused:?}");
     };
     assert!(message.contains("Word list"), "{message}");

@@ -16,6 +16,7 @@ use axum::{
 };
 use quill_mls_envelope::private_message::{self, ContentType};
 use quill_proto::{
+    codes,
     groups::GroupState,
     keys::{actor_uri, b64, unb64},
     requests::{
@@ -46,7 +47,12 @@ pub fn router() -> OpenApiRouter<AppState> {
 }
 
 fn decode(field: &str, text: &str) -> Result<Vec<u8>, ApiError> {
-    unb64(text).ok_or_else(|| ApiError::BadRequest(format!("{field} is not base64url")))
+    unb64(text).ok_or_else(|| {
+        ApiError::BadRequest(
+            codes::REQUEST_NOT_BASE64,
+            format!("{field} is not base64url"),
+        )
+    })
 }
 
 /// Expires waiting requests whose time is up, dropping their ciphertext.
@@ -125,27 +131,38 @@ async fn send(
     }
     // An MLSMessage holding a Welcome: MLS 1.0, wire format 3.
     if welcome.get(..4) != Some(&[0, 1, 0, 3]) {
-        return Err(ApiError::BadRequest("welcome is not an MLS Welcome".into()));
+        return Err(ApiError::BadRequest(
+            codes::NOT_A_WELCOME,
+            "welcome is not an MLS Welcome".into(),
+        ));
     }
-    let header = private_message::parse(&pitch)
-        .map_err(|e| ApiError::BadRequest(format!("pitch refused: {e}")))?;
+    let header = private_message::parse(&pitch).map_err(|e| {
+        ApiError::BadRequest(codes::REQUEST_BAD_PITCH, format!("pitch refused: {e}"))
+    })?;
     if header.content_type != ContentType::Application {
         return Err(ApiError::BadRequest(
+            codes::REQUEST_BAD_PITCH,
             "pitch refused: it isn't an application message".into(),
         ));
     }
     if !(16..=64).contains(&header.group_id.len()) {
         return Err(ApiError::BadRequest(
+            codes::REQUEST_BAD_PITCH,
             "pitch refused: the group id must be 16 to 64 bytes".into(),
         ));
     }
-    let epoch = i64::try_from(header.epoch)
-        .map_err(|_| ApiError::BadRequest("pitch refused: epoch out of range".into()))?;
+    let epoch = i64::try_from(header.epoch).map_err(|_| {
+        ApiError::BadRequest(
+            codes::REQUEST_BAD_PITCH,
+            "pitch refused: epoch out of range".into(),
+        )
+    })?;
     let days = body.expires_in_days.unwrap_or(MAX_EXPIRY_DAYS);
     if !(1..=MAX_EXPIRY_DAYS).contains(&days) {
-        return Err(ApiError::BadRequest(format!(
-            "expiresInDays must be 1 to {MAX_EXPIRY_DAYS}"
-        )));
+        return Err(ApiError::BadRequest(
+            codes::REQUEST_BAD_EXPIRY,
+            format!("expiresInDays must be 1 to {MAX_EXPIRY_DAYS}"),
+        ));
     }
 
     let mut tx = state.pool.begin().await?;
@@ -168,6 +185,7 @@ async fn send(
     let (prompt_state, author, author_account) = prompt.ok_or(ApiError::NotFound)?;
     if author_account == authed.account_id {
         return Err(ApiError::BadRequest(
+            codes::REQUEST_OWN_PROMPT,
             "That's your own prompt: you can't ask to join it.".into(),
         ));
     }
@@ -177,7 +195,10 @@ async fn send(
             .fetch_one(&mut *tx)
             .await?;
     if taken {
-        return Err(ApiError::Conflict("That group id is taken.".into()));
+        return Err(ApiError::Conflict(
+            codes::GROUP_ID_TAKEN,
+            "That group id is taken.".into(),
+        ));
     }
     expire(&mut tx).await?;
     let filed = match prompt_state.as_str() {
@@ -220,12 +241,12 @@ async fn send(
                 .and_then(|d| d.constraint())
                 .map(str::to_owned);
             return Err(match constraint.as_deref() {
-                Some(ONE_WAITING) => ApiError::Conflict(
+                Some(ONE_WAITING) => ApiError::Conflict(codes::REQUEST_ALREADY_WAITING,
                     "You already have a request waiting on this prompt. Withdraw it to send another."
                         .into(),
                 ),
                 Some(_) if crate::error::is_unique_violation(&e) => {
-                    ApiError::Conflict("That group id is taken.".into())
+                    ApiError::Conflict(codes::GROUP_ID_TAKEN, "That group id is taken.".into())
                 }
                 _ => e.into(),
             });
@@ -420,6 +441,7 @@ async fn withdraw(
     }
     if st == "accepted" {
         return Err(ApiError::Conflict(
+            codes::REQUEST_ALREADY_SESSION,
             "It's a session now; leave the session instead.".into(),
         ));
     }
@@ -461,7 +483,10 @@ async fn queue(
         None | Some("pending") => false,
         Some("held") => true,
         Some(_) => {
-            return Err(ApiError::BadRequest("state must be pending or held".into()));
+            return Err(ApiError::BadRequest(
+                codes::REQUEST_BAD_STATE,
+                "state must be pending or held".into(),
+            ));
         }
     };
     let mut tx = state.pool.begin().await?;
@@ -563,9 +588,24 @@ async fn accept(
     }
     let pitch = match (st.as_str(), pitch) {
         ("pending" | "held", Some(p)) => p,
-        ("accepted", _) => return Err(ApiError::Conflict("It's already a session.".into())),
-        ("declined", _) => return Err(ApiError::Conflict("It was declined.".into())),
-        _ => return Err(ApiError::Conflict("It expired.".into())),
+        ("accepted", _) => {
+            return Err(ApiError::Conflict(
+                codes::REQUEST_ALREADY_SESSION,
+                "It's already a session.".into(),
+            ));
+        }
+        ("declined", _) => {
+            return Err(ApiError::Conflict(
+                codes::REQUEST_DECLINED,
+                "It was declined.".into(),
+            ));
+        }
+        _ => {
+            return Err(ApiError::Conflict(
+                codes::REQUEST_EXPIRED,
+                "It expired.".into(),
+            ));
+        }
     };
     let registered = sqlx::query(
         "INSERT INTO mls_groups (group_id, kind, epoch, last_seq) VALUES ($1, 'session', $2, 1)",
@@ -577,7 +617,10 @@ async fn accept(
     match registered {
         Ok(_) => {}
         Err(e) if crate::error::is_unique_violation(&e) => {
-            return Err(ApiError::Conflict("Its group id is taken.".into()));
+            return Err(ApiError::Conflict(
+                codes::GROUP_ID_TAKEN,
+                "Its group id is taken.".into(),
+            ));
         }
         Err(e) => return Err(e.into()),
     }
@@ -661,7 +704,12 @@ async fn decline(
             .execute(&mut *tx)
             .await?;
         }
-        "accepted" => return Err(ApiError::Conflict("It's already a session.".into())),
+        "accepted" => {
+            return Err(ApiError::Conflict(
+                codes::REQUEST_ALREADY_SESSION,
+                "It's already a session.".into(),
+            ));
+        }
         // Declined or expired already: nothing to do.
         _ => {}
     }

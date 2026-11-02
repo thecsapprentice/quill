@@ -28,6 +28,7 @@ use crate::{
 };
 use quill_proto::{
     announcements::ReportComment,
+    codes,
     notices::{NoticeFields, NoticeKind, NoticePrompt},
 };
 
@@ -350,7 +351,12 @@ async fn list_reports(
     let all = match q.state.as_deref() {
         None | Some("open") => false,
         Some("all") => true,
-        Some(_) => return Err(ApiError::BadRequest("state must be open or all".into())),
+        Some(_) => {
+            return Err(ApiError::BadRequest(
+                codes::REPORT_BAD_STATE,
+                "state must be open or all".into(),
+            ));
+        }
     };
     reports(&state, all).await.map(Json)
 }
@@ -413,7 +419,10 @@ pub async fn resolve(
     .await?;
     let (kind, prompt_id, comment_id, reason, hash, resolved) = row.ok_or(ApiError::NotFound)?;
     if resolved {
-        return Err(ApiError::Conflict("report already resolved".into()));
+        return Err(ApiError::Conflict(
+            codes::REPORT_RESOLVED,
+            "report already resolved".into(),
+        ));
     }
     if kind == ReportKind::Comment.as_str() {
         resolve_comment_report(&mut tx, admin, id, comment_id, &reason, &hash, action).await?;
@@ -522,6 +531,7 @@ async fn resolve_comment_report(
         }
         // The author deleted it already: nothing left to remove.
         (Resolution::Delete, None) => Err(ApiError::Conflict(
+            codes::REPORT_COMMENT_GONE,
             "The comment was deleted by its author; discard the report instead.".into(),
         )),
         (Resolution::Discard, _) => {

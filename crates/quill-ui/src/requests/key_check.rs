@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     app::{ProblemLine, use_ui},
-    backend::{KeyChange, Problem},
+    backend::{KeyChange, Problem, codes},
 };
 
 /// Shows what changed and the words to compare. `on_done(true)` once the
@@ -47,8 +47,9 @@ pub fn KeyCheck(handle: String, as_persona: Uuid, on_done: EventHandler<bool>) -
             match result {
                 Ok(()) => on_done.call(true),
                 Err(Problem::KeyChanged(_)) => {
-                    problem.set(Some(Problem::Refused(
-                        "It changed again while you were checking. Compare these new words.".into(),
+                    problem.set(Some(Problem::refused(
+                        codes::KEY_CHANGED,
+                        "It changed again while you were checking. Compare these new words.",
                     )));
                     again += 1;
                 }

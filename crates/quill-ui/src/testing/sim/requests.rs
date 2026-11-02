@@ -15,7 +15,7 @@ use uuid::Uuid;
 use super::{Sim, SimServer, Store, refused};
 use crate::backend::{
     Inbox, IncomingRequest, KeyChange, PITCH_MAX, Problem, REQUEST_DAYS_MAX, SentRequest, Unread,
-    WaitingPrompt,
+    WaitingPrompt, codes,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,12 +162,16 @@ impl SimServer {
             None => return Err(Problem::Gone),
         };
         if owner == login {
-            return Err(refused("That's your own prompt: you can't ask to join it."));
+            return Err(refused(
+                codes::REQUEST_OWN_PROMPT,
+                "That's your own prompt: you can't ask to join it.",
+            ));
         }
         if !(1..=REQUEST_DAYS_MAX).contains(&days) {
-            return Err(refused(&format!(
-                "expiresInDays must be 1 to {REQUEST_DAYS_MAX}"
-            )));
+            return Err(refused(
+                codes::REQUEST_BAD_EXPIRY,
+                &format!("expiresInDays must be 1 to {REQUEST_DAYS_MAX}"),
+            ));
         }
         let now = self.now();
         expire(self, now);
@@ -178,6 +182,7 @@ impl SimServer {
             .any(|r| r.login == login && r.prompt == prompt && r.state.waiting())
         {
             return Err(refused(
+                codes::REQUEST_ALREADY_WAITING,
                 "You already have a request waiting on this prompt. Withdraw it to send another.",
             ));
         }
@@ -331,16 +336,18 @@ impl Sim {
     ) -> Result<SentRequest, Problem> {
         let pitch = pitch.trim();
         if pitch.is_empty() {
-            return Err(refused("say something in the pitch"));
+            return Err(refused(codes::PITCH_EMPTY, "say something in the pitch"));
         }
         if pitch.chars().count() > PITCH_MAX {
-            return Err(refused(&format!(
-                "the pitch is too long (at most {PITCH_MAX} characters)"
-            )));
+            return Err(refused(
+                codes::PITCH_TOO_LONG,
+                &format!("the pitch is too long (at most {PITCH_MAX} characters)"),
+            ));
         }
         let (_, store, _) = self.reach()?;
         if !store.keys.contains(&persona) {
             return Err(Problem::Failed {
+                code: codes::NO_KEYS_HERE,
                 detail: "no keys on this device".into(),
             });
         }
@@ -358,7 +365,7 @@ impl Sim {
             // Core checks the author's key before claiming their devices.
             here.check(server, &author)?;
             if !published {
-                return Err(refused(&format!(
+                return Err(refused(codes::AUTHOR_HAS_NO_DEVICES, &format!(
                     "@{author} has no devices that can take a request right now. Try again later."
                 )));
             }
@@ -415,7 +422,10 @@ impl Sim {
                 .find(|r| r.id == id && r.login == login)
                 .ok_or(Problem::Gone)?;
             if r.state == State::Accepted {
-                return Err(refused("It's a session now; leave the session instead."));
+                return Err(refused(
+                    codes::REQUEST_ALREADY_SESSION,
+                    "It's a session now; leave the session instead.",
+                ));
             }
             server.requests.all.retain(|r| r.id != id);
             Ok(())
@@ -535,6 +545,7 @@ impl Sim {
             }
             if accept && !read_here {
                 return Err(Problem::Failed {
+                    code: codes::READ_IT_HERE_FIRST,
                     detail: "read the request on this device first".into(),
                 });
             }
@@ -544,9 +555,16 @@ impl Sim {
                 // Accepted already, perhaps on another device: core's
                 // accept takes that as done.
                 (State::Accepted, true) => State::Accepted,
-                (State::Accepted, false) => return Err(refused("It's already a session.")),
-                (State::Declined, _) => return Err(refused("It was declined.")),
-                _ => return Err(refused("It expired.")),
+                (State::Accepted, false) => {
+                    return Err(refused(
+                        codes::REQUEST_ALREADY_SESSION,
+                        "It's already a session.",
+                    ));
+                }
+                (State::Declined, _) => {
+                    return Err(refused(codes::REQUEST_DECLINED, "It was declined."));
+                }
+                _ => return Err(refused(codes::REQUEST_EXPIRED, "It expired.")),
             };
             if let Some(r) = server.requests.all.iter_mut().find(|r| r.id == id) {
                 r.state = state;

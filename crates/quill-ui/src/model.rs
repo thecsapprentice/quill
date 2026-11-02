@@ -113,7 +113,7 @@ pub struct Model {
     /// What went wrong on the screen in view.
     pub problem: Option<Problem>,
     /// What upkeep says needs the writer.
-    pub notice: Option<String>,
+    pub notice: Option<Problem>,
     /// The server's rules, once fetched (`None` inside: it has none).
     pub rules: Option<Option<ServerRules>>,
     /// Notices not yet read, as upkeep last heard.
@@ -475,7 +475,7 @@ impl Model {
     }
 
     /// Background upkeep's result for server `id`.
-    pub fn upkept(&mut self, id: Uuid, result: Result<Option<String>, Problem>) {
+    pub fn upkept(&mut self, id: Uuid, result: Result<Option<Problem>, Problem>) {
         if self.current != Some(id) {
             return;
         }

@@ -10,6 +10,7 @@ use ed25519_dalek::SigningKey;
 use quill_certs::{DeviceCertificate, DeviceRevocation, Expected, RevocationReason, fingerprint};
 use quill_proto::{
     api::Persona,
+    codes,
     keys::{
         DeviceInfo, PersonaKeys, RegisterDevice, RevokeDevice, SetIdentityKey, actor_uri, b64,
         unb64,
@@ -40,7 +41,7 @@ pub fn day_start(ms: u64) -> u64 {
 }
 
 fn keys_err(msg: impl Into<String>) -> CoreError {
-    CoreError::Keys(msg.into())
+    CoreError::Keys(quill_proto::codes::KEYS_CHECK_FAILED, msg.into())
 }
 
 fn generate() -> Result<SigningKey, CoreError> {
@@ -575,10 +576,9 @@ pub async fn claim_for(
     let now = now_ms();
     let published = client.actor_keys(handle).await?;
     let checked = check_published(&published, actor_uri, now)?;
-    let (identity_key, version) = checked
-        .identity
-        .clone()
-        .ok_or_else(|| keys_err(format!("@{handle} has no keys yet")))?;
+    let (identity_key, version) = checked.identity.clone().ok_or_else(|| {
+        CoreError::coded(codes::NO_IDENTITY_KEY, format!("@{handle} has no keys yet"))
+    })?;
     if let PinStatus::Changed { .. } = check_pin(store, actor_uri, &identity_key, version)? {
         return Err(CoreError::KeyChanged {
             handle: handle.to_owned(),
@@ -851,8 +851,12 @@ pub async fn key_change(
         Some(v) if v.len() != 36 => return Err(keys_err("a stored pin is damaged")),
         _ => return Ok(None),
     };
-    let mine = load_identity(store, as_persona.id)?
-        .ok_or_else(|| keys_err(format!("@{} has no keys on this device", as_persona.handle)))?;
+    let mine = load_identity(store, as_persona.id)?.ok_or_else(|| {
+        CoreError::coded(
+            codes::NO_KEYS_HERE,
+            format!("@{} has no keys on this device", as_persona.handle),
+        )
+    })?;
     let my_uri = actor_uri(&domain, &as_persona.handle);
     Ok(Some(KeyChange {
         handle: handle.to_owned(),
@@ -878,8 +882,12 @@ pub async fn identity_words(
     let Some((key, _)) = checked.identity else {
         return Ok(None);
     };
-    let mine = load_identity(store, as_persona.id)?
-        .ok_or_else(|| keys_err(format!("@{} has no keys on this device", as_persona.handle)))?;
+    let mine = load_identity(store, as_persona.id)?.ok_or_else(|| {
+        CoreError::coded(
+            codes::NO_KEYS_HERE,
+            format!("@{} has no keys on this device", as_persona.handle),
+        )
+    })?;
     let my_uri = actor_uri(&domain, &as_persona.handle);
     Ok(Some(crate::sessions::identity_number(
         (&my_uri, &mine.public()),

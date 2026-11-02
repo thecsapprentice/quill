@@ -82,7 +82,16 @@ pub fn App() -> Element {
     }
 }
 
-/// A problem, said plainly; the raw error too in advanced mode.
+/// An error code beside the words it belongs to, in advanced mode only
+/// (`docs/error-codes.md`): faster to report than a sentence.
+#[component]
+pub fn Code(code: crate::backend::ErrorCode) -> Element {
+    rsx! {
+        span { class: "code", title: "Error code: report it with what happened", "{code}" }
+    }
+}
+
+/// A problem, said plainly; in advanced mode its code and the raw error too.
 #[component]
 pub fn ProblemLine(problem: Problem) -> Element {
     let (_, mut model) = use_ui();
@@ -91,10 +100,15 @@ pub fn ProblemLine(problem: Problem) -> Element {
         (m.settings.advanced, m.screen == Screen::Frame)
     };
     // A refusal for unaccepted rules becomes the way to accept them.
-    let to_rules = in_frame && matches!(problem, Problem::RulesNotAccepted(_));
+    let to_rules = in_frame && matches!(problem, Problem::RulesNotAccepted(..));
+    let code = problem.code();
     rsx! {
         p { class: "problem", role: "alert",
             "{problem}"
+            if advanced {
+                " "
+                Code { code }
+            }
             if advanced && let Some(detail) = problem.detail() {
                 br {}
                 span { class: "detail", "{detail}" }

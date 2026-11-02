@@ -24,6 +24,7 @@ use crate::backend::{
     AppSettings, Backend, BoardSettings, Call, Details, Keys, PASSPHRASE_MIN_CHARS, Persona,
     PersonaState, Problem, Protection, ServerEntry, ServerInfo, ServerRules, Standing, Step, Theme,
 };
+use crate::backend::{ErrorCode, codes};
 
 /// When accounts must accept a server's rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -257,6 +258,7 @@ impl Sim {
     fn open_store(&self) -> Result<(Uuid, Store, SimServer), Problem> {
         let s = self.0.borrow();
         let id = s.current.ok_or_else(|| Problem::Failed {
+            code: codes::UNCLASSIFIED,
             detail: "no server is open".into(),
         })?;
         let store = s.stores[&id].clone();
@@ -333,8 +335,9 @@ fn now<'a, T: 'a>(v: Result<T, Problem>) -> Call<'a, T> {
     })
 }
 
-fn refused(text: &str) -> Problem {
-    Problem::Refused(text.into())
+/// A refusal with the code the real server or client gives that case.
+fn refused(code: ErrorCode, text: &str) -> Problem {
+    Problem::Refused(code, text.into())
 }
 
 /// The address as typed, as the app normalizes it (scheme optional).
@@ -358,7 +361,7 @@ impl Backend for Sim {
     fn check_server<'a>(&'a self, typed: &'a str) -> Call<'a, ServerInfo> {
         let result = (|| {
             if typed.trim().is_empty() {
-                return Err(refused("Type the server's address."));
+                return Err(refused(codes::BAD_ADDRESS, "Type the server's address."));
             }
             let addr = normalize(typed);
             let s = self.0.borrow();
@@ -398,14 +401,17 @@ impl Backend for Sim {
             };
             let mut s = self.0.borrow_mut();
             if s.entries.iter().any(|e| e.address == info.0) {
-                return Err(refused(&format!(
-                    "{} is already in your list of servers.",
-                    info.1
-                )));
+                return Err(refused(
+                    codes::SERVER_ALREADY_ADDED,
+                    &format!("{} is already in your list of servers.", info.1),
+                ));
             }
             match passphrase {
                 Some(p) if p.chars().count() < PASSPHRASE_MIN_CHARS => {
-                    return Err(refused("Use at least 12 characters."));
+                    return Err(refused(
+                        codes::PASSPHRASE_TOO_SHORT,
+                        "Use at least 12 characters.",
+                    ));
                 }
                 None if !s.keychain => return Err(Problem::NeedsPassphrase),
                 _ => {}
@@ -450,7 +456,10 @@ impl Backend for Sim {
             ok
         });
         if !ok {
-            return now(Err(refused("That isn't the passphrase.")));
+            return now(Err(refused(
+                codes::WRONG_PASSPHRASE,
+                "That isn't the passphrase.",
+            )));
         }
         now(self.standing_now())
     }
@@ -468,7 +477,7 @@ impl Backend for Sim {
     fn rename_server(&self, id: Uuid, name: &str) -> Result<(), Problem> {
         let name = name.trim();
         if name.is_empty() {
-            return Err(refused("Use 1 to 60 characters."));
+            return Err(refused(codes::SERVER_NAME_BAD, "Use 1 to 60 characters."));
         }
         if let Some(e) = self.0.borrow_mut().entries.iter_mut().find(|e| e.id == id) {
             e.name = name.into();
@@ -494,7 +503,10 @@ impl Backend for Sim {
             return now(Err(Problem::NeedsPassphrase));
         }
         if passphrase.is_some_and(|p| p.chars().count() < PASSPHRASE_MIN_CHARS) {
-            return now(Err(refused("Use at least 12 characters.")));
+            return now(Err(refused(
+                codes::PASSPHRASE_TOO_SHORT,
+                "Use at least 12 characters.",
+            )));
         }
         self.with_server_mut(|_, store| store.passphrase = passphrase.map(str::to_owned));
         now(Ok(()))
@@ -516,10 +528,13 @@ impl Backend for Sim {
         let login = login.trim().to_ascii_lowercase();
         let result = self.with_server_mut(|server, store| {
             if !server.registration_open {
-                return Err(refused("This server isn't taking new logins."));
+                return Err(refused(
+                    codes::REGISTRATION_CLOSED,
+                    "This server isn't taking new logins.",
+                ));
             }
             if server.accounts.contains_key(&login) {
-                return Err(Problem::Taken);
+                return Err(Problem::Taken(codes::LOGIN_NAME_TAKEN));
             }
             let mut accepted = 0;
             if let Some((_, version)) = &server.rules {
@@ -527,12 +542,14 @@ impl Backend for Sim {
                     Some(v) if v == *version => accepted = v,
                     Some(_) if server.acceptance.on_join() => {
                         return Err(Problem::RulesNotAccepted(
+                            codes::RULES_CHANGED_AT_SIGNUP,
                             "The server rules changed while you were signing up. Read them again."
                                 .into(),
                         ));
                     }
                     None if server.acceptance.on_join() => {
                         return Err(Problem::RulesNotAccepted(
+                            codes::RULES_REQUIRED_AT_SIGNUP,
                             "Accept the server rules to create an account.".into(),
                         ));
                     }
@@ -575,7 +592,10 @@ impl Backend for Sim {
             ok
         });
         if !ok {
-            return now(Err(refused("That login name and password don't match.")));
+            return now(Err(refused(
+                codes::WRONG_LOGIN,
+                "That login name and password don't match.",
+            )));
         }
         self.set_entry_login(Some(login));
         now(self.standing_now())
@@ -589,6 +609,7 @@ impl Backend for Sim {
     fn rules(&self) -> Call<'_, Option<ServerRules>> {
         if self.open_store().is_ok_and(|(_, _, s)| s.rules_fail) {
             return now(Err(Problem::Failed {
+                code: codes::SERVER_FAULT,
                 detail: "simulated failure".into(),
             }));
         }
@@ -619,6 +640,7 @@ impl Backend for Sim {
             let current = server.rules.as_ref().map_or(0, |(_, v)| *v);
             if version != current {
                 return Err(Problem::RulesNotAccepted(
+                    codes::RULES_CHANGED,
                     "The rules changed again while you were reading. Read the new version.".into(),
                 ));
             }
@@ -638,7 +660,7 @@ impl Backend for Sim {
         let handle = handle.trim().to_ascii_lowercase();
         let result = self.with_server_mut(|server, store| {
             if server.personas.iter().any(|(_, p, _)| p.handle == handle) {
-                return Err(Problem::Taken);
+                return Err(Problem::Taken(codes::HANDLE_TAKEN));
             }
             let mut p = persona(&handle);
             p.display_name = Some(display_name.trim().to_owned()).filter(|d| !d.is_empty());
@@ -661,7 +683,7 @@ impl Backend for Sim {
                 .personas
                 .iter_mut()
                 .find(|(_, p, _)| p.id == id)
-                .ok_or_else(|| refused("That persona is gone."))?;
+                .ok_or_else(|| refused(codes::PERSONA_GONE, "That persona is gone."))?;
             p.display_name = Some(display_name.trim().to_owned()).filter(|d| !d.is_empty());
             p.summary = Some(summary.trim().to_owned()).filter(|d| !d.is_empty());
             Ok(p.clone())
@@ -686,9 +708,10 @@ impl Backend for Sim {
                     .personas
                     .iter_mut()
                     .find(|(_, p, _)| p.id == persona)
-                    .ok_or_else(|| refused("That persona is gone."))?;
+                    .ok_or_else(|| refused(codes::PERSONA_GONE, "That persona is gone."))?;
                 if *published && !store.keys.contains(&persona) {
                     return Err(refused(
+                        codes::KEYS_ELSEWHERE,
                         "This persona's keys are on another of your devices. Link this computer to it, or restore a backup.",
                     ));
                 }
@@ -765,13 +788,15 @@ impl Backend for Sim {
         now(self.sim_key_details())
     }
 
-    fn upkeep(&self) -> Call<'_, Option<String>> {
+    fn upkeep(&self) -> Call<'_, Option<Problem>> {
         // A removal by another device is learnt here, as quill-core's
         // catch-up learns it: the keys go then.
         now(self.reach().map(|_| {
             self.sim_catch_up().then(|| {
-                "This computer was removed from your devices. Link it again to keep writing here."
-                    .to_owned()
+                refused(
+                    codes::REMOVED_HERE,
+                    "This computer was removed from your devices. Link it again to keep writing here.",
+                )
             })
         }))
     }
