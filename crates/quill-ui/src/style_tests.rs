@@ -109,3 +109,15 @@ fn hidden_text_stays_inside_the_scrolling_page() {
         .expect("a .main rule");
     assert!(rule.contains("position: relative"), "{rule}");
 }
+
+/// Found by hand (3f-1): a channel tab's unread badge sat flush against
+/// its name ("Planning1"), since the badge's leading space collapses.
+/// The badge needs its own space before it.
+#[test]
+fn a_tabs_unread_badge_keeps_apart_from_its_name() {
+    let rule = crate::STYLE
+        .lines()
+        .find(|l| l.starts_with(".channels .badge {"))
+        .expect("a .channels .badge rule");
+    assert!(rule.contains("margin-left"), "{rule}");
+}
