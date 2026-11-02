@@ -171,6 +171,59 @@ fn SessionRow(s: SessionSummary) -> Element {
     }
 }
 
+/// The session begun from a request, found by its prompt and writers; the
+/// newest if several match. Requests don't carry their session's id.
+pub(crate) fn begun_from(
+    list: &[SessionSummary],
+    prompt: Option<Uuid>,
+    me: Option<&str>,
+    partner: Option<&str>,
+) -> Option<String> {
+    let prompt = prompt?;
+    list.iter()
+        .filter(|s| s.prompt.as_ref().map(|p| p.0) == Some(prompt))
+        .filter(|s| me.is_none_or(|h| s.me.handle == h))
+        .filter(|s| partner.is_none_or(|h| s.partner.as_ref().is_some_and(|p| p.handle == h)))
+        .max_by_key(|s| s.latest)
+        .map(|s| s.id.clone())
+}
+
+/// "Open the session" for one begun from a request. It opens the session
+/// once the list has it, and the list until then (another device may not
+/// have added this one yet).
+#[component]
+pub fn OpenSession(
+    prompt: Option<Uuid>,
+    me: Option<String>,
+    partner: Option<String>,
+    #[props(default = "secondary".to_owned())] class: String,
+    /// Called as it opens: Home marks the answer seen.
+    on_open: Option<EventHandler<()>>,
+) -> Element {
+    let (backend, mut model) = use_ui();
+    // A session just begun isn't in the list until it's read again.
+    let b = backend.clone();
+    use_hook(move || reload(b, model));
+    let found = begun_from(
+        &model.read().sessions.list,
+        prompt,
+        me.as_deref(),
+        partner.as_deref(),
+    );
+    rsx! {
+        button {
+            class: "{class}",
+            onclick: move |_| {
+                if let Some(f) = &on_open {
+                    f.call(());
+                }
+                model.write().open_sessions(found.clone());
+            },
+            "Open the session"
+        }
+    }
+}
+
 /// What Home says about sessions: the ones with notes not yet read here.
 #[component]
 pub fn SessionsOnHome() -> Element {

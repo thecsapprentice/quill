@@ -2,6 +2,7 @@
 //! a request becoming a session, the list, reading channels, notes
 //! arriving live with unread counts on Home and in the side bar, answers,
 //! edits and deletions, a standing other than joined, and an ended session.
+//! Accepting a request, either side, leads to its session.
 
 // Test code: panicking on failure is intended.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -78,11 +79,21 @@ async fn an_accepted_request_becomes_a_session_that_opens_with_the_pitch() {
     d.click("Send request").await;
     d.wait_for_text("Request sent.").await;
     let request = sim.requests_on(SERVER)[0].0;
+    d.click("Home").await;
     sim.answer_request(SERVER, request, true);
 
-    d.click("Sessions").await;
-    d.wait_for_text("On “The ledger”").await;
-    d.click("Open the session with @wren on “The ledger”").await;
+    // Home's word of the answer leads straight to the session, and
+    // opening it is reading the answer.
+    d.wait_for_text("was accepted").await;
+    d.click("Open the session").await;
+    d.wait_for_text("Writing with @wren").await;
+    d.click("Home").await;
+    d.settle().await;
+    assert!(!d.has_text("was accepted"));
+    // So does the request, under Requests.
+    d.click("Requests").await;
+    d.wait_for_text("Writing together").await;
+    d.click("Open the session").await;
     d.wait_for_text("Writing with @wren").await;
     assert_eq!(d.heading().as_deref(), Some("Writing with @wren"));
     // Story is empty; the pitch opened Planning.
@@ -228,7 +239,11 @@ async fn accepting_a_request_on_your_prompt_starts_a_session() {
     d.wait_for_text("Let me write the").await;
     d.click("Accept").await;
     d.wait_for_text("Accepted @wren's request").await;
-    d.click("Sessions").await;
-    d.wait_for_text("On “Mine”").await;
     assert_eq!(sim.sessions_of(SERVER, "ink").len(), 1);
+    // Accepting leads to the session it began.
+    d.click("Open the session").await;
+    d.wait_for_text("Writing with @wren").await;
+    // The pitch opened Planning, from @wren: unread until shown.
+    d.click("Planning 1 unread").await;
+    d.wait_for_text("Let me write the").await;
 }

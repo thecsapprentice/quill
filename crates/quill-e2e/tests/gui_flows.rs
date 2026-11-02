@@ -589,6 +589,11 @@ async fn requests_both_ways_on_a_real_server() {
     d.click("Home").await;
     d.wait_for_text("Your request on “The lighthouse ledger” was accepted")
         .await;
+    // Home's word of it leads to the session (3f).
+    d.click("Open the session").await;
+    d.wait_for_text("Writing with @wren_pen").await;
+    assert!(d.has_text("On “The lighthouse ledger”."));
+    d.click("Home").await;
 
     // It's a session now (3f): Wren writes in it, and it arrives live.
     let session = quill_core::sessions::list(&wren, &wren_c).await.unwrap()[0]
@@ -642,5 +647,8 @@ async fn requests_both_ways_on_a_real_server() {
         wren_c.request_status(sent.request.id).await.unwrap().status,
         quill_proto::requests::RequestStatus::Session
     );
+    // Accepting leads to that session, not the other one with @wren_pen.
+    d.click("Open the session").await;
+    d.wait_for_text("On “The night porter”.").await;
     server.stop().await.unwrap();
 }

@@ -45,6 +45,17 @@ pub fn reload(b: Rc<dyn Backend>, model: Signal<Model>) {
     });
 }
 
+/// Marks one answer to a sent request seen, so Home stops pointing at it.
+fn mark_answer_seen(b: &dyn Backend, mut model: Signal<Model>, id: Uuid) {
+    let mut seen = model.peek().requests.seen.clone();
+    if seen.contains(&id) {
+        return;
+    }
+    seen.push(id);
+    let _ = b.set_answers_seen(&seen);
+    model.write().requests.seen = seen;
+}
+
 /// "1 request" or "3 requests".
 fn requests_n(n: u32) -> String {
     if n == 1 {
@@ -193,7 +204,13 @@ fn SentItem(s: SentRequest) -> Element {
             }
             match s.status {
                 RequestStatus::Session => rsx! {
-                    p { "Accepted: it's a writing session now, under Sessions." }
+                    p { "Accepted: it's a writing session now." }
+                    div { class: "actions",
+                        crate::sessions::OpenSession {
+                            prompt: s.prompt.as_ref().map(|p| p.0),
+                            me: Some(s.persona.clone()),
+                        }
+                    }
                 },
                 RequestStatus::NoResponse => rsx! {
                     p { "It lapsed on {until} without an answer." }
@@ -235,7 +252,7 @@ fn SentItem(s: SentRequest) -> Element {
 /// answers to the ones it sent, each leading to them.
 #[component]
 pub fn RequestsOnHome() -> Element {
-    let (_, mut model) = use_ui();
+    let (backend, mut model) = use_ui();
     let r = model.read().requests.clone();
     if !r.loaded {
         return rsx! {};
@@ -263,10 +280,23 @@ pub fn RequestsOnHome() -> Element {
         for a in answers {
             div { key: "{a.id}", class: "nudge",
                 p { "{answer_line(&a)}" }
-                button {
-                    class: "secondary",
-                    onclick: move |_| model.write().open_requests(None),
-                    "See your requests"
+                if a.status == RequestStatus::Session {
+                    // Opening the session is reading the answer.
+                    crate::sessions::OpenSession {
+                        prompt: a.prompt.as_ref().map(|p| p.0),
+                        me: Some(a.persona.clone()),
+                        on_open: {
+                            let b = backend.clone();
+                            let id = a.id;
+                            move |()| mark_answer_seen(b.as_ref(), model, id)
+                        },
+                    }
+                } else {
+                    button {
+                        class: "secondary",
+                        onclick: move |_| model.write().open_requests(None),
+                        "See your requests"
+                    }
                 }
             }
         }
