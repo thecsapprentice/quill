@@ -412,6 +412,19 @@ impl Client {
         Self::json(self.request(Method::GET, "/tags")?.query(query)).await
     }
 
+    /// One page of a tag type's tags, with how many prompts carry each.
+    pub async fn tag_page(
+        &self,
+        namespace: &str,
+        query: &quill_proto::board::TagPageQuery,
+    ) -> Result<quill_proto::board::TagPage, CoreError> {
+        let mut url = self.url("/tag-namespaces")?;
+        url.path_segments_mut()
+            .map_err(|()| CoreError::Url(url::ParseError::RelativeUrlWithCannotBeABaseBase))?
+            .extend([namespace, "tags"]);
+        Self::json(self.http.request(Method::GET, url).query(query)).await
+    }
+
     /// The tags this login uses most, for `persona` (see `GET /tags/frequent`).
     pub async fn frequent_tags(&self, persona: Option<Uuid>) -> Result<Vec<Tag>, CoreError> {
         let query = quill_proto::board::FrequentTagsQuery { persona };

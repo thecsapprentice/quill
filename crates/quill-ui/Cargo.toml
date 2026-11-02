@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+quill-board-ui.workspace = true
 quill-proto.workspace = true
 
 dioxus = { workspace = true, features = ["hooks", "document"] }
@@ -19,7 +20,7 @@ pulldown-cmark = { workspace = true, default-features = false }
 dioxus-core = { version = "=0.7.10", optional = true }
 dioxus-html = { version = "=0.7.10", default-features = false, features = ["serialize"], optional = true }
 serde_json = { workspace = true, optional = true }
-tokio = { workspace = true, features = ["time"], optional = true }
+tokio = { workspace = true, features = ["time", "sync"], optional = true }
 time = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true

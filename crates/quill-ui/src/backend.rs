@@ -7,8 +7,15 @@
 
 use std::{future::Future, pin::Pin};
 
-pub use quill_proto::api::Persona;
 use quill_proto::board::Maturity;
+pub use quill_proto::{
+    api::Persona,
+    board::{
+        AccountSettings, CreatePrompt, CreateReport, Prompt, PromptPage, PromptQuery, Tag,
+        TagNamespace, TagPage, TagPageQuery, TagPolicy, TagQuery, UpdatePrompt,
+    },
+    notices::AccountNotice,
+};
 use uuid::Uuid;
 
 /// The shortest store passphrase, as in the CLI.
@@ -33,6 +40,9 @@ pub enum Problem {
     /// The name asked for (a login or a handle) isn't available.
     #[error("That name isn't available.")]
     Taken,
+    /// What was asked for is gone: deleted, or no longer shown to you.
+    #[error("That's gone: it was deleted, or isn't shown to you any more.")]
+    Gone,
     /// The server rules must be accepted first (read them, then accept):
     /// on joining, or after they change.
     #[error("{0}")]
@@ -259,6 +269,32 @@ pub trait Backend {
     /// calling `progress` as each step starts. Safe to call again after a
     /// failure: it carries on from where it stopped.
     fn prepare<'a>(&'a self, persona: Uuid, progress: &'a dyn Fn(Step)) -> Call<'a, ()>;
+
+    // ---- The board ------------------------------------------------------------------------
+
+    /// The login's board settings and unread notice count.
+    fn account(&self) -> Call<'_, AccountSettings>;
+    /// One page of the board, newest first.
+    fn prompts(&self, query: PromptQuery) -> Call<'_, PromptPage>;
+    fn prompt(&self, id: Uuid) -> Call<'_, Prompt>;
+    fn create_prompt(&self, body: CreatePrompt) -> Call<'_, Prompt>;
+    fn update_prompt(&self, id: Uuid, body: UpdatePrompt) -> Call<'_, Prompt>;
+    fn delete_prompt(&self, id: Uuid) -> Call<'_, ()>;
+    /// The board's address for a prompt, to share.
+    fn prompt_link(&self, id: Uuid) -> Option<String>;
+    fn tag_types(&self) -> Call<'_, Vec<TagNamespace>>;
+    /// Whether writers may add new tags, and whether those need approval.
+    fn tag_policy(&self) -> Call<'_, TagPolicy>;
+    /// One page of a tag type's tags with their prompt counts.
+    fn tag_page<'a>(&'a self, namespace: &'a str, query: TagPageQuery) -> Call<'a, TagPage>;
+    /// Tags whose names start with `query.prefix` (the tag picker).
+    fn find_tags(&self, query: TagQuery) -> Call<'_, Vec<Tag>>;
+    /// The tags the login uses most, for `persona`.
+    fn frequent_tags(&self, persona: Option<Uuid>) -> Call<'_, Vec<Tag>>;
+    fn report(&self, body: CreateReport) -> Call<'_, ()>;
+    /// The login's notices, newest first, before notice `before`.
+    fn notices(&self, before: Option<i64>) -> Call<'_, Vec<AccountNotice>>;
+    fn mark_notices_read(&self) -> Call<'_, ()>;
 
     // ---- Upkeep and settings --------------------------------------------------------------
 

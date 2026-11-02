@@ -113,6 +113,7 @@ fn PersonaItem(state: PersonaState) -> Element {
         });
     };
     let display_check = checks::display_name(&display());
+    let summary_check = checks::length(&summary(), quill_proto::limits::SUMMARY_MAX_CHARS);
     rsx! {
         li { class: "item",
             header {
@@ -166,11 +167,12 @@ fn PersonaItem(state: PersonaState) -> Element {
                         label: "About this persona",
                         id: "summary-{id}",
                         initial: summary.peek().clone(),
-                        hint: "Optional. Shown on your prompts and requests.",
+                        hint: format!("Optional. Shown on your prompts and requests. {}", summary_check.hint),
+                        invalid: summary_check.invalid,
                         oninput: move |t| summary.set(t),
                     }
                     div { class: "actions",
-                        button { class: "primary", disabled: busy(), onclick: save, "Save" }
+                        button { class: "primary", disabled: busy() || summary_check.invalid || display_check.invalid, onclick: save, "Save" }
                         button { class: "quiet", onclick: move |_| mode.set(Mode::Showing), "Cancel" }
                     }
                 },

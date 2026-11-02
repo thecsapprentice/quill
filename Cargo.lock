@@ -5953,6 +5953,7 @@ dependencies = [
  "dioxus-html",
  "dioxus-ssr",
  "pulldown-cmark",
+ "quill-board-ui",
  "quill-proto",
  "quill-ui",
  "serde",

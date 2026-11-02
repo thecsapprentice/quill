@@ -20,11 +20,14 @@ use dioxus::prelude::*;
 use dioxus_core::{
     AttributeValue, ElementId, Template, TemplateAttribute, TemplateNode, WriteMutations,
 };
-use dioxus_html::HtmlEvent;
+use dioxus_html::{HtmlEvent, PlatformEventData};
 
 use crate::{App, Backend, Ui, app::StartWith, model::Model};
 
+mod mounted;
 mod sim;
+
+pub use mounted::Asked;
 pub use sim::{Acceptance, Sim, SimServer};
 
 /// How long a wait gives up after.
@@ -373,6 +376,10 @@ impl WriteMutations for Doc {
 pub struct Driver {
     dom: VirtualDom,
     doc: Doc,
+    /// Nodes already sent their `mounted` event.
+    mounted: HashSet<usize>,
+    /// What the app asked of mounted elements, by node, in order.
+    asked: Vec<(usize, Asked)>,
 }
 
 impl Driver {
@@ -387,7 +394,7 @@ impl Driver {
     }
 
     fn start(backend: Rc<dyn Backend>, model: Option<Model>) -> Self {
-        dioxus_html::set_event_converter(Box::new(dioxus_html::SerializedHtmlEventConverter));
+        dioxus_html::set_event_converter(Box::new(mounted::Converter));
         let mut dom = VirtualDom::new(App);
         dom.provide_root_context(Ui(backend));
         if let Some(m) = model {
@@ -395,7 +402,55 @@ impl Driver {
         }
         let mut doc = Doc::new();
         dom.rebuild(&mut doc);
-        Self { dom, doc }
+        let mut d = Self {
+            dom,
+            doc,
+            mounted: HashSet::new(),
+            asked: Vec::new(),
+        };
+        d.mount_new();
+        d
+    }
+
+    /// Sends `mounted` to elements that appeared and listen for it, as the
+    /// webview does after inserting them.
+    fn mount_new(&mut self) {
+        loop {
+            let fresh: Vec<(usize, ElementId)> = self
+                .doc
+                .attached()
+                .into_iter()
+                .filter(|n| !self.mounted.contains(n))
+                .filter(|n| self.doc.nodes[*n].listeners.contains("mounted"))
+                .filter_map(|n| self.doc.nodes[n].id.map(|id| (n, id)))
+                .collect();
+            if fresh.is_empty() {
+                break;
+            }
+            for (n, id) in fresh {
+                self.mounted.insert(n);
+                let data = PlatformEventData::new(Box::new(mounted::Mounted(n)));
+                let event = dioxus_core::Event::new(Rc::new(data) as Rc<dyn std::any::Any>, false);
+                self.dom.runtime().handle_event("mounted", event, id);
+            }
+            self.dom.render_immediate(&mut self.doc);
+        }
+        self.asked.extend(mounted::take());
+    }
+
+    /// What the app asked of elements with `class` (scrolling, focus) since
+    /// the last call, oldest first.
+    pub fn asked_of(&mut self, class: &str) -> Vec<Asked> {
+        self.asked.extend(mounted::take());
+        let (theirs, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.asked)
+            .into_iter()
+            .partition(|(n, _)| {
+                self.doc
+                    .attr(*n, "class")
+                    .is_some_and(|c| c.split_whitespace().any(|w| w == class))
+            });
+        self.asked = rest;
+        theirs.into_iter().map(|(_, a)| a).collect()
     }
 
     /// Lets pending work (backend calls, timers, re-renders) run until
@@ -406,6 +461,7 @@ impl Driver {
                 .await
                 .is_err();
             self.dom.render_immediate(&mut self.doc);
+            self.mount_new();
             if quiet {
                 return;
             }
@@ -461,11 +517,19 @@ impl Driver {
             .unwrap_or_else(|| panic!("no #{id}; the window shows:\n{}", self.text()))
     }
 
+    /// A button's accessible name: its `aria-label`, else its text, as a
+    /// screen reader would read it.
+    fn name_of(&self, n: usize) -> String {
+        self.doc
+            .attr(n, "aria-label")
+            .map_or_else(|| self.doc.text_of(n), str::to_owned)
+    }
+
     fn button(&self, label: &str) -> Option<usize> {
         self.doc
             .attached()
             .into_iter()
-            .find(|n| self.doc.tag(*n) == Some("button") && self.doc.text_of(*n) == label)
+            .find(|n| self.doc.tag(*n) == Some("button") && self.name_of(*n) == label)
     }
 
     /// The `n`th button labelled `label`, counting from 0 in page order.
@@ -474,7 +538,7 @@ impl Driver {
             .doc
             .attached()
             .into_iter()
-            .filter(|b| self.doc.tag(*b) == Some("button") && self.doc.text_of(*b) == label)
+            .filter(|b| self.doc.tag(*b) == Some("button") && self.name_of(*b) == label)
             .nth(n)
             .unwrap_or_else(|| {
                 panic!(
@@ -531,6 +595,45 @@ impl Driver {
             .any(|n| self.doc.tag(n) == Some(tag))
     }
 
+    /// The first element with `class`, if any.
+    fn with_class(&self, class: &str) -> Option<usize> {
+        self.doc.attached().into_iter().find(|n| {
+            self.doc
+                .attr(*n, "class")
+                .is_some_and(|c| c.split_whitespace().any(|w| w == class))
+        })
+    }
+
+    /// The text inside the first element with `class` (empty if none).
+    pub fn text_within(&self, class: &str) -> String {
+        self.with_class(class)
+            .map(|n| self.doc.text_of(n))
+            .unwrap_or_default()
+    }
+
+    /// Whether an element with class `inner` sits inside one with `outer`:
+    /// for layout that decides what's seen (inside a scrolling box, say).
+    pub fn class_within(&self, outer: &str, inner: &str) -> bool {
+        fn walk(doc: &Doc, n: usize, class: &str) -> bool {
+            doc.nodes[n].children.iter().any(|c| {
+                doc.attr(*c, "class")
+                    .is_some_and(|v| v.split_whitespace().any(|w| w == class))
+                    || walk(doc, *c, class)
+            })
+        }
+        self.with_class(outer)
+            .is_some_and(|n| walk(&self.doc, n, inner))
+    }
+
+    /// Whether an element with `class` is in the window.
+    pub fn has_element_with_class(&self, class: &str) -> bool {
+        self.doc.attached().into_iter().any(|n| {
+            self.doc
+                .attr(n, "class")
+                .is_some_and(|c| c.split_whitespace().any(|w| w == class))
+        })
+    }
+
     pub fn has_button(&self, label: &str) -> bool {
         self.button(label).is_some()
     }
@@ -567,6 +670,7 @@ impl Driver {
         let event = dioxus_core::Event::new(event.data.into_any(), event.bubbles);
         self.dom.runtime().handle_event(name, event, target);
         self.dom.render_immediate(&mut self.doc);
+        self.mount_new();
     }
 
     /// Clicks the button labelled `label`. A disabled button can't be
@@ -581,6 +685,79 @@ impl Driver {
             self.text()
         );
         self.send(b, "click", mouse());
+        self.settle().await;
+    }
+
+    /// Clicks the first button whose text contains `text` (a list row,
+    /// whose label is its title and details).
+    pub async fn click_containing(&mut self, text: &str) {
+        let b = self
+            .doc
+            .attached()
+            .into_iter()
+            .find(|n| self.doc.tag(*n) == Some("button") && self.doc.text_of(*n).contains(text))
+            .unwrap_or_else(|| {
+                panic!(
+                    "no button with \"{text}\"; the window shows:\n{}",
+                    self.text()
+                )
+            });
+        self.send(b, "click", mouse());
+        self.settle().await;
+    }
+
+    /// Whether a button's text contains `text`.
+    pub fn has_button_containing(&self, text: &str) -> bool {
+        self.doc
+            .attached()
+            .into_iter()
+            .any(|n| self.doc.tag(n) == Some("button") && self.doc.text_of(n).contains(text))
+    }
+
+    /// Clicks the element with `id` (a button among others with the same
+    /// label, such as a row's Has).
+    pub async fn click_id(&mut self, id: &str) {
+        let el = self.by_id(id);
+        assert!(
+            self.doc.attr(el, "disabled").is_none(),
+            "#{id} is disabled; the window shows:\n{}",
+            self.text()
+        );
+        self.send(el, "click", mouse());
+        self.settle().await;
+    }
+
+    /// Whether the element with `id` is pressed (`aria-pressed`).
+    pub fn pressed(&self, id: &str) -> bool {
+        self.attr(id, "aria-pressed").as_deref() == Some("true")
+    }
+
+    /// Scrolls the element with `class` into view, as the webview reports
+    /// it (a `visible` event), whichever box does the scrolling.
+    pub async fn bring_into_view(&mut self, class: &str) {
+        let el = self
+            .doc
+            .attached()
+            .into_iter()
+            .find(|n| {
+                self.doc
+                    .attr(*n, "class")
+                    .is_some_and(|c| c.split_whitespace().any(|w| w == class))
+            })
+            .unwrap_or_else(|| panic!("no .{class}; the window shows:\n{}", self.text()));
+        let rect = serde_json::json!({
+            "bottom": 600.0, "height": 1.0, "left": 0.0, "right": 400.0,
+            "top": 599.0, "width": 400.0, "x": 0.0, "y": 599.0
+        });
+        let data = serde_json::json!({
+            "bounding_client_rect": rect,
+            "intersection_ratio": 1.0,
+            "intersection_rect": rect,
+            "is_intersecting": true,
+            "root_bounds": rect,
+            "time_ms": 0
+        });
+        self.send(el, "visible", data);
         self.settle().await;
     }
 
@@ -616,6 +793,20 @@ impl Driver {
         let field = self.by_id(id);
         self.send(field, "change", form(if on { "true" } else { "false" }));
         self.settle().await;
+    }
+
+    /// Chooses the option reading `label` in the select with `id`, as a
+    /// writer picks from the list.
+    pub async fn choose_labelled(&mut self, id: &str, label: &str) {
+        let select = self.by_id(id);
+        let value = self.doc.nodes[select]
+            .children
+            .iter()
+            .find(|c| self.doc.tag(**c) == Some("option") && self.doc.text_of(**c) == label)
+            .and_then(|c| self.doc.attr(*c, "value"))
+            .unwrap_or_else(|| panic!("#{id} has no option {label:?}"))
+            .to_owned();
+        self.choose(id, &value).await;
     }
 
     /// Chooses the option with `value` in the select with `id`.

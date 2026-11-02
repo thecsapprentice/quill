@@ -9,7 +9,9 @@ use uuid::Uuid;
 use crate::{
     app::{ProblemLine, open_server, use_ui},
     backend::{Backend, Keys},
+    board::{BoardEpoch, BoardPage, BoardState, MineState, MyPromptsPage},
     model::{Section, Status},
+    notices::NoticesPage,
     personas::PersonasPage,
     server_rules::RulesPage,
     settings::SettingsPage,
@@ -37,7 +39,7 @@ pub fn Frame() -> Element {
         div { class: "frame",
             Nav {}
             main { class: "main", id: "main",
-                div { class: "page",
+                div { class: if matches!(section, Section::Board | Section::MyPrompts) { "page wide" } else { "page" },
                     if rules_banner {
                         div { class: "nudge", role: "status",
                             p { "The server rules have changed. Read and accept them to keep posting, editing, commenting and reporting." }
@@ -50,14 +52,33 @@ pub fn Frame() -> Element {
                     if let Some(p) = problem {
                         ProblemLine { problem: p }
                     }
+                    // Keyed by server: each has its own board and filters.
+                    for k in [server.unwrap_or_default()] {
+                        Sections { key: "{k}", section }
+                    }
+                }
+            }
+            StatusLine {}
+            if let Some(server) = server {
+                // Keyed: a new server, or "Try now", restarts the loop.
+                Upkeep { key: "{key}", server }
+            }
+        }
+    }
+}
+
+/// The section in view, with state that lasts while the server is open.
+#[component]
+fn Sections(section: Section) -> Element {
+    use_context_provider(|| Signal::new(BoardState::default()));
+    use_context_provider(|| MineState(Signal::new(BoardState::mine())));
+    use_context_provider(|| BoardEpoch(Signal::new(0)));
+    rsx! {
                     match section {
                         Section::Home => rsx! { Home {} },
-                        Section::Board => rsx! {
-                            Coming {
-                                title: "Board",
-                                text: "The prompt board comes next: browse prompts, post your own, and ask to write with the people behind them.",
-                            }
-                        },
+                        Section::Board => rsx! { BoardPage {} },
+                        Section::MyPrompts => rsx! { MyPromptsPage {} },
+                        Section::Notices => rsx! { NoticesPage {} },
                         Section::Requests => rsx! {
                             Coming {
                                 title: "Requests",
@@ -74,14 +95,6 @@ pub fn Frame() -> Element {
                         Section::Settings => rsx! { SettingsPage {} },
                         Section::Rules => rsx! { RulesPage {} },
                     }
-                }
-            }
-            StatusLine {}
-            if let Some(server) = server {
-                // Keyed: a new server, or "Try now", restarts the loop.
-                Upkeep { key: "{key}", server }
-            }
-        }
     }
 }
 
@@ -95,6 +108,7 @@ fn Nav() -> Element {
     let persona = m.persona.map(|p| p.to_string()).unwrap_or_default();
     let section = m.section;
     let signed_in = m.signed_in();
+    let unread = m.unread;
     drop(m);
 
     let b = backend.clone();
@@ -151,13 +165,17 @@ fn Nav() -> Element {
                     }
                 }
             }
-            for s in Section::ALL {
+            // A login's own prompts and notices need it signed in.
+            for s in Section::ALL.into_iter().filter(|s| signed_in || !matches!(s, Section::MyPrompts | Section::Notices)) {
                 button {
                     key: "{s.label()}",
                     class: "section",
                     aria_current: if s == section { "page" } else { "false" },
                     onclick: move |_| model.write().go(s),
                     "{s.label()}"
+                    if s == Section::Notices && unread > 0 {
+                        span { class: "badge", " {unread}" span { class: "sr-only", " unread" } }
+                    }
                 }
             }
         }
@@ -250,6 +268,10 @@ fn Upkeep(server: Uuid) -> Element {
                 } else if signed_in {
                     let result = b.upkeep().await;
                     model.write().upkept(server, result);
+                    // The account says how many notices are unread.
+                    if let Ok(account) = b.account().await {
+                        model.write().unread_loaded(server, account.unread_notices);
+                    }
                 }
                 // The rules too, to notice a change that needs accepting.
                 let reachable = {
@@ -330,7 +352,7 @@ fn Home() -> Element {
             }
         }
         p { class: "coming",
-            "The prompt board, requests and writing sessions are on their way. For now you can make personas and set Quill up the way you like in Settings."
+            "Find a prompt to write on the Board, or post your own. Requests to write together and writing sessions are on their way."
         }
     }
 }

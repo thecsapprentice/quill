@@ -18,6 +18,10 @@ use quill_proto::{
     board::UpdateAccountSettings,
 };
 use quill_ui::backend::{
+    AccountNotice, AccountSettings, CreatePrompt, CreateReport, Prompt, PromptPage, PromptQuery,
+    Tag, TagNamespace, TagPage, TagPageQuery, TagPolicy, TagQuery, UpdatePrompt,
+};
+use quill_ui::backend::{
     AppSettings, Backend, BoardSettings, Call, Details, Keys, PASSPHRASE_MIN_CHARS, PersonaState,
     Problem, Protection, ServerEntry, ServerInfo, ServerRules, Standing, Step, Theme,
 };
@@ -82,6 +86,7 @@ fn problem(server: &str, e: CoreError) -> Problem {
         CoreError::NotLoggedIn => Problem::SignedOut,
         CoreError::Api(p) if p.status == 401 => Problem::SignedOut,
         CoreError::Api(p) if p.status == 409 => Problem::Taken,
+        CoreError::Api(p) if p.status == 404 || p.status == 410 => Problem::Gone,
         CoreError::Api(p) if p.kind.ends_with("/rules-not-accepted") => Problem::RulesNotAccepted(
             p.detail
                 .clone()
@@ -190,6 +195,23 @@ impl NativeBackend {
         lock(&self.open)
             .clone()
             .ok_or_else(|| failed("no server is open"))
+    }
+
+    /// Runs a call on the open server's client, on the background runtime,
+    /// with its errors in the writer's words.
+    fn call<'a, T, F, Fut>(&'a self, work: F) -> Call<'a, T>
+    where
+        T: Send + 'static,
+        F: FnOnce(Client) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<T, CoreError>> + Send + 'static,
+    {
+        let open = self.opened();
+        Box::pin(async move {
+            let open = open?;
+            let name = open.name.clone();
+            self.run(async move { work(open.client).await.map_err(|e| problem(&name, e)) })
+                .await
+        })
     }
 
     /// Runs `work` on the background runtime.
@@ -874,6 +896,69 @@ impl Backend for NativeBackend {
             })
             .await
         })
+    }
+
+    fn account(&self) -> Call<'_, AccountSettings> {
+        self.call(|c| async move { c.account().await })
+    }
+
+    fn prompts(&self, query: PromptQuery) -> Call<'_, PromptPage> {
+        self.call(|c| async move { c.prompts(&query).await })
+    }
+
+    fn prompt(&self, id: Uuid) -> Call<'_, Prompt> {
+        self.call(move |c| async move { c.prompt(id).await })
+    }
+
+    fn create_prompt(&self, body: CreatePrompt) -> Call<'_, Prompt> {
+        self.call(|c| async move { c.create_prompt(&body).await })
+    }
+
+    fn update_prompt(&self, id: Uuid, body: UpdatePrompt) -> Call<'_, Prompt> {
+        self.call(move |c| async move { c.update_prompt(id, &body).await })
+    }
+
+    fn delete_prompt(&self, id: Uuid) -> Call<'_, ()> {
+        self.call(move |c| async move { c.delete_prompt(id).await })
+    }
+
+    fn prompt_link(&self, id: Uuid) -> Option<String> {
+        let open = lock(&self.open).clone()?;
+        let address = lock(&self.settings).server(open.id)?.address.clone();
+        Some(format!("{address}/p/{id}"))
+    }
+
+    fn tag_types(&self) -> Call<'_, Vec<TagNamespace>> {
+        self.call(|c| async move { c.tag_namespaces().await })
+    }
+
+    fn tag_policy(&self) -> Call<'_, TagPolicy> {
+        self.call(|c| async move { c.instance().await.map(|i| i.tag_policy) })
+    }
+
+    fn tag_page<'a>(&'a self, namespace: &'a str, query: TagPageQuery) -> Call<'a, TagPage> {
+        let namespace = namespace.to_owned();
+        self.call(move |c| async move { c.tag_page(&namespace, &query).await })
+    }
+
+    fn find_tags(&self, query: TagQuery) -> Call<'_, Vec<Tag>> {
+        self.call(|c| async move { c.tags(&query).await })
+    }
+
+    fn frequent_tags(&self, persona: Option<Uuid>) -> Call<'_, Vec<Tag>> {
+        self.call(move |c| async move { c.frequent_tags(persona).await })
+    }
+
+    fn report(&self, body: CreateReport) -> Call<'_, ()> {
+        self.call(|c| async move { c.report(&body).await })
+    }
+
+    fn notices(&self, before: Option<i64>) -> Call<'_, Vec<AccountNotice>> {
+        self.call(move |c| async move { c.notices(before).await })
+    }
+
+    fn mark_notices_read(&self) -> Call<'_, ()> {
+        self.call(|c| async move { c.mark_notices_read().await })
     }
 
     fn board_settings(&self) -> Call<'_, BoardSettings> {

@@ -339,6 +339,63 @@ pub struct FrequentTagsQuery {
     pub persona: Option<Uuid>,
 }
 
+string_enum! {
+    /// How a tag type's tags are listed with their counts.
+    TagOrder {
+        /// The tags on most prompts first.
+        Used => "used",
+        /// A to Z by display name.
+        Name => "name",
+    }
+}
+
+/// The most tags one page of `GET /tag-namespaces/{name}/tags` returns.
+pub const TAG_PAGE_MAX: u32 = 100;
+
+/// `GET /tag-namespaces/{name}/tags` query: one page of a tag type's tags.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "openapi",
+    derive(utoipa::IntoParams),
+    into_params(parameter_in = Query)
+)]
+#[serde(rename_all = "camelCase")]
+pub struct TagPageQuery {
+    /// Keeps tags whose display name contains this, case-insensitively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<String>,
+    /// Keeps tags whose display name starts with this letter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub letter: Option<char>,
+    /// `used` (the default) or `name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<TagOrder>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u32>,
+    /// At most [`TAG_PAGE_MAX`]; 30 when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// A tag and how many prompts on the board carry it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CountedTag {
+    pub tag: Tag,
+    pub prompts: u64,
+}
+
+/// One page of a tag type's visible tags.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TagPage {
+    pub items: Vec<CountedTag>,
+    /// How many tags matched, across pages.
+    pub total: u64,
+}
+
 /// `POST /tags`: a user creates a tag in an unlocked namespace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

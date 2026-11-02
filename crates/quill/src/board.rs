@@ -152,6 +152,22 @@ pub enum TagCommand {
         #[arg(long)]
         limit: Option<u32>,
     },
+    /// Browse one tag type's tags with how many prompts carry each.
+    Browse {
+        namespace: String,
+        /// Keep tags whose name contains this.
+        #[arg(long)]
+        search: Option<String>,
+        /// Keep tags whose name starts with this letter.
+        #[arg(long)]
+        letter: Option<char>,
+        /// A to Z instead of most used first.
+        #[arg(long)]
+        by_name: bool,
+        /// The page, from 1.
+        #[arg(long, default_value_t = 1)]
+        page: u32,
+    },
     /// Create a tag (if the server allows user tags).
     Create { namespace: String, name: String },
     /// The tags you use most, as the post form suggests them.
@@ -583,6 +599,37 @@ pub async fn tags(ctx: &Ctx, cmd: TagCommand) -> Result<()> {
                 for t in l {
                     println!("{:<36} {}  ({})", t.key(), t.display, t.origin);
                 }
+            })
+        }
+        TagCommand::Browse {
+            namespace,
+            search,
+            letter,
+            by_name,
+            page,
+        } => {
+            const PER_PAGE: u32 = 30;
+            let found = client
+                .tag_page(
+                    &namespace,
+                    &quill_proto::board::TagPageQuery {
+                        search,
+                        letter,
+                        order: Some(if by_name {
+                            quill_proto::board::TagOrder::Name
+                        } else {
+                            quill_proto::board::TagOrder::Used
+                        }),
+                        offset: Some(page.saturating_sub(1).saturating_mul(PER_PAGE)),
+                        limit: Some(PER_PAGE),
+                    },
+                )
+                .await?;
+            ctx.print(&found, |p| {
+                for c in &p.items {
+                    println!("{:>6}  {:<36} {}", c.prompts, c.tag.key(), c.tag.display);
+                }
+                println!("({} of {} tags)", p.items.len(), p.total);
             })
         }
         TagCommand::Create { namespace, name } => {

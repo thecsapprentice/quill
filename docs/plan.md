@@ -637,6 +637,15 @@ Dioxus desktop runs the app in native Rust and sends DOM changes to the webview,
 - **First persona: pushed, not forced.** A login made or signed into during this run goes to "Make your first persona", which has a quiet Not now. Later starts with no persona go straight to the frame, which keeps a gentle prompt on Home.
 - **No keychain.** Where the OS has none (some Linux setups), adding a server asks for a passphrase (12 characters or more, as in the CLI), and opening it asks for it once per session.
 
+### The board in the desktop app (3c)
+
+- **Board state lives for the server in view, not the screen.** The frame keeps a `BoardState` (filter, loaded pages, open prompt, tag types) per server, so a visit to Settings and back finds the board where it was. Switching servers starts afresh. My prompts keeps a second `BoardState` of its own (`author=me`), so its list, open prompt and persona choice don't disturb the Board's.
+- **Loads belong to the app.** A page load is started as the app's task, not the screen's (`spawn_forever`), because "Show prompts" closes the filter builder that asked before the reply arrives. A round number, bumped by each new load, drops a slow, older reply.
+- **The filter builder edits a copy.** Leaving it any way but "Show prompts" keeps the filter in use. Each tag type is paged from `GET /tag-namespaces/{name}/tags` (searched, A–Z or most used, by first letter), so a type with thousands of tags stays usable.
+- **The post form says what stops posting.** Each type's min and max (#52) come from the server; Post stays disabled and the line under it lists what's missing ("1 length tag", "fewer genre tags"). A full type takes no more until one is removed. New tags must be typed with their type ("theme: memory") and show "new, needs approval" when the server's policy asks for it. A refusal by moderation or for unaccepted rules keeps everything typed.
+- **My prompts' persona filter runs in the client.** The server's handle filter (`author=<handle>`) leaves out removed prompts, which only `author=me` includes. So My prompts asks for `me` and narrows by persona as it lists; an empty page offers more rather than saying there's nothing.
+- **Notices are read by opening them.** Upkeep asks `GET /account` for the unread count shown in the nav. Opening Notices marks them read, and the count goes at once. A notice's prompts open in My prompts, the one place a removed prompt still shows.
+
 ### Testing the desktop app
 
 Bugs found by hand in 3b were all in how screens react to clicks and typing: work dropped when its screen went away, and a sign-up screen that never learned the rules had become required. The tests then in place rendered static HTML or called the backend directly, so they couldn't catch these. The GUI is now tested in four layers:
@@ -645,11 +654,11 @@ Bugs found by hand in 3b were all in how screens react to clicks and typing: wor
 | --- | --- | --- |
 | Model | `quill-ui/src/model.rs` tests | The model's transitions, one backend result at a time |
 | Views | `quill-ui/src/view_tests.rs` | Static HTML: labels, roles, input hints, no ids outside advanced mode |
-| Interactions | `quill-ui/tests/flows.rs` | The whole app, clicked and typed by label, against `testing::Sim` |
+| Interactions | `quill-ui/tests/` (`flows.rs`, `board.rs`, `mine.rs`) | The whole app, clicked and typed by label, against `testing::Sim` |
 | Interactions, real | `quill-e2e/tests/gui_flows.rs` | The same driver on the native backend against a real server |
 
-- **The driver (`quill_ui::testing::Driver`)** runs the app headless. Its document is built from the same mutations the webview applies, and events enter as the webview's JSON, through dioxus-desktop's own path. So handlers, tasks and the model run as they do in the window. A disabled button can't be clicked, and a failed wait prints what the window shows.
-- **The simulated server (`testing::Sim`)** keeps state like the real one: logins, personas and keys, rules with versions and acceptance settings, closed registration, outages and passphrase stores. Tests change it mid-flow. The real-server interaction tests check that it stays faithful for the paths that matter most.
+- **The driver (`quill_ui::testing::Driver`)** runs the app headless. It finds buttons by their accessible name (`aria-label`, else text), as a screen reader would. Its document is built from the same mutations the webview applies, and events enter as the webview's JSON, through dioxus-desktop's own path. So handlers, tasks and the model run as they do in the window. A disabled button can't be clicked, and a failed wait prints what the window shows.
+- **The simulated server (`testing::Sim`)** keeps state like the real one: logins, personas and keys, rules with versions and acceptance settings, closed registration, outages and passphrase stores. Since 3c it also runs the board by the server's rules: tag types with limits and policies, 15 tags a prompt, pages of 20, search, removal, reports and notices. Tests change it mid-flow. The real-server interaction tests check that it stays faithful for the paths that matter most.
 - **What the driver can't see:** the webview itself (focus, input methods, rendering, platform quirks). Those stay hand checks; `scripts/dev-gui.py` sets up a seeded server and a fresh GUI for them.
 - **Every bug found by hand gets an interaction test** that fails before the fix.
 

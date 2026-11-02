@@ -32,6 +32,38 @@ impl Check {
     }
 }
 
+/// A number as people write it: 20,000 rather than 20000.
+fn count(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Text with a length limit the server enforces: the limit while empty,
+/// then how much is used, and how far over once over. Counted as the
+/// server counts, in characters, ignoring spaces at either end.
+pub fn length(input: &str, max: usize) -> Check {
+    let n = input.trim().chars().count();
+    if n == 0 {
+        return Check::fine(format!("Up to {} characters.", count(max)));
+    }
+    if n > max {
+        return Check::wrong(format!(
+            "{} of {} characters: {} too many.",
+            count(n),
+            count(max),
+            count(n - max)
+        ));
+    }
+    Check::fine(format!("{} of {} characters.", count(n), count(max)))
+}
+
 /// A login name or a persona handle: the same rule on the server.
 fn name(input: &str, rule: &str, shown: impl Fn(&str) -> String) -> Check {
     let trimmed = input.trim();
@@ -70,7 +102,7 @@ pub fn handle(input: &str) -> Check {
 }
 
 /// How many more characters a secret needs.
-fn length(input: &str, min: usize) -> Check {
+fn at_least(input: &str, min: usize) -> Check {
     let have = input.chars().count();
     match have {
         0 => Check::fine(format!("At least {min} characters.")),
@@ -84,11 +116,11 @@ fn length(input: &str, min: usize) -> Check {
 }
 
 pub fn password(input: &str) -> Check {
-    length(input, PASSWORD_MIN_CHARS)
+    at_least(input, PASSWORD_MIN_CHARS)
 }
 
 pub fn passphrase(input: &str) -> Check {
-    length(input, PASSPHRASE_MIN_CHARS)
+    at_least(input, PASSPHRASE_MIN_CHARS)
 }
 
 pub fn display_name(input: &str) -> Check {
@@ -122,6 +154,20 @@ pub fn suggestions(taken: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_length_limit_is_said_as_text_is_typed() {
+        assert_eq!(length("", 200), Check::fine("Up to 200 characters."));
+        assert_eq!(length("  abc  ", 200), Check::fine("3 of 200 characters."));
+        assert_eq!(
+            length(&"x".repeat(20_001), 20_000),
+            Check::wrong("20,001 of 20,000 characters: 1 too many.")
+        );
+        assert!(
+            !length(&"é".repeat(200), 200).invalid,
+            "characters, not bytes"
+        );
+    }
 
     #[test]
     fn names_say_what_is_wrong_as_you_type() {
