@@ -282,7 +282,10 @@ mod tests {
     #[test]
     fn answers_name_their_note_by_its_first_line() {
         assert_eq!(first_line("\n# Chapter one\nThe sea."), "Chapter one");
-        assert_eq!(first_line("I'd write the **ghost** *here*."), "I'd write the ghost here.");
+        assert_eq!(
+            first_line("I'd write the **ghost** *here*."),
+            "I'd write the ghost here."
+        );
         assert_eq!(first_line("> - `quoted` list"), "quoted list");
         assert_eq!(first_line(&"x".repeat(70)).chars().count(), 61);
     }

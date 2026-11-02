@@ -127,7 +127,13 @@ async fn notes_arrive_live_and_their_counts_clear_once_read() {
 async fn named_channels_answers_edits_and_deletions_show() {
     let sim = sim();
     let (mut d, id) = with_a_session(&sim).await;
-    let first = sim.write_as(SERVER, &id, "wren", "story", "Chapter one begins at **sea**.");
+    let first = sim.write_as(
+        SERVER,
+        &id,
+        "wren",
+        "story",
+        "Chapter one begins at **sea**.",
+    );
     sim.name_channel(SERVER, &id, "research", "Ships and tides.");
     sim.reply_as(
         SERVER,
