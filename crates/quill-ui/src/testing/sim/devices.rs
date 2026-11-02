@@ -7,7 +7,7 @@
 use uuid::Uuid;
 
 use super::{Problem, Sim, SimServer, Store, refused};
-use crate::backend::{Approval, Device, LinkStart, PersonaKeys, RemoveReason};
+use crate::backend::{Approval, Device, LinkStart, PersonaKeys, RemoveReason, codes};
 
 /// Words a link can show; each new link takes the next six.
 const WORDS: [&str; 24] = [
@@ -263,7 +263,10 @@ impl Sim {
     pub(super) fn sim_rename_device(&self, name: &str) -> Result<(), Problem> {
         let name = name.trim().to_owned();
         if name.chars().count() > crate::backend::DEVICE_NAME_MAX {
-            return Err(refused("A device name is at most 40 characters."));
+            return Err(refused(
+                codes::DEVICE_NAME_BAD,
+                "A device name is at most 40 characters.",
+            ));
         }
         self.reach()?;
         let name = Some(name).filter(|n| !n.is_empty());
@@ -322,7 +325,10 @@ impl Sim {
         let (domain, login) = self.signed_in().map(|(l, s)| (s.domain, l))?;
         self.with_server_mut(|server, store| {
             if store.here.device.is_some() && !store.here.removed {
-                return Err(refused("This computer is already one of your devices."));
+                return Err(refused(
+                    codes::DEVICES_CHECK_FAILED,
+                    "This computer is already one of your devices.",
+                ));
             }
             // Linking again after a removal starts afresh.
             store.here.device = None;
@@ -397,6 +403,7 @@ impl Sim {
         let words: Vec<String> = typed.split_whitespace().map(str::to_owned).collect();
         if !by_code && words.len() != 6 {
             return Err(refused(
+                codes::LINK_CODE_BAD,
                 "Type the six words the new computer shows, or paste its whole link code.",
             ));
         }
@@ -480,7 +487,7 @@ impl Sim {
                 .personas
                 .iter_mut()
                 .find(|(_, p, _)| p.id == persona)
-                .ok_or_else(|| refused("That persona is gone."))?;
+                .ok_or_else(|| refused(codes::PERSONA_GONE, "That persona is gone."))?;
             *published = true;
             if !store.keys.contains(&persona) {
                 store.keys.push(persona);

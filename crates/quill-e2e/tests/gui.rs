@@ -9,7 +9,7 @@ use std::{cell::RefCell, sync::Arc};
 use quill_core::store::vault::MemoryVault;
 use quill_e2e::TestServer;
 use quill_gui::{NativeBackend, settings::Paths};
-use quill_ui::backend::{Backend, Keys, Problem, Protection, Standing, Step};
+use quill_ui::backend::{Backend, Keys, Problem, Protection, Standing, Step, codes};
 
 type Vault = Option<Arc<MemoryVault>>;
 
@@ -80,7 +80,7 @@ async fn a_new_writer_gets_from_nothing_to_a_ready_persona() {
     // A taken handle is said as such, so the view can suggest others.
     assert_eq!(
         app.create_persona("ink_fox", "").await.unwrap_err(),
-        Problem::Taken
+        Problem::Taken(codes::HANDLE_TAKEN)
     );
 
     // The app opens the same server again next time, from its settings.
@@ -134,7 +134,10 @@ async fn signing_in_on_a_second_computer_finds_the_keys_elsewhere() {
     let second = backend(second_dir.path(), &keychain());
     second.add_server(&server.url(), None).await.unwrap();
     let wrong = second.sign_in("ink", "not the password").await.unwrap_err();
-    assert!(matches!(wrong, Problem::Refused(_)), "{wrong:?}");
+    assert!(
+        matches!(wrong, Problem::Refused(codes::WRONG_LOGIN, _)),
+        "{wrong:?}"
+    );
     let standing = second.sign_in("ink", PASSWORD).await.unwrap();
     assert_eq!(
         personas(&standing),
@@ -142,7 +145,7 @@ async fn signing_in_on_a_second_computer_finds_the_keys_elsewhere() {
     );
     // Getting it ready here refuses, pointing at linking.
     let refused = second.prepare(fox.id, &|_| {}).await.unwrap_err();
-    assert!(matches!(refused, Problem::Refused(_)), "{refused:?}");
+    assert!(matches!(refused, Problem::Refused(..)), "{refused:?}");
 
     second.sign_out().await.unwrap();
     assert_eq!(second.standing().await.unwrap(), Standing::SignedOut);
@@ -171,7 +174,10 @@ async fn servers_are_added_switched_and_removed() {
     let second = app.add_server(&b.url(), None).await.unwrap();
     assert_eq!(app.current(), Some(second.id));
     let closed = app.register("ink", PASSWORD, None).await.unwrap_err();
-    assert!(matches!(closed, Problem::Refused(_)), "{closed:?}");
+    assert!(
+        matches!(closed, Problem::Refused(codes::REGISTRATION_CLOSED, _)),
+        "{closed:?}"
+    );
     assert_eq!(app.standing().await.unwrap(), Standing::SignedOut);
     // The same server can't be added twice.
     assert!(app.add_server(&b.url(), None).await.is_err());
@@ -230,7 +236,10 @@ async fn without_a_keychain_the_store_takes_a_passphrase() {
     assert_eq!(again.open_server(added.id).await.unwrap(), Standing::Locked);
     assert_eq!(again.standing().await.unwrap(), Standing::Locked);
     let wrong = again.unlock("not the passphrase").await.unwrap_err();
-    assert!(matches!(wrong, Problem::Refused(_)), "{wrong:?}");
+    assert!(
+        matches!(wrong, Problem::Refused(codes::WRONG_PASSPHRASE, _)),
+        "{wrong:?}"
+    );
     let standing = again.unlock("a long store passphrase").await.unwrap();
     assert!(personas(&standing).is_empty());
     assert_eq!(again.protection(), Some(Protection::Passphrase));
@@ -330,10 +339,13 @@ async fn an_unreachable_or_mistyped_server_is_said_plainly() {
         .check_server("http://writers.example")
         .await
         .unwrap_err();
-    assert!(matches!(insecure, Problem::Refused(_)), "{insecure:?}");
+    assert!(
+        matches!(insecure, Problem::Refused(codes::BAD_ADDRESS, _)),
+        "{insecure:?}"
+    );
     assert!(matches!(
         app.check_server("  ").await.unwrap_err(),
-        Problem::Refused(_)
+        Problem::Refused(..)
     ));
 }
 
@@ -376,7 +388,7 @@ async fn the_rules_are_accepted_on_joining_and_after_a_change() {
     // Joining without accepting is refused as such; accepting works.
     let refused = app.register("ink", PASSWORD, None).await.unwrap_err();
     assert!(
-        matches!(refused, Problem::RulesNotAccepted(_)),
+        matches!(refused, Problem::RulesNotAccepted(..)),
         "{refused:?}"
     );
     app.register("ink", PASSWORD, Some(shown.version))
@@ -393,7 +405,7 @@ async fn the_rules_are_accepted_on_joining_and_after_a_change() {
     assert!(changed.must_accept);
     assert!(matches!(
         app.accept_rules(changed.version + 5).await.unwrap_err(),
-        Problem::RulesNotAccepted(_)
+        Problem::RulesNotAccepted(..)
     ));
     app.accept_rules(changed.version).await.unwrap();
     assert!(!app.rules().await.unwrap().unwrap().must_accept);
@@ -572,7 +584,7 @@ async fn the_board_through_the_native_backend() {
         .await
         .unwrap_err();
     assert!(
-        matches!(&refused, Problem::Refused(t) if t.contains("exactly 1 Length tag")),
+        matches!(&refused, Problem::Refused(c, t) if *c == codes::TAGS_WRONG_COUNT && t.contains("exactly 1 Length tag")),
         "{refused:?}"
     );
     // A locked type takes no new tags.
@@ -581,7 +593,7 @@ async fn the_board_through_the_native_backend() {
         .await
         .unwrap_err();
     assert!(
-        matches!(&locked, Problem::Refused(t) if t.contains("new tags can't be created")),
+        matches!(&locked, Problem::Refused(c, t) if *c == codes::TAG_NEW_NOT_ALLOWED && t.contains("new tags can't be created")),
         "{locked:?}"
     );
     let posted = app
@@ -765,7 +777,7 @@ async fn linking_naming_and_removing_through_the_native_backend() {
     assert_eq!(laptop.devices().await.unwrap().len(), 1);
     let told = desktop.upkeep().await.unwrap();
     assert!(
-        told.is_some_and(|t| t.contains("removed")),
+        told.is_some_and(|t| t.code() == codes::REMOVED_HERE && t.to_string().contains("removed")),
         "the desktop is told"
     );
     server.stop().await.unwrap();

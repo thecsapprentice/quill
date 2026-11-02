@@ -22,6 +22,8 @@ Every problem Quill can show has a code, `Q-AACC`: `AA` is the area and `CC` the
 | Q-1052 | `REPLY_TOO_LARGE` | The server's reply was larger than a client accepts. |
 | Q-1053 | `UNEXPECTED_REPLY` | The server answered with a status this client doesn't expect. |
 | Q-1054 | `BAD_ADDRESS` | That isn't a server address, or it isn't https. |
+| Q-1055 | `SERVER_ALREADY_ADDED` | That server is already in this app's list. |
+| Q-1056 | `SERVER_NAME_BAD` | A server's name in this app must be 1 to 60 characters. |
 
 ## Q-11xx: Sign-in and logins
 
@@ -31,6 +33,7 @@ Every problem Quill can show has a code, `Q-AACC`: `AA` is the area and `CC` the
 | Q-1102 | `WRONG_LOGIN` | That login name and password don't match. |
 | Q-1103 | `REGISTRATION_CLOSED` | This server isn't taking new accounts right now. |
 | Q-1104 | `LOGIN_NAME_TAKEN` | That login name is already taken. |
+| Q-1150 | `NOT_SIGNED_IN` | This computer has no login token for the server: sign in. |
 
 ## Q-12xx: Server rules
 
@@ -40,6 +43,26 @@ Every problem Quill can show has a code, `Q-AACC`: `AA` is the area and `CC` the
 | Q-1202 | `RULES_CHANGED` | The rules changed after they were read; read them again to accept. |
 | Q-1203 | `RULES_CHANGED_AT_SIGNUP` | The rules changed while the account was being made; read them again. |
 | Q-1204 | `RULES_REQUIRED_AT_SIGNUP` | This server asks new accounts to accept its rules first. |
+
+## Q-13xx: This computer's store and keychain
+
+| Code | Name | Meaning |
+| --- | --- | --- |
+| Q-1350 | `STORE_IO` | The store file couldn't be read or written. |
+| Q-1351 | `STORE_EXISTS` | A store already exists where a new one was to be made. |
+| Q-1352 | `STORE_IN_USE` | The store is open in another copy of Quill. |
+| Q-1353 | `NOT_A_STORE` | That file isn't a Quill store. |
+| Q-1354 | `STORE_TOO_NEW` | The store was made by a newer Quill: update this one. |
+| Q-1355 | `STORE_DAMAGED` | The store is damaged. |
+| Q-1356 | `WRONG_PASSPHRASE` | Wrong passphrase, or the keychain holds a different key. |
+| Q-1357 | `WRONG_UNLOCK` | The store is unlocked another way (passphrase or keychain). |
+| Q-1358 | `KEY_NOT_IN_KEYCHAIN` | The store's key isn't in this computer's keychain. |
+| Q-1359 | `KEYCHAIN_FAILED` | The keychain refused or failed. |
+| Q-1360 | `STORE_DATABASE` | The store's database failed. |
+| Q-1361 | `NO_KEYCHAIN` | This computer has no keychain for Quill's key: choose a passphrase. |
+| Q-1362 | `STORES_NOT_MOVED` | The stores couldn't be moved to that folder. |
+| Q-1363 | `PASSPHRASE_TOO_SHORT` | A store's passphrase must be at least 12 characters. |
+| Q-1364 | `STORE_BUSY` | The store is busy with something else; try again in a moment. |
 
 ## Q-14xx: Personas and handles
 
@@ -54,6 +77,7 @@ Every problem Quill can show has a code, `Q-AACC`: `AA` is the area and `CC` the
 | Q-1407 | `STAFF_ADMIN_ONLY` | Only administrators have a staff name or speak as staff. |
 | Q-1408 | `STAFF_NAME_TAKEN` | Another administrator already uses that staff name. |
 | Q-1409 | `STAFF_NAME_UNSET` | Set a staff name in your settings before speaking as staff. |
+| Q-1450 | `PERSONA_GONE` | That persona is gone: deleted, perhaps from another device. |
 
 ## Q-15xx: Identity keys, pins and KeyPackages
 
@@ -68,6 +92,14 @@ Every problem Quill can show has a code, `Q-AACC`: `AA` is the area and `CC` the
 | Q-1507 | `KEYS_PERSONA_HAS_NONE` | That persona has no keys, so it can't be invited to sessions. |
 | Q-1508 | `KEYPACKAGE_REFUSED` | A KeyPackage couldn't be read, or isn't one the server takes. |
 | Q-1509 | `KEYPACKAGE_POOL_FULL` | A device already has as many KeyPackages waiting as it may. |
+| Q-1550 | `KEYS_CHECK_FAILED` | A key check failed: something published doesn't verify. |
+| Q-1551 | `KEY_CHANGED` | Another writer's identity key changed since this computer pinned it. |
+| Q-1552 | `NO_KEYS_HERE` | This persona has no keys on this computer. |
+| Q-1553 | `NO_IDENTITY_KEY` | That writer has no identity key yet, so can't take part in sessions. |
+| Q-1554 | `BAD_CERTIFICATE` | A device certificate doesn't verify. |
+| Q-1555 | `MLS_FAILED` | The encryption library (MLS) refused or failed. |
+| Q-1556 | `KEY_PACKAGE_REFUSED` | A KeyPackage failed its checks. |
+| Q-1557 | `KEYS_ELSEWHERE` | The persona's identity key was made on another device: link this one. |
 
 ## Q-16xx: Devices and linking
 
@@ -83,6 +115,14 @@ Every problem Quill can show has a code, `Q-AACC`: `AA` is the area and `CC` the
 | Q-1608 | `DEVICE_GROUP_NOT_PERSONAL` | Only a personal device group can be started this way. |
 | Q-1609 | `DEVICE_GROUP_BAD_ID` | A device group's id must be 16 to 64 bytes. |
 | Q-1610 | `DEVICE_GROUP_EXISTS` | This login already has a personal device group. |
+| Q-1650 | `DEVICES_CHECK_FAILED` | A check on the login's devices failed. |
+| Q-1651 | `LINK_EXPIRED` | The link expired before it was approved. |
+| Q-1652 | `LINK_NOT_ANSWERED` | No device approved the link in time. |
+| Q-1653 | `LINK_MISMATCH` | The new device's key doesn't match the code or words: don't link it. |
+| Q-1654 | `REMOVED_HERE` | This computer was removed from the login's devices. |
+| Q-1655 | `LINK_CODE_BAD` | That isn't a link code or six words from the new computer. |
+| Q-1656 | `DEVICE_NAME_BAD` | A device's name must be 1 to 40 characters on one line. |
+| Q-1657 | `FELL_BEHIND` | This computer was away too long to catch up with the login's devices. |
 
 ## Q-20xx: Prompts
 
@@ -160,6 +200,14 @@ Every problem Quill can show has a code, `Q-AACC`: `AA` is the area and `CC` the
 | Q-3007 | `REQUEST_DECLINED` | The request was declined. |
 | Q-3008 | `REQUEST_EXPIRED` | The request expired. |
 | Q-3009 | `REQUEST_BAD_STATE` | Requests can be listed as pending or held, nothing else. |
+| Q-3050 | `REQUEST_CHECK_FAILED` | A request failed a check on this computer. |
+| Q-3051 | `PITCH_EMPTY` | The pitch is empty. |
+| Q-3052 | `PITCH_TOO_LONG` | The pitch is longer than requests allow. |
+| Q-3053 | `AUTHOR_HAS_NO_DEVICES` | The prompt's author has no devices that can take a request now. |
+| Q-3054 | `READ_IT_HERE_FIRST` | A request must be read on this computer before it's accepted here. |
+| Q-3055 | `REQUEST_NOT_SENT_HERE` | The request was sent before this computer was linked. |
+| Q-3056 | `REQUEST_SENT_FROM_HERE` | This computer sent the request, under another login. |
+| Q-3057 | `REQUEST_REFUSED` | The request failed its checks (a forged group or pitch): never shown. |
 
 ## Q-31xx: Sessions and groups
 
@@ -171,6 +219,7 @@ Every problem Quill can show has a code, `Q-AACC`: `AA` is the area and `CC` the
 | Q-3104 | `SESSION_ENDED` | The session has ended. |
 | Q-3105 | `SESSION_WELCOME_NOT_ALLOWED` | Welcomes can only be left for your own persona's devices in the session, or for a device asking to rejoin. |
 | Q-3106 | `SESSION_REJOIN_REFUSED` | A device's request to rejoin a session didn't check out. |
+| Q-3150 | `SESSION_CHECK_FAILED` | A session failed a check on this computer. |
 
 ## Q-32xx: Messages and channels
 
@@ -189,6 +238,8 @@ Every problem Quill can show has a code, `Q-AACC`: `AA` is the area and `CC` the
 | Q-3302 | `ATTACHMENT_STORAGE_FULL` | Your attachment storage is full; it frees up as messages are read. |
 | Q-3303 | `ATTACHMENT_NOT_PADDED` | An attachment wasn't padded to one of the allowed sizes. |
 | Q-3304 | `ATTACHMENT_NOT_YOURS` | A message names attachments that aren't the sender's to attach there. |
+| Q-3350 | `ATTACHMENT_CHECK_FAILED` | An attachment failed a check on this computer. |
+| Q-3351 | `ATTACHMENT_ELSEWHERE` | That attachment is on another server (federation comes later). |
 
 ## Q-34xx: Backup and recovery
 
@@ -197,6 +248,8 @@ Every problem Quill can show has a code, `Q-AACC`: `AA` is the area and `CC` the
 | Q-3401 | `BACKUP_TOO_LARGE` | A backup is larger than this server keeps. |
 | Q-3402 | `BACKUP_EMPTY_PART` | A part of a backup was empty. |
 | Q-3403 | `BACKUP_INCOMPLETE` | Some parts of the backup never arrived. |
+| Q-3450 | `BACKUP_CHECK_FAILED` | A backup failed a check on this computer. |
+| Q-3451 | `BACKUP_DAMAGED` | A backup couldn't be decrypted or is damaged. |
 
 ## Q-35xx: History and sync
 
@@ -205,6 +258,8 @@ Every problem Quill can show has a code, `Q-AACC`: `AA` is the area and `CC` the
 | Q-3501 | `SYNC_ACK_OUT_OF_RANGE` | A device marked a place as read that isn't in the session's log. |
 | Q-3502 | `SYNC_ACK_NOT_YOURS` | A device can only mark what it has read for its own persona's devices. |
 | Q-3503 | `SYNC_PRUNED` | The group's older messages were deleted, so this device can't follow it from where it is. |
+| Q-3550 | `HISTORY_CHECK_FAILED` | History failed a check on this computer. |
+| Q-3551 | `HISTORY_SYNC_FAILED` | History sync between devices failed a check. |
 
 ## Q-90xx: Input checks shared by every area
 
@@ -223,6 +278,7 @@ Every problem Quill can show has a code, `Q-AACC`: `AA` is the area and `CC` the
 | Q-9011 | `BAD_CHANNEL` | A channel name must be a short slug. |
 | Q-9012 | `BAD_STAFF_NAME` | A staff name is empty, too long, or reserved. |
 | Q-9013 | `BAD_TAG_LIMITS` | A tag type's minimum and maximum don't fit together. |
+| Q-9050 | `CLI_USAGE` | The command was given something it can't use; its message says what. |
 
 ## Q-99xx: Not yet given a code of its own
 

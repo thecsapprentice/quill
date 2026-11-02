@@ -21,7 +21,7 @@ use uuid::Uuid;
 pub const NOTICE_PAGE: usize = 50;
 
 use super::{Sim, SimServer};
-use crate::backend::Problem;
+use crate::backend::{ErrorCode, Problem, codes};
 
 #[derive(Debug, Clone)]
 struct SimPrompt {
@@ -131,8 +131,8 @@ impl Default for Board {
     }
 }
 
-fn bad(text: impl Into<String>) -> Problem {
-    Problem::Refused(text.into())
+fn bad(code: ErrorCode, text: impl Into<String>) -> Problem {
+    Problem::Refused(code, text.into())
 }
 
 fn tags_word(n: u32) -> &'static str {
@@ -176,14 +176,20 @@ impl Board {
             let key = format!("{}:{}", spec.namespace, spec.slug);
             if !self.tags.iter().any(|t| t.key() == key) {
                 let missing = |why: String| {
-                    bad(format!(
-                        "\"{}:{}\" is not a tag on this server, and {why}",
-                        spec.namespace, spec.display
-                    ))
+                    bad(
+                        codes::TAG_NEW_NOT_ALLOWED,
+                        format!(
+                            "\"{}:{}\" is not a tag on this server, and {why}",
+                            spec.namespace, spec.display
+                        ),
+                    )
                 };
                 match self.tag_type(&spec.namespace).map(|n| n.locked) {
                     None => {
-                        return Err(bad(format!("unknown tag namespace \"{}\"", spec.namespace)));
+                        return Err(bad(
+                            codes::TAG_TYPE_UNKNOWN,
+                            format!("unknown tag namespace \"{}\"", spec.namespace),
+                        ));
                     }
                     Some(true) => {
                         return Err(missing(format!(
@@ -243,21 +249,21 @@ impl Board {
         if problems.is_empty() {
             Ok(keys)
         } else {
-            Err(bad(problems.join(" ")))
+            Err(bad(codes::TAGS_WRONG_COUNT, problems.join(" ")))
         }
     }
 
     fn moderate(&self, text: &str) -> Result<(), Problem> {
         let lower = text.to_lowercase();
         match self.refuse.iter().find(|(w, _)| lower.contains(w)) {
-            Some((_, message)) => Err(bad(message.clone())),
+            Some((_, message)) => Err(bad(codes::CONTENT_REJECTED, message.clone())),
             None => Ok(()),
         }
     }
 }
 
 fn invalid(e: validate::ValidationError) -> Problem {
-    bad(e.to_string())
+    bad(e.code(), e.to_string())
 }
 
 /// Who's asking: the open store's login, when signed in.
@@ -298,6 +304,7 @@ impl SimServer {
         });
         if behind {
             return Err(Problem::RulesNotAccepted(
+                codes::RULES_NOT_ACCEPTED,
                 "The server rules have changed. Read and accept them to continue.".into(),
             ));
         }
@@ -423,7 +430,7 @@ impl SimServer {
         let (owner, author, published) = self
             .persona_owner(body.persona)
             .filter(|(o, _, _)| o == login)
-            .ok_or_else(|| bad("unknown persona"))?;
+            .ok_or_else(|| bad(codes::PERSONA_UNKNOWN, "unknown persona"))?;
         self.board.moderate(&format!("{title}\n{text}"))?;
         let mut board = self.board.clone();
         let tags = board.resolve(&specs)?;
