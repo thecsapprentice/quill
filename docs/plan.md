@@ -655,6 +655,16 @@ Dioxus desktop runs the app in native Rust and sends DOM changes to the webview,
 - **Removal is learned at upkeep.** Another device's removal arrives as a device-group commit, so this computer learns it at catch-up. The keys go then, and upkeep reports it. The frame then reloads where the login stands, so the personas show as elsewhere, and the keys-elsewhere screen says the computer was removed rather than new.
 - **Starting over is a last resort.** A persona whose keys are on an unreachable device can get a new identity key here (`keys init --replace`). This sits behind a warning that its other devices stop working for it and other writers are told the key changed. Linking is always offered first.
 
+### Reading sessions in the desktop app (3f-1)
+
+- **Sessions hold the per-server lock.** Reading a session catches up its MLS group, which may send (a commit adding another device, say). So every session call in `NativeBackend` takes `Open::exclusive`, as 3d's device-group work does.
+- **One list, loaded by upkeep.** The session list (with each one's standing and unread count) lives in the model and is reloaded on every live notice, after requests. Home, the side bar's count and the Sessions screen read the same list, so they always agree. An open session reads itself again whenever the list reloads.
+- **Shown is read, per channel.** Opening a channel marks its notes shown on this computer (`history::mark_shown`), up to the newest one shown. Another channel's notes stay unread, and its tab says how many. Read marks are per computer: another device of the same persona keeps its own.
+- **Standing is said, not hidden.** A session this computer can't read still lists, with what that means and what to do: another device hasn't added this one yet, the persona's keys aren't here, it was away too long and waits to be let back in, or a check failed (`Q-` code in advanced mode). An ended session stays readable.
+- **Times are local.** Notes carry a hybrid clock time in UTC. The app reads the computer's UTC offset once at start-up, before its runtime starts threads (the `time` crate refuses to read it later on Linux), and shows times in that zone.
+- **An answer names its note in plain words.** "In answer to" shows the answered note's first line with its Markdown marks taken out, and leads to the note, switching channel if needed.
+- **An accepted request leads to its session.** Requests don't carry the id of the session they began. The app finds it by the prompt and the two writers, the newest if several match. Until this computer has the session in its list (another device may not have added it yet), the button opens the list instead.
+
 ### Error codes (#76)
 
 Every problem the server or a client can show has a stable code, `Q-AACC`: `AA` the area (10 connection, 30 requests, 90 input checks and so on), `CC` the case. A number is faster to report and to search for than a sentence, and it stays the same when the wording changes. The registry is `quill_proto::codes`, and `docs/error-codes.md` is generated from it and checked by a test, as `docs/openapi.json` is.
