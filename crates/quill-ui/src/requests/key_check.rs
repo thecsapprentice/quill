@@ -65,7 +65,14 @@ pub fn KeyCheck(handle: String, as_persona: Uuid, on_done: EventHandler<bool>) -
     };
     let fingerprint = c.fingerprint.clone();
     rsx! {
-        section { class: "panel key-check", aria_labelledby: "key-check-{c.handle}",
+        section {
+            class: "panel key-check",
+            aria_labelledby: "key-check-{c.handle}",
+            // It may appear below the window's edge (sending from a long
+            // prompt): bring it into view, or nothing seems to happen.
+            onmounted: move |e: MountedEvent| async move {
+                let _ = e.data().scroll_to(ScrollBehavior::Instant).await;
+            },
             h3 { id: "key-check-{c.handle}", "@{c.handle}'s identity key changed" }
             p {
                 "Quill keeps the identity key it first saw for each writer. @{c.handle}'s is different now. "

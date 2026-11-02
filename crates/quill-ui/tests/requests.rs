@@ -481,3 +481,33 @@ async fn a_request_on_a_deleted_prompt_says_so() {
     d.click("See your requests").await;
     d.wait_for_text("A prompt that was deleted").await;
 }
+
+/// Found by hand (3e): sending from the bottom of a long prompt, the
+/// changed-key stop appeared below the window's edge, so nothing seemed to
+/// happen. It brings itself into view.
+#[tokio::test]
+async fn the_changed_key_stop_brings_itself_into_view() {
+    use quill_ui::testing::Asked;
+    let sim = sim();
+    let mut d = signed_in(&sim).await;
+    sent_one(&sim, &mut d).await;
+    sim.change_key(SERVER, "wren");
+    sim.post_as(
+        SERVER,
+        "wren",
+        "A second prompt",
+        "More ledgers.",
+        &[],
+        Maturity::General,
+    );
+    d.click("‹ Back to the board").await;
+    d.click("Refresh").await;
+    d.wait_for_text("A second prompt").await;
+    d.click_containing("A second prompt").await;
+    d.click("Ask to write together").await;
+    d.type_into("request-pitch", "Another one.").await;
+    let _ = d.asked_of("key-check");
+    d.click("Send request").await;
+    d.wait_for_text("@wren's identity key changed").await;
+    assert_eq!(d.asked_of("key-check"), [Asked::IntoView]);
+}

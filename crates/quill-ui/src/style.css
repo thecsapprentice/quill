@@ -457,6 +457,7 @@ fieldset > .hint { margin-bottom: var(--space-3); }
 .item.request .pitch { font-family: var(--write); font-size: var(--text-read); line-height: 1.6; margin: var(--space-3) 0; }
 .reader-actions { margin-top: var(--space-4); }
 .ask { margin-top: var(--space-4); max-width: var(--width-form); }
+.ask > .hint { margin-bottom: var(--space-3); }
 .ask > h3, .key-check > h3 { font-size: var(--text-lg); margin: 0 0 var(--space-2); }
 .key-check { max-width: var(--width-read); }
 .key-check .words {
