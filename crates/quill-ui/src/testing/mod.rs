@@ -595,6 +595,100 @@ impl Driver {
             .any(|n| self.doc.tag(n) == Some(tag))
     }
 
+    /// What breaks the design language's accessibility rules on this
+    /// screen (docs/design/gui-design-language.md, "Accessibility"), one
+    /// line each. Empty when the screen keeps them.
+    pub fn accessibility_problems(&self) -> Vec<String> {
+        let nodes = self.doc.attached();
+        let tag = |n: usize| self.doc.tag(n).unwrap_or("");
+        let attr = |n: usize, a: &str| self.doc.attr(n, a).map(str::to_owned);
+        let ids: Vec<(usize, String)> = nodes
+            .iter()
+            .filter_map(|n| attr(*n, "id").map(|i| (*n, i)))
+            .collect();
+        let has_id = |i: &str| ids.iter().any(|(_, x)| x == i);
+        let mut out = Vec::new();
+
+        // Ids are unique.
+        let mut seen = HashSet::new();
+        for (_, i) in &ids {
+            if !seen.insert(i.clone()) {
+                out.push(format!("the id {i:?} is used more than once"));
+            }
+        }
+        // Exactly one h1.
+        let h1s = nodes.iter().filter(|n| tag(**n) == "h1").count();
+        if h1s != 1 {
+            out.push(format!("{h1s} h1 headings; a screen has exactly one"));
+        }
+        let labels: Vec<String> = nodes
+            .iter()
+            .filter(|n| tag(**n) == "label")
+            .filter_map(|n| attr(*n, "for"))
+            .collect();
+        for &n in &nodes {
+            match tag(n) {
+                "button" => {
+                    if self.name_of(n).trim().is_empty() {
+                        out.push("a button with no name (no text or aria-label)".to_owned());
+                    }
+                }
+                "input" | "select" | "textarea" => {
+                    if attr(n, "type").as_deref() == Some("hidden") {
+                        continue;
+                    }
+                    let id = attr(n, "id");
+                    let labelled = attr(n, "aria-label").is_some_and(|l| !l.trim().is_empty())
+                        || attr(n, "aria-labelledby").is_some()
+                        || id.as_ref().is_some_and(|i| labels.contains(i));
+                    let what = id.unwrap_or_else(|| format!("a {}", tag(n)));
+                    if !labelled {
+                        out.push(format!("the field {what} has no label"));
+                    }
+                    if attr(n, "aria-invalid").as_deref() == Some("true") {
+                        let told = attr(n, "aria-describedby").is_some_and(|d| {
+                            d.split_whitespace().any(|i| {
+                                ids.iter()
+                                    .any(|(m, x)| x == i && !self.doc.text_of(*m).trim().is_empty())
+                            })
+                        });
+                        if !told {
+                            out.push(format!(
+                                "the field {what} is marked invalid without saying why"
+                            ));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if attr(n, "role").as_deref() == Some("img")
+                && !attr(n, "aria-label").is_some_and(|l| !l.trim().is_empty())
+            {
+                out.push("an image (role=img) with no label".to_owned());
+            }
+            if let Some(d) = attr(n, "aria-describedby") {
+                for i in d.split_whitespace() {
+                    if !has_id(i) {
+                        out.push(format!("aria-describedby names a missing id {i:?}"));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Fails, listing the problems, if this screen breaks an accessibility
+    /// rule. `screen` names it in the message.
+    pub fn assert_accessible(&self, screen: &str) {
+        let problems = self.accessibility_problems();
+        assert!(
+            problems.is_empty(),
+            "{screen} breaks the accessibility rules:\n  {}\nThe window shows:\n{}",
+            problems.join("\n  "),
+            self.text()
+        );
+    }
+
     /// The first element with `class`, if any.
     fn with_class(&self, class: &str) -> Option<usize> {
         self.doc.attached().into_iter().find(|n| {
