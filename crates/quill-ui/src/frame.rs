@@ -3,13 +3,14 @@
 
 use std::{future::poll_fn, rc::Rc, task::Poll};
 
-use dioxus::prelude::*;
+use dioxus::{html::geometry::PixelsVector2D, prelude::*};
 use uuid::Uuid;
 
 use crate::{
     app::{ProblemLine, open_server, use_ui},
     backend::{Backend, Keys},
     board::{BoardEpoch, BoardPage, BoardState, MineState, MyPromptsPage},
+    devices::DevicesPage,
     model::{Section, Status},
     notices::NoticesPage,
     personas::PersonasPage,
@@ -35,11 +36,29 @@ pub fn Frame() -> Element {
     let notice = m.notice.clone();
     let problem = m.problem.clone();
     drop(m);
+    // A new section starts at the top, not wherever the last one was left.
+    let mut main_el = use_signal(|| None::<Rc<MountedData>>);
+    let mut shown = use_signal(|| section);
+    use_effect(move || {
+        let now = model.read().section;
+        if now == *shown.peek() {
+            return;
+        }
+        shown.set(now);
+        if let Some(el) = main_el.peek().clone() {
+            spawn(async move {
+                let _ = el
+                    .scroll(PixelsVector2D::new(0.0, 0.0), ScrollBehavior::Instant)
+                    .await;
+            });
+        }
+    });
     rsx! {
         div { class: "frame",
             Nav {}
             main { class: "main", id: "main",
-                div { class: if matches!(section, Section::Board | Section::MyPrompts) { "page wide" } else { "page" },
+                onmounted: move |e| main_el.set(Some(e.data())),
+                div { class: if matches!(section, Section::Board | Section::MyPrompts | Section::Reference) { "page wide" } else { "page" },
                     if rules_banner {
                         div { class: "nudge", role: "status",
                             p { "The server rules have changed. Read and accept them to keep posting, editing, commenting and reporting." }
@@ -79,12 +98,7 @@ fn Sections(section: Section) -> Element {
                         Section::Board => rsx! { BoardPage {} },
                         Section::MyPrompts => rsx! { MyPromptsPage {} },
                         Section::Notices => rsx! { NoticesPage {} },
-                        Section::Requests => rsx! {
-                            Coming {
-                                title: "Requests",
-                                text: "Requests to write together will show here: the ones you've sent, and the ones waiting on your prompts.",
-                            }
-                        },
+                        Section::Requests => rsx! { crate::requests::RequestsPage {} },
                         Section::Sessions => rsx! {
                             Coming {
                                 title: "Sessions",
@@ -94,6 +108,8 @@ fn Sections(section: Section) -> Element {
                         Section::Personas => rsx! { PersonasPage {} },
                         Section::Settings => rsx! { SettingsPage {} },
                         Section::Rules => rsx! { RulesPage {} },
+                        Section::Devices => rsx! { DevicesPage {} },
+                        Section::Reference => rsx! { crate::reference::ReferencePage {} },
                     }
     }
 }
@@ -109,6 +125,7 @@ fn Nav() -> Element {
     let section = m.section;
     let signed_in = m.signed_in();
     let unread = m.unread;
+    let requests = m.requests.waiting_count() as usize + m.requests.new_answers().len();
     drop(m);
 
     let b = backend.clone();
@@ -175,6 +192,9 @@ fn Nav() -> Element {
                     "{s.label()}"
                     if s == Section::Notices && unread > 0 {
                         span { class: "badge", " {unread}" span { class: "sr-only", " unread" } }
+                    }
+                    if s == Section::Requests && requests > 0 {
+                        span { class: "badge", " {requests}" span { class: "sr-only", " new" } }
                     }
                 }
             }
@@ -267,11 +287,22 @@ fn Upkeep(server: Uuid) -> Element {
                     model.write().opened(server, result);
                 } else if signed_in {
                     let result = b.upkeep().await;
+                    // Something to tell (this computer removed, say) may
+                    // change which personas are ready here: look again.
+                    let told = matches!(result, Ok(Some(_)));
                     model.write().upkept(server, result);
+                    if told {
+                        let standing = b.standing().await;
+                        if let Ok(s) = standing {
+                            model.write().opened(server, Ok(s));
+                        }
+                    }
                     // The account says how many notices are unread.
                     if let Ok(account) = b.account().await {
                         model.write().unread_loaded(server, account.unread_notices);
                     }
+                    // And what waits on requests, for Home and the side bar.
+                    let _ = crate::requests::load(&*b, model, server).await;
                 }
                 // The rules too, to notice a change that needs accepting.
                 let reachable = {
@@ -321,6 +352,12 @@ fn Home() -> Element {
     let no_persona = m.signed_in() && m.personas().is_empty();
     let signed_out = m.status == Status::SignedOut;
     let nudge = !m.backup_nudge_dismissed && in_use.is_some();
+    let elsewhere: Vec<String> = m
+        .personas()
+        .iter()
+        .filter(|p| p.keys == crate::backend::Keys::Elsewhere)
+        .map(|p| format!("@{}", p.persona.handle))
+        .collect();
     drop(m);
     rsx! {
         h1 {
@@ -341,9 +378,15 @@ fn Home() -> Element {
                 button { class: "primary", onclick: move |_| model.write().go(Section::Personas), "Make a persona" }
             }
         }
+        if !elsewhere.is_empty() {
+            div { class: "nudge",
+                p { "The keys for {elsewhere.join(\", \")} are on another of your devices. Link this computer to write as them here." }
+                button { class: "primary", onclick: move |_| model.write().begin_link(), "Link this computer" }
+            }
+        }
         if nudge {
             div { class: "nudge",
-                p { "Your persona's keys live only on this computer for now. Quill will soon be able to back them up, and will remind you here when it can." }
+                p { "Quill can't back up your personas' keys yet, and will remind you here when it can. Until then, a linked device keeps a second copy." }
                 button {
                     class: "quiet",
                     onclick: move |_| model.write().backup_nudge_dismissed = true,
@@ -351,8 +394,9 @@ fn Home() -> Element {
                 }
             }
         }
+        crate::requests::RequestsOnHome {}
         p { class: "coming",
-            "Find a prompt to write on the Board, or post your own. Requests to write together and writing sessions are on their way."
+            "Find a prompt to write on the Board and ask to write on it, or post your own. Writing sessions are on their way."
         }
     }
 }

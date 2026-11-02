@@ -28,7 +28,7 @@ pub fn Starting() -> Element {
 
 /// A card in the middle of the window, for one question.
 #[component]
-fn Card(title: String, lede: String, children: Element) -> Element {
+pub(crate) fn Card(title: String, lede: String, children: Element) -> Element {
     rsx! {
         main { class: "welcome",
             section { class: "card", aria_labelledby: "card-title",
@@ -631,7 +631,7 @@ pub fn PersonaStep() -> Element {
 }
 
 #[component]
-pub fn PreparingStep(persona: uuid::Uuid) -> Element {
+pub fn PreparingStep(persona: uuid::Uuid, replace: bool) -> Element {
     let (backend, mut model) = use_ui();
     let step = use_signal(|| None::<Step>);
     let mut running = use_signal(|| false);
@@ -656,7 +656,11 @@ pub fn PreparingStep(persona: uuid::Uuid) -> Element {
                 let mut step = step;
                 step.set(Some(s));
             };
-            let result = b.prepare(persona, &progress).await;
+            let result = if replace {
+                b.start_over(persona, &progress).await
+            } else {
+                b.prepare(persona, &progress).await
+            };
             running.set(false);
             model.write().prepared(persona, result);
         });
@@ -677,11 +681,20 @@ pub fn PreparingStep(persona: uuid::Uuid) -> Element {
             (i, s.label(), class, mark, said)
         })
         .collect();
-    let title = format!("Getting @{handle} ready");
+    let title = if replace {
+        format!("Starting @{handle} over")
+    } else {
+        format!("Getting @{handle} ready")
+    };
+    let lede = if replace {
+        "Quill is making a new identity key for this persona here. Its other devices stop being able to write as it."
+    } else {
+        "Quill is making the keys that keep your writing sessions private. This takes a moment, and only happens once on each computer."
+    };
     rsx! {
         Card {
             title,
-            lede: "Quill is making the keys that keep your writing sessions private. This takes a moment, and only happens once on each computer.",
+            lede,
             ol { class: "steps", aria_live: "polite",
                 for (i, label, class, mark, said) in steps {
                     li { key: "{i}", class,
@@ -705,7 +718,8 @@ pub fn PreparingStep(persona: uuid::Uuid) -> Element {
 
 #[component]
 pub fn ElsewhereStep() -> Element {
-    let (_, mut model) = use_ui();
+    let (backend, mut model) = use_ui();
+    let removed = backend.removed_here();
     let handles: Vec<String> = model
         .read()
         .personas()
@@ -713,19 +727,32 @@ pub fn ElsewhereStep() -> Element {
         .filter(|p| p.keys == Keys::Elsewhere)
         .map(|p| format!("@{}", p.persona.handle))
         .collect();
-    let lede = format!(
-        "You're signed in, but the keys for {} are on another of your devices. Writing as them here needs those keys.",
-        handles.join(", ")
-    );
+    let lede = if removed {
+        format!(
+            "Another of your devices removed this computer, so its keys for {} are gone from here.",
+            handles.join(", ")
+        )
+    } else {
+        format!(
+            "You're signed in, but the keys for {} are on another of your devices. Writing as them here needs those keys.",
+            handles.join(", ")
+        )
+    };
+    let title = if removed {
+        "This computer was removed from your devices"
+    } else {
+        "This computer is new to your login"
+    };
     rsx! {
         Card {
-            title: "This computer is new to your login",
+            title,
             lede,
             p { class: "lede",
-                "Soon you'll be able to link this computer from that device, or restore a backup. Until then you can look around, and make a new persona to use here."
+                "Link this computer to a device where you already use Quill, and you can write as them here too. Have that device to hand: it takes a minute."
             }
             div { class: "actions",
-                button { class: "primary", onclick: move |_| model.write().elsewhere_seen(), "Continue" }
+                button { class: "primary", onclick: move |_| model.write().begin_link(), "Link this computer" }
+                button { class: "quiet", onclick: move |_| model.write().elsewhere_seen(), "Not now" }
             }
         }
     }

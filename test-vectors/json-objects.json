@@ -371,12 +371,14 @@
         "devices": [
           {
             "device": "0192f3d0-2222-7000-8000-000000000003",
+            "name": "Study desktop",
             "personas": [
               {
                 "device": "0192f3d0-2222-7000-8000-000000000004",
                 "persona": "0192f3d0-2222-7000-8000-000000000002"
               }
-            ]
+            ],
+            "since": 1790000000
           }
         ],
         "identities": [
@@ -999,12 +1001,14 @@
         "devices": [
           {
             "device": "0192f3d0-2222-7000-8000-000000000003",
+            "name": "Study desktop",
             "personas": [
               {
                 "device": "0192f3d0-2222-7000-8000-000000000004",
                 "persona": "0192f3d0-2222-7000-8000-000000000002"
               }
-            ]
+            ],
+            "since": 1790000000
           }
         ],
         "identities": [
@@ -1029,12 +1033,14 @@
       "name": "device keys",
       "object": {
         "device": "0192f3d0-2222-7000-8000-000000000003",
+        "name": "Study desktop",
         "personas": [
           {
             "device": "0192f3d0-2222-7000-8000-000000000004",
             "persona": "0192f3d0-2222-7000-8000-000000000002"
           }
         ],
+        "since": 1790000000,
         "type": "deviceKeys"
       },
       "schema": "device-payload.json"

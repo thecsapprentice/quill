@@ -411,3 +411,219 @@ async fn a_passphrase_chosen_at_first_run_unlocks_on_reopening_against_a_real_se
     d.wait_for_text("Connected to").await;
     server.stop().await.unwrap();
 }
+
+/// The six words shown after `marker` in a window's text.
+fn six_words_after(text: &str, marker: &str) -> String {
+    let at = text
+        .find(marker)
+        .unwrap_or_else(|| panic!("no {marker:?} in {text}"));
+    text[at + marker.len()..]
+        .split_whitespace()
+        .take(6)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_computer_is_linked_and_then_removed_on_a_real_server() {
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    // The laptop: a login and a ready persona.
+    let (ld, lv) = (
+        tempfile::tempdir().unwrap(),
+        Arc::new(MemoryVault::default()),
+    );
+    let mut laptop = app(ld.path(), &lv);
+    on_the_board(&mut laptop, &server).await;
+
+    // The desktop signs in and links itself.
+    let (dd, dv) = (
+        tempfile::tempdir().unwrap(),
+        Arc::new(MemoryVault::default()),
+    );
+    let mut desktop = app(dd.path(), &dv);
+    to_sign_up(&mut desktop, &server).await;
+    desktop.click("I have a login").await;
+    desktop.type_into("login-name", "ink").await;
+    desktop.type_into("login-password", PASSWORD).await;
+    desktop.click("Sign in").await;
+    desktop
+        .wait_for_text("This computer is new to your login")
+        .await;
+    desktop.click("Link this computer").await;
+    desktop.type_into("device-name", "Study desktop").await;
+    desktop.click("Show the link code").await;
+    desktop
+        .wait_for_text("Type these words on your other device")
+        .await;
+    let words = six_words_after(&desktop.text(), "Type these six words there.");
+
+    // The laptop approves it by those words.
+    laptop.click("Settings").await;
+    laptop.click("Your devices").await;
+    laptop.wait_for_text("Only this computer so far.").await;
+    laptop.click("Link a new computer").await;
+    laptop
+        .wait_until("the words field", |d| d.has_field("link-words"))
+        .await;
+    laptop.type_into("link-words", &words).await;
+    laptop.click("Link it").await;
+    laptop
+        .wait_for_text("The new computer should now show these words:")
+        .await;
+    let confirm = six_words_after(
+        &laptop.text(),
+        "The new computer should now show these words:",
+    );
+
+    // The desktop shows the same words, and takes the keys.
+    desktop.wait_for_text("Check the words match").await;
+    let shown = six_words_after(&desktop.text(), "in the same order.");
+    assert_eq!(shown, confirm, "both devices show the same words");
+    desktop.click("They match").await;
+    desktop.wait_for_text("Hello, @ink_fox").await;
+
+    // The laptop sees it by name, and removes it.
+    laptop.click("Done").await;
+    laptop.wait_for_text("Study desktop").await;
+    laptop.click("Remove…").await;
+    laptop.click("Remove Study desktop").await;
+    laptop.wait_for_text("Study desktop was removed.").await;
+
+    // Reopened, the desktop learns it and says so.
+    drop(desktop);
+    let mut desktop = app(dd.path(), &dv);
+    desktop
+        .wait_for_text("This computer was removed from your devices")
+        .await;
+    server.stop().await.unwrap();
+}
+
+/// A writer with keys, posting a prompt, through `quill-core` (3e).
+async fn writer_with_prompt(
+    server: &TestServer,
+    login: &str,
+    title: &str,
+) -> (
+    quill_core::Client,
+    quill_core::Store,
+    quill_proto::api::Persona,
+    uuid::Uuid,
+) {
+    let client = server.account(login).await.unwrap();
+    let persona = client
+        .create_persona(&CreatePersona {
+            handle: format!("{login}_pen"),
+            display_name: None,
+            summary: None,
+        })
+        .await
+        .unwrap();
+    let store = quill_core::Store::in_memory();
+    quill_core::keys::init(&store, &client, &persona, false)
+        .await
+        .unwrap();
+    quill_core::keys::publish(&store, &client, &persona, 5)
+        .await
+        .unwrap();
+    let prompt = client
+        .create_prompt(&CreatePrompt {
+            persona: persona.id,
+            title: title.into(),
+            body: "A keeper finds a ledger.".into(),
+            maturity: Maturity::General,
+            tags: vec!["genre:horror".into()],
+            state: None,
+        })
+        .await
+        .unwrap()
+        .id;
+    (client, store, persona, prompt)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn requests_both_ways_on_a_real_server() {
+    use quill_core::requests;
+    let Some(server) = TestServer::start().await.unwrap() else {
+        return;
+    };
+    let (wren_c, wren, wren_pen, theirs) =
+        writer_with_prompt(&server, "wren", "The lighthouse ledger").await;
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Arc::new(MemoryVault::default());
+    let mut d = app(dir.path(), &vault);
+    on_the_board(&mut d, &server).await;
+
+    // Asking: only Wren's device reads the pitch, and her answer shows.
+    d.wait_for_text("The lighthouse ledger").await;
+    d.click_containing("The lighthouse ledger").await;
+    d.wait_for_text("A keeper finds a ledger.").await;
+    d.click("Ask to write together").await;
+    d.type_into("request-pitch", "I'd write the *keeper*.")
+        .await;
+    d.click("Send request").await;
+    d.wait_for_text("Request sent.").await;
+    // The words the app shows are the ones Wren's side derives (#72).
+    d.click("Compare words with @wren_pen").await;
+    d.wait_for_text("sees these same 12 words").await;
+    let theirs_words = quill_core::keys::identity_words(&wren, &wren_c, "ink_fox", &wren_pen)
+        .await
+        .unwrap()
+        .unwrap();
+    let text = d.text();
+    assert!(
+        text.contains(&theirs_words.join(" ")),
+        "{theirs_words:?} in {text}"
+    );
+    let inbox = requests::inbox(&wren, &wren_c, theirs, false)
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox.requests[0].pitch.as_deref(),
+        Ok("I'd write the *keeper*.")
+    );
+    requests::accept(&wren, &wren_c, inbox.requests[0].id)
+        .await
+        .unwrap();
+    d.click("Home").await;
+    d.wait_for_text("Your request on “The lighthouse ledger” was accepted")
+        .await;
+
+    // Answering: Wren asks on Ink's prompt, live, and Ink accepts.
+    d.click("Board").await;
+    d.click("Post a prompt").await;
+    d.wait_for_text("Add tags").await;
+    d.type_into("post-title", "The night porter").await;
+    d.type_into(
+        "post-body",
+        "A hotel with one more floor than the lift admits.",
+    )
+    .await;
+    d.click("Post prompt").await;
+    d.wait_for_text("Prompt posted.").await;
+    let mine = wren_c
+        .prompts(&quill_proto::board::PromptQuery {
+            q: Some("night porter".into()),
+            ..quill_proto::board::PromptQuery::default()
+        })
+        .await
+        .unwrap()
+        .items[0]
+        .id;
+    let sent = requests::send(&wren, &wren_c, &wren_pen, mine, "**Porters** know.", None)
+        .await
+        .unwrap();
+    d.click("Home").await;
+    d.wait_for_text("A request is waiting on “The night porter”.")
+        .await;
+    d.click("Read them").await;
+    d.wait_for_text("Porters know.").await;
+    d.click("Accept").await;
+    d.wait_for_text("Accepted @wren_pen's request").await;
+    assert_eq!(
+        wren_c.request_status(sent.request.id).await.unwrap().status,
+        quill_proto::requests::RequestStatus::Session
+    );
+    server.stop().await.unwrap();
+}

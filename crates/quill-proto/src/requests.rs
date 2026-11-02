@@ -136,3 +136,20 @@ pub struct Queue {
     /// Held requests still waiting to be released.
     pub held: u32,
 }
+
+/// One of the login's prompts with requests waiting on it, in
+/// `GET /requests/waiting`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct WaitingOnPrompt {
+    pub prompt: Uuid,
+    pub title: String,
+    /// Requests in the queue.
+    pub pending: u32,
+    /// Requests held while the prompt was busy, not yet released.
+    pub held: u32,
+    /// When the newest of them arrived.
+    #[serde(with = "time::serde::rfc3339")]
+    pub newest: OffsetDateTime,
+}

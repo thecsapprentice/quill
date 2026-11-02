@@ -11,6 +11,10 @@ use quill_proto::board::Maturity;
 use uuid::Uuid;
 
 mod board;
+mod devices;
+mod requests;
+
+pub use requests::State as RequestState;
 
 use crate::backend::{
     AccountNotice, AccountSettings, CreatePrompt, CreateReport, Prompt, PromptPage, PromptQuery,
@@ -62,6 +66,8 @@ pub struct SimServer {
     /// Personas by login, with whether their identity key is published.
     personas: Vec<(String, Persona, bool)>,
     board: board::Board,
+    devices: devices::Devices,
+    requests: requests::Requests,
 }
 
 impl SimServer {
@@ -76,6 +82,8 @@ impl SimServer {
             accounts: HashMap::new(),
             personas: Vec::new(),
             board: board::Board::default(),
+            devices: devices::Devices::default(),
+            requests: requests::Requests::default(),
         }
     }
 }
@@ -90,6 +98,10 @@ struct Store {
     unlocked: bool,
     /// Personas whose keys are on this computer.
     keys: Vec<Uuid>,
+    /// This computer among the login's devices.
+    here: devices::Here,
+    /// Pinned keys and requests read here.
+    requests: requests::Here,
 }
 
 #[derive(Debug)]
@@ -101,6 +113,8 @@ struct State {
     keychain: bool,
     /// Wakes waits of a minute or more (`time_passes`).
     clock: Rc<tokio::sync::Notify>,
+    /// The server's live notices for the open login (a request arrived).
+    live: Rc<tokio::sync::Notify>,
     settings: AppSettings,
 }
 
@@ -128,6 +142,7 @@ impl Sim {
             current: None,
             keychain: true,
             clock: Rc::default(),
+            live: Rc::default(),
             settings: AppSettings {
                 theme: Theme::System,
                 text_size: 100,
@@ -160,6 +175,11 @@ impl Sim {
     /// as if that long had passed. Such waits otherwise last until called.
     pub fn time_passes(&self) {
         self.0.borrow().clock.notify_waiters();
+    }
+
+    /// A live notice for the open login: its upkeep runs, as on an event.
+    pub fn live(&self) {
+        self.0.borrow().live.notify_one();
     }
 
     /// Changes a server (an administrator's settings, an outage).
@@ -196,6 +216,14 @@ impl Sim {
             for h in handles {
                 s.personas.push((login.into(), persona(h), true));
             }
+        });
+    }
+
+    /// Another writer whose persona has no identity key published yet.
+    pub fn writer_without_keys(&self, domain: &str, handle: &str) {
+        self.server(domain, |s| {
+            s.personas
+                .push((format!("owner_of_{handle}"), persona(handle), false));
         });
     }
 
@@ -398,6 +426,8 @@ impl Backend for Sim {
                     passphrase: passphrase.map(str::to_owned),
                     unlocked: true,
                     keys: Vec::new(),
+                    here: devices::Here::default(),
+                    requests: requests::Here::default(),
                 },
             );
             s.current = Some(entry.id);
@@ -669,12 +699,154 @@ impl Backend for Sim {
         })
     }
 
+    fn start_over<'a>(&'a self, persona: Uuid, progress: &'a dyn Fn(Step)) -> Call<'a, ()> {
+        Box::pin(async move {
+            for step in Step::ALL {
+                progress(step);
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            self.sim_start_over(persona)
+        })
+    }
+
+    fn device_name(&self) -> Option<String> {
+        self.sim_device_name()
+    }
+
+    fn removed_here(&self) -> bool {
+        self.open_store().is_ok_and(|(_, s, _)| s.here.removed)
+    }
+
+    fn suggested_device_name(&self) -> String {
+        "writing-laptop".into()
+    }
+
+    fn rename_device<'a>(&'a self, name: &'a str) -> Call<'a, ()> {
+        now(self.sim_rename_device(name))
+    }
+
+    fn devices(&self) -> Call<'_, Vec<crate::backend::Device>> {
+        now(self.sim_devices())
+    }
+
+    fn remove_device(&self, id: Uuid, reason: crate::backend::RemoveReason) -> Call<'_, ()> {
+        now(self.sim_remove_device(id, reason))
+    }
+
+    fn start_link<'a>(&'a self, name: &'a str) -> Call<'a, crate::backend::LinkStart> {
+        now(self.sim_start_link(name))
+    }
+
+    fn link_answer(&self) -> Call<'_, Option<Vec<String>>> {
+        // As the native one, a look waits a little before saying "not yet".
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            self.sim_link_answer()
+        })
+    }
+
+    fn finish_link(&self) -> Call<'_, Standing> {
+        now(self.sim_finish_link().and_then(|()| self.standing_now()))
+    }
+
+    fn abandon_link(&self) -> Result<(), Problem> {
+        self.sim_abandon_link()
+    }
+
+    fn approve_link<'a>(&'a self, typed: &'a str) -> Call<'a, crate::backend::Approval> {
+        now(self.sim_approve_link(typed))
+    }
+
+    fn waiting_links(&self) -> Call<'_, usize> {
+        now(self.sim_waiting_links())
+    }
+
+    fn key_details(&self) -> Call<'_, Vec<crate::backend::PersonaKeys>> {
+        now(self.sim_key_details())
+    }
+
     fn upkeep(&self) -> Call<'_, Option<String>> {
-        now(self.reach().map(|_| None))
+        // A removal by another device is learnt here, as quill-core's
+        // catch-up learns it: the keys go then.
+        now(self.reach().map(|_| {
+            self.sim_catch_up().then(|| {
+                "This computer was removed from your devices. Link it again to keep writing here."
+                    .to_owned()
+            })
+        }))
     }
 
     fn next_notice(&self) -> Call<'_, ()> {
-        Box::pin(std::future::pending())
+        let live = self.0.borrow().live.clone();
+        Box::pin(async move {
+            live.notified().await;
+            Ok(())
+        })
+    }
+
+    fn send_request<'a>(
+        &'a self,
+        persona: Uuid,
+        prompt: Uuid,
+        pitch: &'a str,
+        days: u32,
+    ) -> Call<'a, crate::backend::SentRequest> {
+        now(self.sim_send_request(persona, prompt, pitch, days))
+    }
+
+    fn sent_requests(&self) -> Call<'_, Vec<crate::backend::SentRequest>> {
+        now(self.sim_sent_requests())
+    }
+
+    fn withdraw_request(&self, id: Uuid) -> Call<'_, ()> {
+        now(self.sim_withdraw(id))
+    }
+
+    fn waiting_requests(&self) -> Call<'_, Vec<crate::backend::WaitingPrompt>> {
+        now(self.sim_waiting())
+    }
+
+    fn inbox(&self, prompt: Uuid, held: bool) -> Call<'_, crate::backend::Inbox> {
+        now(self.sim_inbox(prompt, held))
+    }
+
+    fn accept_request(&self, id: Uuid) -> Call<'_, ()> {
+        now(self.sim_answer(id, true))
+    }
+
+    fn decline_request(&self, id: Uuid) -> Call<'_, ()> {
+        now(self.sim_answer(id, false))
+    }
+
+    fn key_change<'a>(
+        &'a self,
+        handle: &'a str,
+        as_persona: Uuid,
+    ) -> Call<'a, Option<crate::backend::KeyChange>> {
+        now(self.sim_key_change(handle, as_persona))
+    }
+
+    fn identity_words<'a>(
+        &'a self,
+        handle: &'a str,
+        as_persona: Uuid,
+    ) -> Call<'a, Option<Vec<String>>> {
+        now(self.sim_identity_words(handle, as_persona))
+    }
+
+    fn accept_key_change<'a>(&'a self, handle: &'a str, fingerprint: &'a str) -> Call<'a, ()> {
+        now(self.sim_accept_key_change(handle, fingerprint))
+    }
+
+    fn answers_seen(&self) -> Vec<Uuid> {
+        self.open_store()
+            .map(|(_, s, _)| s.requests.answers_seen)
+            .unwrap_or_default()
+    }
+
+    fn set_answers_seen(&self, ids: &[Uuid]) -> Result<(), Problem> {
+        self.with_server_mut(|_, store| store.requests.answers_seen = ids.to_vec());
+        Ok(())
     }
 
     fn board_settings(&self) -> Call<'_, BoardSettings> {

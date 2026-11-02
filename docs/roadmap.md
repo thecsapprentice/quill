@@ -1135,11 +1135,17 @@ part of its "done when".
 | 3b | [#25](https://github.com/thecsapprentice/quill/issues/25) `quill-ui` and the `quill-gui` shell: first run (sign up or in, a persona, keys made and published without being asked), unlocking the store, personas, settings, advanced mode, the server rules | in review (#63) |
 | 3c | [#26](https://github.com/thecsapprentice/quill/issues/26) The board in the GUI: browse, search, post and edit prompts, through the board's shared components | planned |
 | 3d | [#27](https://github.com/thecsapprentice/quill/issues/27) Keys and devices: identity keys, linking by QR code or words, the device list, revoking, safety numbers | planned |
-| 3e | [#28](https://github.com/thecsapprentice/quill/issues/28) Requests: sending with a pitch, the inbox, accepting and declining, status | planned |
+| 3e | [#28](https://github.com/thecsapprentice/quill/issues/28) Requests: sending with a pitch, the inbox, accepting and declining, status, the changed-key stop, and comparing words before a session ([#72](https://github.com/thecsapprentice/quill/issues/72)) | in review (#73) |
 | 3f | [#29](https://github.com/thecsapprentice/quill/issues/29) Sessions: the session list, reading and writing, channels, replies, edits and deletions with their history, live updates | planned |
 | 3g | [#30](https://github.com/thecsapprentice/quill/issues/30) Attachments: attaching, opening and saving files; images shown inline, with metadata stripped before sending (deferred from 2i); storage use | planned |
 | 3h | [#31](https://github.com/thecsapprentice/quill/issues/31) Backup and recovery, history sync and rejoining, notices; anything the CLI does that the GUI doesn't yet | planned |
 | 3i | [#32](https://github.com/thecsapprentice/quill/issues/32) Packaging for Windows, macOS and Linux | planned |
+
+Every GUI screen follows one design language:
+`docs/design/gui-design-language.md` ([#69](https://github.com/thecsapprentice/quill/issues/69)),
+with a reference page in the app under advanced mode. Bringing the screens
+built so far up to it is [#70](https://github.com/thecsapprentice/quill/issues/70);
+screens from 3e on are built to it from the start.
 
 Gate: the GUI does everything the CLI does, and the end-to-end tests that
 drive `quill-core` pass unchanged. A new user can go from installing to

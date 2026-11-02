@@ -34,6 +34,8 @@ pub enum RequestCommand {
     List,
     /// Withdraw a request (or dismiss one that got no response).
     Withdraw { id: Uuid },
+    /// Which of your prompts have requests waiting, and how many.
+    Waiting,
     /// Read the requests waiting on one of your prompts.
     Inbox {
         prompt: Uuid,
@@ -124,6 +126,22 @@ pub async fn request(ctx: &Ctx, cmd: RequestCommand) -> Result<()> {
                 }
             })
         }
+        RequestCommand::Waiting => {
+            let list = requests::waiting(&ctx.client()?).await?;
+            ctx.print(&list, |list| {
+                if list.is_empty() {
+                    println!("no requests waiting on your prompts");
+                }
+                for w in list {
+                    let held = if w.held > 0 {
+                        format!(", {} held while busy", w.held)
+                    } else {
+                        String::new()
+                    };
+                    println!("{}  {} waiting{held}  {}", w.prompt, w.pending, w.title);
+                }
+            })
+        }
         RequestCommand::Withdraw { id } => {
             requests::withdraw(&ctx.store, &ctx.client()?, id).await?;
             ctx.done("withdrawn")
@@ -138,7 +156,7 @@ pub async fn request(ctx: &Ctx, cmd: RequestCommand) -> Result<()> {
                     "receivedAt": rfc3339(r.received_at),
                     "expiresAt": rfc3339(r.expires_at),
                     "pitch": r.pitch.as_ref().ok(),
-                    "problem": r.pitch.as_ref().err(),
+                    "problem": r.pitch.as_ref().err().map(ToString::to_string),
                 })).collect::<Vec<_>>(),
             });
             ctx.print(&body, |_| {

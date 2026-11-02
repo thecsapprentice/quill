@@ -67,6 +67,8 @@ openmls_traits = "0.6"
 redb = "4.4"
 keyring-core = "1"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+# Linking a device (3d): the code drawn as a QR code, with no image crates.
+qrcode = { version = "0.14", default-features = false }
 reqwest = { version = "0.13", default-features = false, features = ["json", "query"] }
 rpassword = "7"
 serde = { version = "1", features = ["derive"] }

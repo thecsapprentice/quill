@@ -104,9 +104,44 @@ pub fn Reader() -> Element {
             }
             CopyLink { id }
             if own {
+                Waiting { prompt: id }
                 OwnActions { prompt: prompt.clone() }
             } else if model.read().signed_in() {
-                ReportForm { key: "{id}", prompt: prompt.clone() }
+                div { key: "{id}", class: "reader-actions",
+                    crate::requests::AskToWrite { prompt: prompt.clone() }
+                    ReportForm { prompt: prompt.clone() }
+                }
+            }
+        }
+    }
+}
+
+/// On the author's own prompt: the requests waiting on it, leading to them.
+#[component]
+fn Waiting(prompt: uuid::Uuid) -> Element {
+    let (_, mut model) = use_ui();
+    let n = model
+        .read()
+        .requests
+        .waiting
+        .iter()
+        .find(|w| w.prompt == prompt)
+        .map_or(0, |w| w.pending + w.held);
+    if n == 0 {
+        return rsx! {};
+    }
+    let line = if n == 1 {
+        "A request to write together is waiting on it.".to_owned()
+    } else {
+        format!("{n} requests to write together are waiting on it.")
+    };
+    rsx! {
+        div { class: "nudge",
+            p { "{line}" }
+            button {
+                class: "primary",
+                onclick: move |_| model.write().open_requests(Some(prompt)),
+                "Read them"
             }
         }
     }

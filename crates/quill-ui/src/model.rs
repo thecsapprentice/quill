@@ -8,7 +8,8 @@
 use uuid::Uuid;
 
 use crate::backend::{
-    AppSettings, Backend, Keys, Persona, PersonaState, Problem, ServerEntry, ServerRules, Standing,
+    AppSettings, Backend, Keys, Persona, PersonaState, Problem, RequestStatus, SentRequest,
+    ServerEntry, ServerRules, Standing, WaitingPrompt,
 };
 
 /// What fills the window.
@@ -24,8 +25,11 @@ pub enum Screen {
     Account,
     /// The first persona, pushed but skippable.
     FirstPersona,
-    /// Getting a persona ready, as progress.
-    Preparing { persona: Uuid },
+    /// Getting a persona ready, as progress; `replace` starts it over with a
+    /// new identity key in place of one on another device.
+    Preparing { persona: Uuid, replace: bool },
+    /// Linking this computer to the login's other devices (3d).
+    Linking,
     /// Signed in where the personas' keys are on another device.
     Elsewhere,
     /// The app's frame and its sections.
@@ -48,6 +52,10 @@ pub enum Section {
     /// The server rules: reached from Settings and the "rules changed"
     /// banner, not the sidebar.
     Rules,
+    /// The login's devices: reached from Settings, not the sidebar.
+    Devices,
+    /// The design reference: reached from Settings in advanced mode.
+    Reference,
 }
 
 impl Section {
@@ -73,6 +81,8 @@ impl Section {
             Section::Personas => "Personas",
             Section::Settings => "Settings",
             Section::Rules => "Server rules",
+            Section::Devices => "Devices",
+            Section::Reference => "Design reference",
         }
     }
 }
@@ -121,6 +131,40 @@ pub struct Model {
     pub backup_nudge_dismissed: bool,
     /// Bumped to restart the upkeep loop now (the "Try now" button).
     pub upkeep_round: u32,
+    /// The open server's requests, as last loaded (3e).
+    pub requests: Requests,
+}
+
+/// What the login's requests come to: kept in the model so Home, the side
+/// bar and the Requests screen agree, and reloaded on each live notice.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Requests {
+    pub loaded: bool,
+    /// The login's prompts with requests waiting.
+    pub waiting: Vec<WaitingPrompt>,
+    /// The login's own requests.
+    pub sent: Vec<SentRequest>,
+    /// Answered requests the writer has seen on the Requests screen.
+    pub seen: Vec<Uuid>,
+    /// Bumped on each load, so an open queue reads itself again.
+    pub epoch: u32,
+    /// The prompt whose queue is open on the Requests screen.
+    pub open: Option<Uuid>,
+}
+
+impl Requests {
+    /// Requests waiting on the login's prompts, held ones included.
+    pub fn waiting_count(&self) -> u32 {
+        self.waiting.iter().map(|w| w.pending + w.held).sum()
+    }
+
+    /// The login's requests answered since the writer last looked.
+    pub fn new_answers(&self) -> Vec<&SentRequest> {
+        self.sent
+            .iter()
+            .filter(|r| r.status != RequestStatus::Waiting && !self.seen.contains(&r.id))
+            .collect()
+    }
 }
 
 impl Model {
@@ -155,6 +199,7 @@ impl Model {
             elsewhere_seen: false,
             backup_nudge_dismissed: false,
             upkeep_round: 0,
+            requests: Requests::default(),
         }
     }
 
@@ -204,6 +249,7 @@ impl Model {
             self.notice = None;
             self.rules = None;
             self.unread = 0;
+            self.requests = Requests::default();
         }
         self.current = Some(id);
         self.standing = None;
@@ -300,6 +346,7 @@ impl Model {
                 if let (Some(p), false) = (to_set_up, self.prepare_later) {
                     Screen::Preparing {
                         persona: p.persona.id,
+                        replace: false,
                     }
                 } else if personas.is_empty() && self.fresh_login && !self.persona_skipped {
                     Screen::FirstPersona
@@ -331,7 +378,10 @@ impl Model {
         }
         self.problem = None;
         self.prepare_later = false;
-        self.screen = Screen::Preparing { persona: id };
+        self.screen = Screen::Preparing {
+            persona: id,
+            replace: false,
+        };
     }
 
     /// Getting `persona` ready finished, or stopped with a problem (the
@@ -353,6 +403,41 @@ impl Model {
         self.prepare_later = true;
         self.problem = None;
         self.route();
+    }
+
+    /// Starts linking this computer to the login's other devices.
+    pub fn begin_link(&mut self) {
+        self.problem = None;
+        self.screen = Screen::Linking;
+    }
+
+    /// Linking stopped without a link: back to where things stand.
+    pub fn link_left(&mut self) {
+        self.problem = None;
+        self.elsewhere_seen = true;
+        if self.standing.is_some() {
+            self.route();
+        } else {
+            self.screen = Screen::Frame;
+        }
+    }
+
+    /// Linked: the personas are ready here, and Home says so.
+    pub fn linked(&mut self, standing: Standing) {
+        self.notice = None;
+        self.elsewhere_seen = true;
+        self.set_standing(standing);
+        self.section = Section::Home;
+        self.route();
+    }
+
+    /// Starts `persona` over with a new identity key, as progress.
+    pub fn begin_start_over(&mut self, persona: Uuid) {
+        self.problem = None;
+        self.screen = Screen::Preparing {
+            persona,
+            replace: true,
+        };
     }
 
     pub fn elsewhere_seen(&mut self) {
@@ -419,6 +504,31 @@ impl Model {
         if self.current == Some(id) {
             self.unread = unread;
         }
+    }
+
+    /// Server `id`'s requests, as upkeep or the Requests screen loaded them.
+    pub fn requests_loaded(
+        &mut self,
+        id: Uuid,
+        waiting: Vec<WaitingPrompt>,
+        sent: Vec<SentRequest>,
+        seen: Vec<Uuid>,
+    ) {
+        if self.current != Some(id) {
+            return;
+        }
+        let r = &mut self.requests;
+        r.loaded = true;
+        r.waiting = waiting;
+        r.sent = sent;
+        r.seen = seen;
+        r.epoch = r.epoch.wrapping_add(1);
+    }
+
+    /// Opens the Requests screen, at one prompt's queue if `prompt`.
+    pub fn open_requests(&mut self, prompt: Option<Uuid>) {
+        self.requests.open = prompt;
+        self.go(Section::Requests);
     }
 
     pub fn rules_loaded(&mut self, id: Uuid, result: Result<Option<ServerRules>, Problem>) {
@@ -564,9 +674,21 @@ mod tests {
         let mut m = opened(&fake);
         let fox = persona("ink_fox", Keys::ToSetUp).persona;
         m.persona_created(fox.clone());
-        assert_eq!(m.screen, Screen::Preparing { persona: fox.id });
+        assert_eq!(
+            m.screen,
+            Screen::Preparing {
+                persona: fox.id,
+                replace: false
+            }
+        );
         m.prepared(fox.id, Err(Problem::Unreachable("w".into())));
-        assert_eq!(m.screen, Screen::Preparing { persona: fox.id });
+        assert_eq!(
+            m.screen,
+            Screen::Preparing {
+                persona: fox.id,
+                replace: false
+            }
+        );
         assert!(m.problem.is_some());
         m.prepared(fox.id, Ok(()));
         assert_eq!(m.screen, Screen::Frame);

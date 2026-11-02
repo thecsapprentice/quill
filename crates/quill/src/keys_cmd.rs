@@ -47,6 +47,14 @@ pub enum KeysCommand {
         #[arg(long)]
         accept_change: bool,
     },
+    /// The 12 words for one of your personas and another writer: they see
+    /// the same words, so read them to each other to check a changed key.
+    Words {
+        handle: String,
+        /// Your persona (handle).
+        #[arg(long = "as", value_name = "HANDLE")]
+        persona: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -71,9 +79,15 @@ pub enum DeviceCommand {
         /// Skip the question by giving the words the other device shows.
         #[arg(long, value_name = "WORDS")]
         expect_words: Option<String>,
+        /// What to call this device on your others (only they see it).
+        #[arg(long)]
+        name: Option<String>,
     },
-    /// On a device already in use: approve a new one with the code it shows
-    /// (the whole quill-link: code, or its link id and 6 words).
+    /// Name this device, as your other devices will show it. The name is
+    /// sent only inside your encrypted device group; empty clears it.
+    Name { name: String },
+    /// On a device already in use: approve a new one with the 6 words it
+    /// shows (its waiting link is found), or its whole quill-link: code.
     Approve {
         #[arg(required = true, num_args = 1..)]
         code: Vec<String>,
@@ -268,6 +282,18 @@ pub async fn keys(ctx: &Ctx, cmd: KeysCommand) -> Result<()> {
             }
             Ok(())
         }
+        KeysCommand::Words { handle, persona } => {
+            let handle = bare(&handle).to_owned();
+            let me = own_persona(ctx, &persona).await?;
+            let client = ctx.client()?;
+            let Some(words) = keys::identity_words(&ctx.store, &client, &handle, &me).await? else {
+                bail!("@{handle} has no identity key yet");
+            };
+            let body = json!({ "handle": handle, "as": me.handle, "words": words });
+            ctx.print(&body, |_| {
+                println!("@{} and @{handle}: {}", me.handle, words.join(" "));
+            })
+        }
         KeysCommand::Show {
             handle,
             accept_change,
@@ -356,6 +382,8 @@ pub async fn devices(ctx: &Ctx) -> Result<()> {
             json!({
                 "id": d.id,
                 "thisDevice": d.this_device,
+                "name": d.name,
+                "since": d.since,
                 "personas": d.personas.iter().map(|p| json!({
                     "persona": handle(&p.persona), "device": p.device,
                 })).collect::<Vec<_>>(),
@@ -368,7 +396,12 @@ pub async fn devices(ctx: &Ctx) -> Result<()> {
         }
         for d in &list {
             let here = if d.this_device { "  (this device)" } else { "" };
-            println!("{}{here}", d.id);
+            let name = d.name.as_deref().unwrap_or("unnamed");
+            let since = d
+                .since
+                .map(|s| format!(", since {}", date(s)))
+                .unwrap_or_default();
+            println!("{name}{here}{since}\n    {}", d.id);
             for p in &d.personas {
                 println!("    {}  {}", handle(&p.persona), p.device);
             }
@@ -388,18 +421,17 @@ pub(crate) fn ask(question: &str) -> Result<bool> {
 pub async fn device(ctx: &Ctx, cmd: DeviceCommand) -> Result<()> {
     use quill_core::devices;
     match cmd {
-        DeviceCommand::Link { expect_words } => {
+        DeviceCommand::Link { expect_words, name } => {
             let client = ctx.client()?;
+            if let Some(name) = &name {
+                devices::set_name(&ctx.store, name)?;
+            }
             let pending = devices::start_link(&ctx.store, &client).await?;
             println!("On a device you already use, run:");
             println!();
-            println!("    quill device approve {}", pending.code);
+            println!("    quill device approve {}", pending.words.join(" "));
             println!();
-            println!(
-                "or type the link id and words: {} {}",
-                pending.link_id,
-                pending.words.join(" ")
-            );
+            println!("or give it the whole code: {}", pending.code);
             println!("Waiting up to 10 minutes...");
             let words = devices::wait_for_link(
                 &ctx.store,
@@ -479,6 +511,16 @@ pub async fn device(ctx: &Ctx, cmd: DeviceCommand) -> Result<()> {
                     ),
                 }
                 print_devices(&checked, mine);
+            })
+        }
+        DeviceCommand::Name { name } => {
+            devices::set_name(&ctx.store, &name)?;
+            // Tell the other devices now, if this one is linked.
+            devices::announce(&ctx.store, &ctx.client()?).await?;
+            let body = json!({ "name": devices::name(&ctx.store)? });
+            ctx.print(&body, |_| match devices::name(&ctx.store).ok().flatten() {
+                Some(n) => println!("This device is now called {n}."),
+                None => println!("This device has no name now."),
             })
         }
         DeviceCommand::Revoke {

@@ -299,7 +299,7 @@ As built in 2k, for history:
 - The server deletes ciphertext older than `retentionDays` whether or not it was read. A server that keeps it regardless of age (`QUILL_RETENTION_DAYS=-1`) publishes `retentionDays: null`; messages then go only once every device has read them.
 - These are JSON objects tagged by `type` inside the device group's MLS messages, like the 2d payloads, not ActivityStreams activities.
 
-As built (2d, 2k), the types are `deviceGrant` (identity keys, trust pins and the login's known devices, for a newly linked device), `deviceKeys` (which persona devices belong to the sending device), `historyRequest` and `historyBundle`; `Settings` and `Personas` aren't built. Schema: [`schemas/device-payload.json`](../schemas/device-payload.json).
+As built (2d, 2k), the types are `deviceGrant` (identity keys, trust pins and the login's known devices, for a newly linked device), `deviceKeys` (which persona devices belong to the sending device, with the name its owner gave it and when it joined, both added in 3d and seen only by the login's devices), `historyRequest` and `historyBundle`; `Settings` and `Personas` aren't built. Schema: [`schemas/device-payload.json`](../schemas/device-payload.json).
 
 ## 6. Binary formats
 
@@ -336,7 +336,7 @@ All structures use TLS presentation language (as in RFC 9420) and are signed wit
 
 1.  The new device creates its device key and a KeyPackage and posts them to `POST /api/v1/link`, getting a random 128-bit `link_id` that expires in 10 minutes.
 
-2.  It displays a QR code `quill-link:1:<server host>:<link_id>:<fp>`, where `fp` = SHA-256 of the serialized KeyPackage, base64url. The typed alternative is the `link_id` plus the first 66 bits of `fp` as 6 words (BIP-39 English list).
+2.  It displays a QR code `quill-link:1:<server host>:<link_id>:<fp>`, where `fp` = SHA-256 of the serialized KeyPackage, base64url. The typed alternative is the first 66 bits of `fp` as 6 words (BIP-39 English list). Typed alone, the existing device finds the `link_id` with `GET /api/v1/link`, which lists the login's unanswered links, and only when the person chooses to link. If more than one is waiting it refuses the words: another may have been started by someone holding the password. The full code, or the `link_id` followed by the words, still names one link. Forging a KeyPackage whose fingerprint shares those 66 bits within the 10 minutes is as hard either way.
 
 3.  The existing device fetches the KeyPackage from the mailbox and checks `fp`; on mismatch it aborts and warns.
 
@@ -396,6 +396,7 @@ A JSON-over-HTTPS API under `/api/v1`, authenticated with bearer tokens, used by
 | Requests | `GET /prompts/{id}/requests?state=pending|held`                                                       | Author's queue; reading `held` releases them to `pending`                                |
 | Requests | `POST /requests`, `POST /requests/{id}/accept`, `POST /requests/{id}/reject`, `DELETE /requests/{id}` | Send, accept, decline, withdraw (built in 2e)                                            |
 | Requests | `GET /requests`, `GET /requests/{id}`                                                                 | The login's own requests; one request's status, as the caller's side may see it (requester: `waiting`, `session`, `noResponse`) |
+| Requests | `GET /requests/waiting`                                                                               | The author's prompts with requests waiting, and how many are pending and held; releases nothing (3e) |
 | Keys     | `PUT /personas/{id}/identity-key`, `GET/POST /personas/{id}/devices`, `POST /personas/{id}/devices/{device}/revoke` | Per-persona identity key, device certificates, revocation (built in 2b)            |
 | Keys     | `GET /actors/{handle}/keys`                                                                           | Public: a persona's identity key, devices, certificates and revocations; no timestamps   |
 | Keys     | `POST /devices/{id}/key-packages`, `GET /key-packages/status`                                         | Upload KeyPackages, check remaining pool                                                 |
@@ -502,7 +503,7 @@ The OpenAPI file, JSON Schemas and test vectors are built alongside the code, no
 
 As built in 2m, each is in the repository and checked in CI against the code:
 
-- **OpenAPI file:** [`docs/openapi.json`](openapi.json) (OpenAPI 3.1, 81 operations), generated from the server's routes; the server also serves it at `/api/v1/openapi.json`. A test fails when the committed file differs from what the code generates, and another runs a story through a server and checks every answer's status, media type and JSON body against the file.
+- **OpenAPI file:** [`docs/openapi.json`](openapi.json) (OpenAPI 3.1, 116 operations), generated from the server's routes; the server also serves it at `/api/v1/openapi.json`. A test fails when the committed file differs from what the code generates, and another runs a story through a server and checks every answer's status, media type and JSON body against the file.
 - **JSON Schemas:** [`schemas/`](../schemas/) for what travels inside encrypted messages: session activities, `EncryptedAttachment`, device group payloads and history rows. Written by hand and checked against what the client produces. The federated objects' schemas come with federation (Phase 5).
 - **Test vectors:** [`test-vectors/`](../test-vectors/), one file per format, listed in its README.
 
