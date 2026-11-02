@@ -127,7 +127,7 @@ async fn notes_arrive_live_and_their_counts_clear_once_read() {
 async fn named_channels_answers_edits_and_deletions_show() {
     let sim = sim();
     let (mut d, id) = with_a_session(&sim).await;
-    let first = sim.write_as(SERVER, &id, "wren", "story", "Chapter one begins at sea.");
+    let first = sim.write_as(SERVER, &id, "wren", "story", "Chapter one begins at **sea**.");
     sim.name_channel(SERVER, &id, "research", "Ships and tides.");
     sim.reply_as(
         SERVER,
@@ -143,7 +143,7 @@ async fn named_channels_answers_edits_and_deletions_show() {
     sim.delete_note(SERVER, &id, gone);
 
     d.click("Open the session with @wren on “The ledger”").await;
-    d.wait_for_text("Chapter one begins at sea.").await;
+    d.wait_for_text("Chapter one begins at").await;
     assert!(d.has_text("A second try."));
     assert!(d.has_text("Edited"));
     assert!(!d.has_text("Never mind this."));
@@ -152,7 +152,9 @@ async fn named_channels_answers_edits_and_deletions_show() {
     d.click("Research 1 unread").await;
     d.wait_for_text("Ships and tides.").await;
     assert!(d.has_text("Tide tables for 1890."));
-    // The answer leads back to its note, in Story.
+    // The answer names its note in plain words, not Markdown, and leads
+    // back to it, in Story.
+    assert!(!d.has_text("**"));
     let _ = d.asked_of(&format!("note-{first}"));
     d.click("In answer to: Chapter one begins at sea.").await;
     d.wait_for_text("A second try.").await;

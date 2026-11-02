@@ -130,6 +130,24 @@ fn render(node: &Node) -> Element {
     }
 }
 
+/// The words of a Markdown block with its marks taken out, for one-line
+/// previews: "the **ghost**" reads "the ghost".
+pub fn plain_text(source: &str) -> String {
+    fn walk(nodes: &[Node], out: &mut String) {
+        for n in nodes {
+            match n {
+                Node::Text(t) | Node::InlineCode(t) => out.push_str(t),
+                Node::Break => out.push(' '),
+                Node::Rule => {}
+                Node::Element(_, inner) => walk(inner, out),
+            }
+        }
+    }
+    let mut out = String::new();
+    walk(&parse(source), &mut out);
+    out
+}
+
 /// Markdown shown as plain elements.
 #[component]
 pub fn Markdown(source: String) -> Element {

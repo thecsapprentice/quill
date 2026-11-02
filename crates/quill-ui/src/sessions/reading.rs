@@ -12,7 +12,7 @@ use super::{reload, standing_line};
 use crate::{
     app::{ProblemLine, use_ui},
     backend::{Note, Problem, SessionView},
-    markdown::Markdown,
+    markdown::{Markdown, plain_text},
 };
 
 /// When a note was written, in this computer's time zone: "Nov 2, 2026,
@@ -205,14 +205,15 @@ pub fn SessionPage(id: String) -> Element {
     }
 }
 
-/// A note's first line, shortened, for "In answer to".
+/// A note's first line in plain words, shortened, for "In answer to".
 fn first_line(text: &str) -> String {
     let line = text
         .lines()
         .find(|l| !l.trim().is_empty())
         .unwrap_or("")
         .trim();
-    let line = line.trim_start_matches(['#', '>', '*', '-', ' ']);
+    let line = plain_text(line);
+    let line = line.trim();
     let mut out: String = line.chars().take(60).collect();
     if line.chars().count() > 60 {
         out.push('…');
@@ -281,6 +282,8 @@ mod tests {
     #[test]
     fn answers_name_their_note_by_its_first_line() {
         assert_eq!(first_line("\n# Chapter one\nThe sea."), "Chapter one");
+        assert_eq!(first_line("I'd write the **ghost** *here*."), "I'd write the ghost here.");
+        assert_eq!(first_line("> - `quoted` list"), "quoted list");
         assert_eq!(first_line(&"x".repeat(70)).chars().count(), 61);
     }
 }
