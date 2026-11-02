@@ -24,6 +24,7 @@ use quill_proto::{
     keys::{actor_uri, b64, unb64},
     requests::{
         IncomingRequest, OutgoingRequest, RequestPersona, RequestSent, RequestStatus, SendRequest,
+        WaitingOnPrompt,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -349,6 +350,12 @@ pub async fn withdraw(store: &Store, client: &Client, id: Uuid) -> Result<(), Co
 }
 
 // ---- The author's side ---------------------------------------------------------------------
+
+/// The login's prompts with requests waiting on them: how many are in each
+/// queue and how many are held. Releases nothing.
+pub async fn waiting(client: &Client) -> Result<Vec<WaitingOnPrompt>, CoreError> {
+    client.waiting_requests().await
+}
 
 /// A request in the author's queue, as this device reads it.
 #[derive(Debug, Clone)]

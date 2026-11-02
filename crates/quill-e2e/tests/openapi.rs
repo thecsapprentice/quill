@@ -155,6 +155,7 @@ async fn story(server: &TestServer) {
         .unwrap();
     bob_c.own_requests().await.unwrap();
     bob_c.request_status(sent.request.id).await.unwrap();
+    alice_c.waiting_requests().await.unwrap();
     requests::inbox(&alice, &alice_c, prompt.id, false)
         .await
         .unwrap();

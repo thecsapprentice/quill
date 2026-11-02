@@ -396,6 +396,7 @@ A JSON-over-HTTPS API under `/api/v1`, authenticated with bearer tokens, used by
 | Requests | `GET /prompts/{id}/requests?state=pending|held`                                                       | Author's queue; reading `held` releases them to `pending`                                |
 | Requests | `POST /requests`, `POST /requests/{id}/accept`, `POST /requests/{id}/reject`, `DELETE /requests/{id}` | Send, accept, decline, withdraw (built in 2e)                                            |
 | Requests | `GET /requests`, `GET /requests/{id}`                                                                 | The login's own requests; one request's status, as the caller's side may see it (requester: `waiting`, `session`, `noResponse`) |
+| Requests | `GET /requests/waiting`                                                                               | The author's prompts with requests waiting, and how many are pending and held; releases nothing (3e) |
 | Keys     | `PUT /personas/{id}/identity-key`, `GET/POST /personas/{id}/devices`, `POST /personas/{id}/devices/{device}/revoke` | Per-persona identity key, device certificates, revocation (built in 2b)            |
 | Keys     | `GET /actors/{handle}/keys`                                                                           | Public: a persona's identity key, devices, certificates and revocations; no timestamps   |
 | Keys     | `POST /devices/{id}/key-packages`, `GET /key-packages/status`                                         | Upload KeyPackages, check remaining pool                                                 |
@@ -502,7 +503,7 @@ The OpenAPI file, JSON Schemas and test vectors are built alongside the code, no
 
 As built in 2m, each is in the repository and checked in CI against the code:
 
-- **OpenAPI file:** [`docs/openapi.json`](openapi.json) (OpenAPI 3.1, 81 operations), generated from the server's routes; the server also serves it at `/api/v1/openapi.json`. A test fails when the committed file differs from what the code generates, and another runs a story through a server and checks every answer's status, media type and JSON body against the file.
+- **OpenAPI file:** [`docs/openapi.json`](openapi.json) (OpenAPI 3.1, 116 operations), generated from the server's routes; the server also serves it at `/api/v1/openapi.json`. A test fails when the committed file differs from what the code generates, and another runs a story through a server and checks every answer's status, media type and JSON body against the file.
 - **JSON Schemas:** [`schemas/`](../schemas/) for what travels inside encrypted messages: session activities, `EncryptedAttachment`, device group payloads and history rows. Written by hand and checked against what the client produces. The federated objects' schemas come with federation (Phase 5).
 - **Test vectors:** [`test-vectors/`](../test-vectors/), one file per format, listed in its README.
 

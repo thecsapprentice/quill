@@ -764,3 +764,62 @@ async fn removing_a_reported_prompt_expires_its_requests() {
         .unwrap();
     server.stop().await.unwrap();
 }
+
+/// `GET /requests/waiting` (3e): the author's own prompts with requests,
+/// newest arrival first, counting pending and held ones. It releases
+/// nothing, and refused, declined and other logins' requests don't count.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_waiting_summary_counts_without_releasing() {
+    let server = server!();
+    let alice_c = server.account("alice").await.unwrap();
+    let (fox, alice) = writer(&alice_c, "ink_fox").await;
+    let open = prompt(&alice_c, fox.id, PromptState::Open).await;
+    let busy = prompt(&alice_c, fox.id, PromptState::Busy).await;
+    let closed = prompt(&alice_c, fox.id, PromptState::Closed).await;
+    let bob_c = server.account("bob").await.unwrap();
+    let (wren, bob) = writer(&bob_c, "quiet_wren").await;
+    let carol_c = server.account("carol").await.unwrap();
+    let (lark, carol) = writer(&carol_c, "dusk_lark").await;
+
+    assert!(requests::waiting(&alice_c).await.unwrap().is_empty());
+    let first = requests::send(&bob, &bob_c, &wren, open.id, PITCH, None)
+        .await
+        .unwrap();
+    requests::send(&carol, &carol_c, &lark, open.id, PITCH, None)
+        .await
+        .unwrap();
+    requests::send(&carol, &carol_c, &lark, closed.id, PITCH, None)
+        .await
+        .unwrap();
+    requests::send(&bob, &bob_c, &wren, busy.id, PITCH, None)
+        .await
+        .unwrap();
+
+    let counts = |w: Vec<quill_proto::requests::WaitingOnPrompt>| {
+        w.into_iter()
+            .map(|w| (w.prompt, w.pending, w.held))
+            .collect::<Vec<_>>()
+    };
+    let waiting = requests::waiting(&alice_c).await.unwrap();
+    assert_eq!(waiting[0].title, busy.title);
+    assert_eq!(counts(waiting), [(busy.id, 0, 1), (open.id, 2, 0)]);
+    // Only the author's own prompts.
+    assert!(requests::waiting(&bob_c).await.unwrap().is_empty());
+
+    // Reading it again released nothing; declining takes one off.
+    requests::decline(&alice, &alice_c, first.request.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        counts(requests::waiting(&alice_c).await.unwrap()),
+        [(busy.id, 0, 1), (open.id, 1, 0)]
+    );
+    // Reading the held queue releases it.
+    requests::inbox(&alice, &alice_c, busy.id, true)
+        .await
+        .unwrap();
+    assert_eq!(
+        counts(requests::waiting(&alice_c).await.unwrap()),
+        [(busy.id, 1, 0), (open.id, 1, 0)]
+    );
+}

@@ -1012,6 +1012,13 @@ impl Client {
         Self::json(self.authed(Method::GET, "/requests")?).await
     }
 
+    /// The login's prompts with requests waiting on them, and how many.
+    pub async fn waiting_requests(
+        &self,
+    ) -> Result<Vec<quill_proto::requests::WaitingOnPrompt>, CoreError> {
+        Self::json(self.authed(Method::GET, "/requests/waiting")?).await
+    }
+
     pub async fn request_status(
         &self,
         id: Uuid,

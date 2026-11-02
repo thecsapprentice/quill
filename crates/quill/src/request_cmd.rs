@@ -34,6 +34,8 @@ pub enum RequestCommand {
     List,
     /// Withdraw a request (or dismiss one that got no response).
     Withdraw { id: Uuid },
+    /// Which of your prompts have requests waiting, and how many.
+    Waiting,
     /// Read the requests waiting on one of your prompts.
     Inbox {
         prompt: Uuid,
@@ -121,6 +123,22 @@ pub async fn request(ctx: &Ctx, cmd: RequestCommand) -> Result<()> {
                         prompt,
                         r.expires_at.date()
                     );
+                }
+            })
+        }
+        RequestCommand::Waiting => {
+            let list = requests::waiting(&ctx.client()?).await?;
+            ctx.print(&list, |list| {
+                if list.is_empty() {
+                    println!("no requests waiting on your prompts");
+                }
+                for w in list {
+                    let held = if w.held > 0 {
+                        format!(", {} held while busy", w.held)
+                    } else {
+                        String::new()
+                    };
+                    println!("{}  {} waiting{held}  {}", w.prompt, w.pending, w.title);
                 }
             })
         }
