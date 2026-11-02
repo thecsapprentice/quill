@@ -1348,6 +1348,7 @@ impl Backend for NativeBackend {
                         expires_at: r.expires_at,
                         pitch: r.pitch.map_err(|u| match u {
                             requests::Unread::NotForThisDevice => Unread::NotForThisComputer,
+                            requests::Unread::SentHere => Unread::SentFromHere,
                             requests::Unread::KeyChanged { .. } => Unread::KeyChanged,
                             u => Unread::Refused {
                                 detail: u.to_string(),

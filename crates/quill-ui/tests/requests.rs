@@ -600,3 +600,47 @@ async fn after_a_key_changes_the_stop_shows_the_words_the_other_writer_sees() {
     assert!(d.has_text("under “Compare words with @ink_fox”"));
     assert!(words_shown(&d, &sim, "ink_fox", "wren"));
 }
+
+/// Found by hand (3e): a request sent as one login and read as another on
+/// the same computer said it "failed Quill's checks" and "may have been
+/// changed on the way", as if tampered with. This computer only sent it,
+/// from the other login, so it can't read it as the author: it says so.
+#[tokio::test]
+async fn a_request_sent_from_this_computer_under_another_login_says_so() {
+    let sim = sim();
+    sim.existing_login(SERVER, "wren_login", PASSWORD, &["wren"]);
+    let mut d = signed_in(&sim).await;
+    sim.post_as(
+        SERVER,
+        "wren",
+        "The lighthouse ledger",
+        "A keeper finds a ledger.",
+        &[],
+        Maturity::General,
+    );
+    d.click("Board").await;
+    d.wait_for_text("The lighthouse ledger").await;
+    d.click_containing("The lighthouse ledger").await;
+    d.click("Ask to write together").await;
+    d.type_into("request-pitch", PITCH).await;
+    d.click("Send request").await;
+    d.wait_for_text("Request sent.").await;
+
+    // Now the author's login, on this same computer.
+    d.click("Settings").await;
+    d.click("Sign out of writers.example").await;
+    d.wait_for_text("Sign in to writers.example").await;
+    d.type_into("login-name", "wren_login").await;
+    d.type_into("login-password", PASSWORD).await;
+    d.click("Sign in").await;
+    d.wait_for_text("This computer is new to your login").await;
+    d.click("Not now").await;
+    d.wait_for_text("A request is waiting on “The lighthouse ledger”.")
+        .await;
+    d.click("Read them").await;
+    d.wait_for_text("This computer sent it, from another login")
+        .await;
+    assert!(!d.has_text("failed Quill's checks"));
+    assert!(!d.has_button("Accept"));
+    assert!(d.has_button("Decline…"));
+}

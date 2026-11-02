@@ -324,6 +324,9 @@ pub struct IncomingRequest {
 pub enum Unread {
     /// It was sent before this computer was linked.
     NotForThisComputer,
+    /// This computer sent it, under another login on the same server: its
+    /// note of sending stops it reading it as the author.
+    SentFromHere,
     /// The requester's identity key changed: check it first.
     KeyChanged,
     /// It failed a check, and is never shown. `detail` is for advanced mode.

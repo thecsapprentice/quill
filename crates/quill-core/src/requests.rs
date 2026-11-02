@@ -371,7 +371,8 @@ pub struct Incoming {
 /// Why this device can't show a request's pitch.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Unread {
-    /// This device sent it (the login asked itself; only possible in tests).
+    /// This device sent it: under another login on the same server, since
+    /// a store keeps its notes across sign-ins.
     #[error("this device sent it")]
     SentHere,
     /// It was sent before this device was linked, so it holds no key for it.

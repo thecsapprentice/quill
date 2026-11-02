@@ -77,6 +77,9 @@ impl Requests {
 pub(super) struct Here {
     pins: HashMap<String, u32>,
     read: Vec<Uuid>,
+    /// Requests sent from this computer (core's outgoing notes), whichever
+    /// login sent them: this store keeps them across sign-ins.
+    sent: Vec<Uuid>,
     pub(super) answers_seen: Vec<Uuid>,
 }
 
@@ -360,6 +363,7 @@ impl Sim {
                 )));
             }
             let r = server.file(login, &handle, prompt, pitch, days, false)?;
+            here.sent.push(r.id);
             Ok(SentRequest {
                 id: r.id,
                 prompt: Some((prompt, title)),
@@ -478,7 +482,9 @@ impl Sim {
                 .iter()
                 .filter(|r| r.prompt == prompt && r.state == State::Pending)
             {
-                let pitch = if here.read.contains(&r.id) {
+                let pitch = if here.sent.contains(&r.id) {
+                    Err(Unread::SentFromHere)
+                } else if here.read.contains(&r.id) {
                     Ok(r.pitch.clone())
                 } else if r.before_link {
                     Err(Unread::NotForThisComputer)

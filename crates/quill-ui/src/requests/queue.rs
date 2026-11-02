@@ -195,7 +195,7 @@ fn Incoming(r: IncomingRequest, author: Option<Uuid>, done: EventHandler<String>
     let answerable = readable
         || matches!(
             r.pitch,
-            Err(Unread::Refused { .. } | Unread::NotForThisComputer)
+            Err(Unread::Refused { .. } | Unread::NotForThisComputer | Unread::SentFromHere)
         )
         || (matches!(r.pitch, Err(Unread::KeyChanged)) && skipped());
     rsx! {
@@ -219,6 +219,11 @@ fn Incoming(r: IncomingRequest, author: Option<Uuid>, done: EventHandler<String>
                         }
                     } else if let Some(me) = author {
                         KeyCheck { handle: handle.clone(), as_persona: me, on_done: checked }
+                    }
+                },
+                Err(Unread::SentFromHere) => rsx! {
+                    p { class: "hint",
+                        "This computer sent it, from another login, so it can't read it as the author here. Read it on a computer where you use this login."
                     }
                 },
                 Err(Unread::NotForThisComputer) => rsx! {
