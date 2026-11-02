@@ -58,6 +58,13 @@ pub enum CoreError {
     Keys(String),
     #[error("certificate: {0}")]
     Cert(#[from] quill_certs::CertError),
+    /// Another writer's identity key isn't the one this device pinned.
+    /// Nothing goes to them, or is read from them, until the new key is
+    /// checked and accepted (`keys::accept_pin`).
+    #[error(
+        "@{handle}'s identity key changed since it was pinned; check it with `quill keys show {handle}`"
+    )]
+    KeyChanged { handle: String },
 }
 
 impl CoreError {

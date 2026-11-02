@@ -156,7 +156,7 @@ pub async fn request(ctx: &Ctx, cmd: RequestCommand) -> Result<()> {
                     "receivedAt": rfc3339(r.received_at),
                     "expiresAt": rfc3339(r.expires_at),
                     "pitch": r.pitch.as_ref().ok(),
-                    "problem": r.pitch.as_ref().err(),
+                    "problem": r.pitch.as_ref().err().map(ToString::to_string),
                 })).collect::<Vec<_>>(),
             });
             ctx.print(&body, |_| {

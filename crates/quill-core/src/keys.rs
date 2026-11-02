@@ -10,7 +10,10 @@ use ed25519_dalek::SigningKey;
 use quill_certs::{DeviceCertificate, DeviceRevocation, Expected, RevocationReason, fingerprint};
 use quill_proto::{
     api::Persona,
-    keys::{DeviceInfo, PersonaKeys, RegisterDevice, RevokeDevice, SetIdentityKey, b64, unb64},
+    keys::{
+        DeviceInfo, PersonaKeys, RegisterDevice, RevokeDevice, SetIdentityKey, actor_uri, b64,
+        unb64,
+    },
 };
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -577,9 +580,9 @@ pub async fn claim_for(
         .clone()
         .ok_or_else(|| keys_err(format!("@{handle} has no keys yet")))?;
     if let PinStatus::Changed { .. } = check_pin(store, actor_uri, &identity_key, version)? {
-        return Err(keys_err(format!(
-            "@{handle}'s identity key changed since it was pinned; check it with `quill keys show {handle}` first"
-        )));
+        return Err(CoreError::KeyChanged {
+            handle: handle.to_owned(),
+        });
     }
     let claimed = client.claim_key_packages_for(handle, only).await?;
     if claimed.actor_uri != actor_uri {
@@ -809,6 +812,76 @@ pub fn accept_pin(
     version: u32,
 ) -> Result<(), CoreError> {
     pin(store, actor_uri, key, version)
+}
+
+/// Another writer's identity key, changed since this device pinned it:
+/// what a client shows before going on (3e).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyChange {
+    pub handle: String,
+    /// The pinned key's fingerprint and version.
+    pub pinned: (String, u32),
+    /// The key the server publishes now.
+    pub now: (String, u32),
+    /// The 12-word identity number for `as_persona` and the other writer,
+    /// with the new key: the same words they see, compared some other way.
+    pub words: Vec<&'static str>,
+}
+
+/// How `handle`'s published identity key differs from the pinned one, or
+/// `None` if it doesn't (any more). Pins nothing.
+pub async fn key_change(
+    store: &Store,
+    client: &Client,
+    handle: &str,
+    as_persona: &Persona,
+) -> Result<Option<KeyChange>, CoreError> {
+    let domain = client.instance().await?.domain;
+    let uri = actor_uri(&domain, handle);
+    let checked = check_published(&client.actor_keys(handle).await?, &uri, now_ms())?;
+    let Some((key, version)) = checked.identity else {
+        return Ok(None);
+    };
+    let pinned = match store.get(Table::Pins, uri.as_bytes())? {
+        Some(v) if v.len() == 36 && v[4..] != key[..] => {
+            let mut ver = [0u8; 4];
+            ver.copy_from_slice(&v[..4]);
+            (fingerprint(&v[4..]), u32::from_be_bytes(ver))
+        }
+        Some(v) if v.len() != 36 => return Err(keys_err("a stored pin is damaged")),
+        _ => return Ok(None),
+    };
+    let mine = load_identity(store, as_persona.id)?
+        .ok_or_else(|| keys_err(format!("@{} has no keys on this device", as_persona.handle)))?;
+    let my_uri = actor_uri(&domain, &as_persona.handle);
+    Ok(Some(KeyChange {
+        handle: handle.to_owned(),
+        pinned,
+        now: (fingerprint(&key), version),
+        words: crate::sessions::identity_number((&my_uri, &mine.public()), (&uri, &key)),
+    }))
+}
+
+/// Pins `handle`'s new identity key, once the writer has compared the words
+/// from [`key_change`]. Refuses if the key changed again since, so only the
+/// key whose fingerprint is `checked` is ever accepted.
+pub async fn accept_change(
+    store: &Store,
+    client: &Client,
+    handle: &str,
+    checked: &str,
+) -> Result<(), CoreError> {
+    let domain = client.instance().await?.domain;
+    let uri = actor_uri(&domain, handle);
+    let published = check_published(&client.actor_keys(handle).await?, &uri, now_ms())?;
+    match published.identity {
+        Some((key, version)) if fingerprint(&key) == checked => {
+            accept_pin(store, &uri, &key, version)
+        }
+        _ => Err(CoreError::KeyChanged {
+            handle: handle.to_owned(),
+        }),
+    }
 }
 
 #[cfg(test)]

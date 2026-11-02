@@ -365,8 +365,37 @@ pub struct Incoming {
     pub received_at: time::OffsetDateTime,
     pub expires_at: time::OffsetDateTime,
     /// The pitch, or why this device can't show it.
-    pub pitch: Result<String, String>,
+    pub pitch: Result<String, Unread>,
 }
+
+/// Why this device can't show a request's pitch.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum Unread {
+    /// This device sent it (the login asked itself; only possible in tests).
+    #[error("this device sent it")]
+    SentHere,
+    /// It was sent before this device was linked, so it holds no key for it.
+    #[error("it wasn't sent to this device (linked after it was sent?)")]
+    NotForThisDevice,
+    /// The requester's identity key isn't the one this device pinned.
+    #[error("@{handle}'s identity key changed since it was pinned")]
+    KeyChanged { handle: String },
+    /// It failed a check (a forged group, a bad pitch): never shown.
+    #[error("{0}")]
+    Refused(String),
+}
+
+impl From<CoreError> for Unread {
+    fn from(e: CoreError) -> Self {
+        match e {
+            CoreError::KeyChanged { handle } => Unread::KeyChanged { handle },
+            CoreError::Keys(m) if m == NOT_FOR_THIS_DEVICE => Unread::NotForThisDevice,
+            e => Unread::Refused(e.to_string()),
+        }
+    }
+}
+
+const NOT_FOR_THIS_DEVICE: &str = "it wasn't sent to this device (linked after it was sent?)";
 
 /// A prompt's queue.
 #[derive(Debug, Clone)]
@@ -413,7 +442,7 @@ pub async fn inbox(
             h.pitch
                 .filter(|_| incoming)
                 .and_then(|p| p.activity.note().map(|n| n.content.clone()))
-                .ok_or_else(|| "this device sent it".to_owned())
+                .ok_or(Unread::SentHere)
         } else {
             if author_keys.is_none() {
                 author_keys = Some(own_keys(store, client, me, &author_uri).await?);
@@ -421,7 +450,7 @@ pub async fn inbox(
             let author_keys = author_keys.as_ref().unwrap_or_else(|| unreachable!());
             read(store, client, me, &domain, &author_uri, author_keys, &r)
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(Unread::from)
         };
         out.push(Incoming {
             id: r.id,
@@ -483,10 +512,9 @@ async fn read(
         .clone()
         .ok_or_else(|| err("the requester has no identity key"))?;
     if let PinStatus::Changed { .. } = keys::check_pin(store, &requester_uri, &key, version)? {
-        return Err(err(format!(
-            "@{}'s identity key changed since it was pinned; check it with `quill keys show {}`",
-            r.requester.handle, r.requester.handle
-        )));
+        return Err(CoreError::KeyChanged {
+            handle: r.requester.handle.clone(),
+        });
     }
     let requester_keys = valid_keys(&published);
     let allowed = |credential: &openmls::prelude::Credential, key: &[u8]| -> Option<bool> {
@@ -521,9 +549,7 @@ async fn read(
         {
             Ok(s) => s,
             Err(WelcomeError::NoMatchingKeyPackage) => {
-                return Err(err(
-                    "it wasn't sent to this device (linked after it was sent?)",
-                ));
+                return Err(err(NOT_FOR_THIS_DEVICE));
             }
             Err(e) => return Err(mls_err("joining the request's group", e)),
         };

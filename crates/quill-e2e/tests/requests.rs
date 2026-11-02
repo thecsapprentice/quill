@@ -499,7 +499,7 @@ async fn the_authors_client_catches_a_forged_group() {
         .await
         .unwrap();
     assert_eq!(inbox.requests[0].requester.handle, "quiet_wren");
-    let why = inbox.requests[0].pitch.clone().unwrap_err();
+    let why = inbox.requests[0].pitch.clone().unwrap_err().to_string();
     assert!(why.contains("neither yours nor the requester's"), "{why}");
     // Nothing was kept, so it can't be accepted from here.
     assert!(
@@ -531,8 +531,10 @@ async fn the_authors_client_catches_a_forged_group() {
     let inbox = requests::inbox(&phone, &phone_c, p2.id, false)
         .await
         .unwrap();
-    let why = inbox.requests[0].pitch.clone().unwrap_err();
-    assert!(why.contains("wasn't sent to this device"), "{why}");
+    assert_eq!(
+        inbox.requests[0].pitch,
+        Err(requests::Unread::NotForThisDevice)
+    );
     server.stop().await.unwrap();
 }
 
@@ -822,4 +824,103 @@ async fn the_waiting_summary_counts_without_releasing() {
         counts(requests::waiting(&alice_c).await.unwrap()),
         [(busy.id, 1, 0), (open.id, 1, 0)]
     );
+}
+
+/// A changed identity key stops both sides (3e): reading a pitch from a
+/// requester whose key changed, and sending to an author whose key changed.
+/// `key_change` gives the words both writers see, and `accept_change`
+/// pins only the key whose fingerprint was compared.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_changed_key_stops_a_request_until_it_is_checked() {
+    let server = server!();
+    let alice_c = server.account("alice").await.unwrap();
+    let (fox, alice) = writer(&alice_c, "ink_fox").await;
+    let first = prompt(&alice_c, fox.id, PromptState::Open).await;
+    let second = prompt(&alice_c, fox.id, PromptState::Open).await;
+    let bob_c = server.account("bob").await.unwrap();
+    let (wren, bob) = writer(&bob_c, "quiet_wren").await;
+
+    // Alice reads Bob's pitch, pinning his key.
+    let sent = requests::send(&bob, &bob_c, &wren, first.id, PITCH, None)
+        .await
+        .unwrap();
+    let inbox = requests::inbox(&alice, &alice_c, first.id, false)
+        .await
+        .unwrap();
+    assert_eq!(inbox.requests[0].pitch.as_deref(), Ok(PITCH));
+    assert_eq!(
+        keys::key_change(&alice, &alice_c, "quiet_wren", &fox)
+            .await
+            .unwrap(),
+        None
+    );
+
+    // Bob starts over on a new computer and asks again.
+    requests::withdraw(&bob, &bob_c, sent.request.id)
+        .await
+        .unwrap();
+    let bob = Store::in_memory();
+    keys::init(&bob, &bob_c, &wren, true).await.unwrap();
+    keys::publish(&bob, &bob_c, &wren, 5).await.unwrap();
+    requests::send(&bob, &bob_c, &wren, first.id, PITCH, None)
+        .await
+        .unwrap();
+    let inbox = requests::inbox(&alice, &alice_c, first.id, false)
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox.requests[0].pitch,
+        Err(requests::Unread::KeyChanged {
+            handle: "quiet_wren".into()
+        })
+    );
+    let change = keys::key_change(&alice, &alice_c, "quiet_wren", &fox)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(change.pinned.0, change.now.0);
+    assert_eq!(change.words.len(), 12);
+    // Only the key that was compared is accepted.
+    assert!(matches!(
+        keys::accept_change(&alice, &alice_c, "quiet_wren", &change.pinned.0).await,
+        Err(CoreError::KeyChanged { .. })
+    ));
+    keys::accept_change(&alice, &alice_c, "quiet_wren", &change.now.0)
+        .await
+        .unwrap();
+    let inbox = requests::inbox(&alice, &alice_c, first.id, false)
+        .await
+        .unwrap();
+    assert_eq!(inbox.requests[0].pitch.as_deref(), Ok(PITCH));
+
+    // Now Alice starts over: Bob can't send until he checks her new key.
+    let alice = Store::in_memory();
+    keys::init(&alice, &alice_c, &fox, true).await.unwrap();
+    keys::publish(&alice, &alice_c, &fox, 5).await.unwrap();
+    let e = requests::send(&bob, &bob_c, &wren, second.id, PITCH, None)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&e, CoreError::KeyChanged { handle } if handle == "ink_fox"),
+        "{e}"
+    );
+    let change = keys::key_change(&bob, &bob_c, "ink_fox", &wren)
+        .await
+        .unwrap()
+        .unwrap();
+    // The same words Alice would see.
+    let public = |s: &Store, p: Uuid| keys::load_identity(s, p).unwrap().unwrap().public();
+    assert_eq!(
+        change.words,
+        quill_core::sessions::identity_number(
+            (&fox.actor_uri, &public(&alice, fox.id)),
+            (&wren.actor_uri, &public(&bob, wren.id)),
+        )
+    );
+    keys::accept_change(&bob, &bob_c, "ink_fox", &change.now.0)
+        .await
+        .unwrap();
+    requests::send(&bob, &bob_c, &wren, second.id, PITCH, None)
+        .await
+        .unwrap();
 }
