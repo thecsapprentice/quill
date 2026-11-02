@@ -58,6 +58,13 @@ pub enum CoreError {
     Keys(String),
     #[error("certificate: {0}")]
     Cert(#[from] quill_certs::CertError),
+    /// Another writer's identity key isn't the one this device pinned.
+    /// Nothing goes to them, or is read from them, until the new key is
+    /// checked and accepted (`keys::accept_pin`).
+    #[error(
+        "@{handle}'s identity key changed since it was pinned; check it with `quill keys show {handle}`"
+    )]
+    KeyChanged { handle: String },
 }
 
 impl CoreError {
@@ -1010,6 +1017,13 @@ impl Client {
         &self,
     ) -> Result<Vec<quill_proto::requests::OutgoingRequest>, CoreError> {
         Self::json(self.authed(Method::GET, "/requests")?).await
+    }
+
+    /// The login's prompts with requests waiting on them, and how many.
+    pub async fn waiting_requests(
+        &self,
+    ) -> Result<Vec<quill_proto::requests::WaitingOnPrompt>, CoreError> {
+        Self::json(self.authed(Method::GET, "/requests/waiting")?).await
     }
 
     pub async fn request_status(

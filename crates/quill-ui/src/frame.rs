@@ -98,12 +98,7 @@ fn Sections(section: Section) -> Element {
                         Section::Board => rsx! { BoardPage {} },
                         Section::MyPrompts => rsx! { MyPromptsPage {} },
                         Section::Notices => rsx! { NoticesPage {} },
-                        Section::Requests => rsx! {
-                            Coming {
-                                title: "Requests",
-                                text: "Requests to write together will show here: the ones you've sent, and the ones waiting on your prompts.",
-                            }
-                        },
+                        Section::Requests => rsx! { crate::requests::RequestsPage {} },
                         Section::Sessions => rsx! {
                             Coming {
                                 title: "Sessions",
@@ -130,6 +125,7 @@ fn Nav() -> Element {
     let section = m.section;
     let signed_in = m.signed_in();
     let unread = m.unread;
+    let requests = m.requests.waiting_count() as usize + m.requests.new_answers().len();
     drop(m);
 
     let b = backend.clone();
@@ -196,6 +192,9 @@ fn Nav() -> Element {
                     "{s.label()}"
                     if s == Section::Notices && unread > 0 {
                         span { class: "badge", " {unread}" span { class: "sr-only", " unread" } }
+                    }
+                    if s == Section::Requests && requests > 0 {
+                        span { class: "badge", " {requests}" span { class: "sr-only", " new" } }
                     }
                 }
             }
@@ -302,6 +301,8 @@ fn Upkeep(server: Uuid) -> Element {
                     if let Ok(account) = b.account().await {
                         model.write().unread_loaded(server, account.unread_notices);
                     }
+                    // And what waits on requests, for Home and the side bar.
+                    let _ = crate::requests::load(&*b, model, server).await;
                 }
                 // The rules too, to notice a change that needs accepting.
                 let reachable = {
@@ -393,8 +394,9 @@ fn Home() -> Element {
                 }
             }
         }
+        crate::requests::RequestsOnHome {}
         p { class: "coming",
-            "Find a prompt to write on the Board, or post your own. Requests to write together and writing sessions are on their way."
+            "Find a prompt to write on the Board and ask to write on it, or post your own. Writing sessions are on their way."
         }
     }
 }

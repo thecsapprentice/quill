@@ -398,6 +398,23 @@ impl SimServer {
             .ok_or(Problem::Gone)
     }
 
+    /// A prompt still on the board: its title, its owner's login, its
+    /// state and its author's handle.
+    pub(super) fn prompt_info(&self, id: Uuid) -> Option<(String, String, PromptState, String)> {
+        self.board
+            .prompts
+            .iter()
+            .find(|p| p.prompt.id == id && !p.removed)
+            .map(|p| {
+                (
+                    p.prompt.title.clone(),
+                    p.owner.clone(),
+                    p.prompt.state,
+                    p.prompt.author.handle.clone(),
+                )
+            })
+    }
+
     pub(super) fn post(&mut self, login: &str, body: &CreatePrompt) -> Result<Prompt, Problem> {
         self.require_accepted(login)?;
         let title = validate::prompt_title(&body.title).map_err(invalid)?;
@@ -756,6 +773,17 @@ impl Sim {
                 Maturity::General,
             );
         }
+    }
+
+    /// The author sets a prompt's state (open, busy, closed) elsewhere.
+    pub fn set_prompt_state(&self, domain: &str, id: Uuid, state: PromptState) {
+        self.server(domain, |s| {
+            for p in &mut s.board.prompts {
+                if p.prompt.id == id {
+                    p.prompt.state = state;
+                }
+            }
+        });
     }
 
     /// An administrator removes a prompt (after a report, say).

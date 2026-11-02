@@ -450,6 +450,23 @@ fieldset > .hint { margin-bottom: var(--space-3); }
   .link-words { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* ---- Requests (3e) ---- */
+.back { margin: 0 0 var(--space-2) calc(-1 * var(--space-3)); }
+.requests-part { max-width: var(--width-read); margin-top: var(--space-6); }
+.requests-part > h2 { font-size: var(--text-lg); margin: 0 0 var(--space-3); }
+.item.request .pitch { font-family: var(--write); font-size: var(--text-read); line-height: 1.6; margin: var(--space-3) 0; }
+.reader-actions { margin-top: var(--space-4); }
+.ask { margin-top: var(--space-4); max-width: var(--width-form); }
+.ask > .hint { margin-bottom: var(--space-3); }
+.ask > h3, .key-check > h3 { font-size: var(--text-lg); margin: 0 0 var(--space-2); }
+.key-check { max-width: var(--width-read); }
+.compare-words { margin-top: var(--space-2); }
+.key-check .words, .words {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: var(--space-1) var(--space-4); margin: var(--space-3) 0; padding-left: 1.5em;
+  font-family: var(--write); font-size: var(--text-read);
+}
+
 /* ---- The design reference (advanced mode) ---- */
 .ref-themes { display: grid; grid-template-columns: repeat(auto-fit, minmax(26rem, 1fr)); gap: var(--space-5); align-items: start; }
 .ref-theme { min-height: 0; padding: var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--paper); }

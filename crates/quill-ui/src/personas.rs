@@ -52,6 +52,7 @@ pub fn PersonasPage() -> Element {
         } else {
             button { class: "primary", onclick: move |_| making.set(true), "Make a persona" }
         }
+        crate::requests::WordsLookup {}
     }
 }
 

@@ -251,6 +251,54 @@ impl Backend for Fake {
     fn mark_notices_read(&self) -> Call<'_, ()> {
         ready(Ok(()))
     }
+    fn send_request<'a>(
+        &'a self,
+        _: Uuid,
+        _: Uuid,
+        _: &'a str,
+        _: u32,
+    ) -> Call<'a, crate::backend::SentRequest> {
+        ready(Err(Problem::Failed {
+            detail: "not in the fake".into(),
+        }))
+    }
+    fn sent_requests(&self) -> Call<'_, Vec<crate::backend::SentRequest>> {
+        ready(Ok(Vec::new()))
+    }
+    fn withdraw_request(&self, _: Uuid) -> Call<'_, ()> {
+        ready(Ok(()))
+    }
+    fn waiting_requests(&self) -> Call<'_, Vec<crate::backend::WaitingPrompt>> {
+        ready(Ok(Vec::new()))
+    }
+    fn inbox(&self, _: Uuid, _: bool) -> Call<'_, crate::backend::Inbox> {
+        ready(Ok(crate::backend::Inbox::default()))
+    }
+    fn accept_request(&self, _: Uuid) -> Call<'_, ()> {
+        ready(Ok(()))
+    }
+    fn decline_request(&self, _: Uuid) -> Call<'_, ()> {
+        ready(Ok(()))
+    }
+    fn key_change<'a>(
+        &'a self,
+        _: &'a str,
+        _: Uuid,
+    ) -> Call<'a, Option<crate::backend::KeyChange>> {
+        ready(Ok(None))
+    }
+    fn identity_words<'a>(&'a self, _: &'a str, _: Uuid) -> Call<'a, Option<Vec<String>>> {
+        ready(Ok(None))
+    }
+    fn accept_key_change<'a>(&'a self, _: &'a str, _: &'a str) -> Call<'a, ()> {
+        ready(Ok(()))
+    }
+    fn answers_seen(&self) -> Vec<Uuid> {
+        Vec::new()
+    }
+    fn set_answers_seen(&self, _: &[Uuid]) -> Result<(), Problem> {
+        Ok(())
+    }
     fn upkeep(&self) -> Call<'_, Option<String>> {
         ready(Ok(None))
     }

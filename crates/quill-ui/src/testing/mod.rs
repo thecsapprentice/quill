@@ -28,7 +28,7 @@ mod mounted;
 mod sim;
 
 pub use mounted::Asked;
-pub use sim::{Acceptance, Sim, SimServer};
+pub use sim::{Acceptance, RequestState, Sim, SimServer};
 
 /// How long a wait gives up after.
 const PATIENCE: Duration = Duration::from_secs(20);

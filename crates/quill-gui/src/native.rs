@@ -11,7 +11,7 @@ use std::{
 
 use quill_certs::RevocationReason;
 use quill_core::{
-    Client, CoreError, Store, StoreError, devices, keys,
+    Client, CoreError, Store, StoreError, devices, keys, requests,
     store::{KdfParams, KeySetup, KeySource, Unlock, vault::Vault},
 };
 use quill_proto::{
@@ -27,6 +27,7 @@ use quill_ui::backend::{
     Problem, Protection, ServerEntry, ServerInfo, ServerRules, Standing, Step, Theme,
 };
 use quill_ui::backend::{Approval, Device, LinkStart, PersonaKeys, RemoveReason};
+use quill_ui::backend::{Inbox, IncomingRequest, KeyChange, SentRequest, Unread, WaitingPrompt};
 use tokio::runtime::Handle;
 use uuid::Uuid;
 
@@ -145,6 +146,7 @@ fn problem(server: &str, e: CoreError) -> Problem {
             Problem::Unreachable(server.to_owned())
         }
         CoreError::NotLoggedIn => Problem::SignedOut,
+        CoreError::KeyChanged { handle } => Problem::KeyChanged(handle.clone()),
         CoreError::Api(p) if p.status == 401 => Problem::SignedOut,
         CoreError::Api(p) if p.status == 409 => Problem::Taken,
         CoreError::Api(p) if p.status == 404 || p.status == 410 => Problem::Gone,
@@ -161,6 +163,26 @@ fn problem(server: &str, e: CoreError) -> Problem {
                 .into(),
         ),
         _ => failed(e),
+    }
+}
+
+/// A request's errors: a 409 says what's in the way in the server's words
+/// (one already waiting, already a session), and core's own refusals (the
+/// author has no devices) are said as they are.
+fn request_problem(server: &str, e: CoreError) -> Problem {
+    match &e {
+        CoreError::Api(p) if p.status == 409 => {
+            Problem::Refused(p.detail.clone().unwrap_or_else(|| p.title.clone()))
+        }
+        CoreError::Keys(m) if m.contains("has no devices that can take a request") => {
+            Problem::Refused(format!("{m}. Try again later."))
+        }
+        CoreError::Keys(m)
+            if m.contains("the pitch is too long") || m.contains("say something") =>
+        {
+            Problem::Refused(m.clone())
+        }
+        _ => problem(server, e),
     }
 }
 
@@ -478,6 +500,26 @@ impl NativeBackend {
     }
 
     /// Runs `work` with the open server's store and client, off the window's thread.
+    /// As `call_with_store`, with a request's errors (`request_problem`).
+    fn call_request<'a, T, F, Fut>(&'a self, work: F) -> Call<'a, T>
+    where
+        T: Send + 'static,
+        F: FnOnce(Arc<Store>, Client) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<T, CoreError>> + Send + 'static,
+    {
+        let open = self.opened();
+        Box::pin(async move {
+            let open = open?;
+            let name = open.name.clone();
+            self.run(async move {
+                work(open.store, open.client)
+                    .await
+                    .map_err(|e| request_problem(&name, e))
+            })
+            .await
+        })
+    }
+
     fn call_with_store<'a, T, F, Fut>(&'a self, work: F) -> Call<'a, T>
     where
         T: Send + 'static,
@@ -1188,6 +1230,204 @@ impl Backend for NativeBackend {
             }
             Ok(out)
         })
+    }
+
+    fn send_request<'a>(
+        &'a self,
+        persona: Uuid,
+        prompt: Uuid,
+        pitch: &'a str,
+        days: u32,
+    ) -> Call<'a, SentRequest> {
+        let pitch = pitch.to_owned();
+        Box::pin(async move {
+            let open = self.opened()?;
+            let name = open.name.clone();
+            self.run(async move {
+                let work = async {
+                    let client = &open.client;
+                    let me = client
+                        .personas()
+                        .await?
+                        .into_iter()
+                        .find(|p| p.id == persona)
+                        .ok_or_else(|| CoreError::Keys("that persona is gone".into()))?;
+                    let target = client.prompt(prompt).await?;
+                    let sent = requests::send(&open.store, client, &me, prompt, &pitch, Some(days))
+                        .await?;
+                    Ok(SentRequest {
+                        id: sent.request.id,
+                        prompt: Some((prompt, target.title)),
+                        persona: me.handle,
+                        status: quill_ui::backend::RequestStatus::Waiting,
+                        expires_at: sent.request.expires_at,
+                    })
+                };
+                work.await.map_err(|e| request_problem(&name, e))
+            })
+            .await
+        })
+    }
+
+    fn sent_requests(&self) -> Call<'_, Vec<SentRequest>> {
+        self.call(|client| async move {
+            let handles: HashMap<Uuid, String> = client
+                .personas()
+                .await?
+                .into_iter()
+                .map(|p| (p.id, p.handle))
+                .collect();
+            let mut titles: HashMap<Uuid, Option<String>> = HashMap::new();
+            let mut out = Vec::new();
+            for r in requests::list(&client).await? {
+                let prompt = match r.prompt {
+                    Some(id) => {
+                        let title = match titles.get(&id) {
+                            Some(t) => t.clone(),
+                            None => {
+                                let t = match client.prompt(id).await {
+                                    Ok(p) => Some(p.title),
+                                    Err(e) if matches!(e.status(), Some(404 | 410)) => None,
+                                    Err(e) => return Err(e),
+                                };
+                                titles.insert(id, t.clone());
+                                t
+                            }
+                        };
+                        title.map(|t| (id, t))
+                    }
+                    None => None,
+                };
+                out.push(SentRequest {
+                    id: r.id,
+                    prompt,
+                    persona: handles.get(&r.persona).cloned().unwrap_or_default(),
+                    status: r.status,
+                    expires_at: r.expires_at,
+                });
+            }
+            Ok(out)
+        })
+    }
+
+    fn withdraw_request(&self, id: Uuid) -> Call<'_, ()> {
+        self.call_request(move |store, client| async move {
+            requests::withdraw(&store, &client, id).await
+        })
+    }
+
+    fn waiting_requests(&self) -> Call<'_, Vec<WaitingPrompt>> {
+        self.call(|client| async move {
+            Ok(requests::waiting(&client)
+                .await?
+                .into_iter()
+                .map(|w| WaitingPrompt {
+                    prompt: w.prompt,
+                    title: w.title,
+                    pending: w.pending,
+                    held: w.held,
+                    newest: w.newest,
+                })
+                .collect())
+        })
+    }
+
+    fn inbox(&self, prompt: Uuid, held: bool) -> Call<'_, Inbox> {
+        self.call_with_store(move |store, client| async move {
+            let inbox = requests::inbox(&store, &client, prompt, held).await?;
+            Ok(Inbox {
+                held: inbox.held,
+                requests: inbox
+                    .requests
+                    .into_iter()
+                    .map(|r| IncomingRequest {
+                        id: r.id,
+                        handle: r.requester.handle,
+                        display_name: r.requester.display_name,
+                        received_at: r.received_at,
+                        expires_at: r.expires_at,
+                        pitch: r.pitch.map_err(|u| match u {
+                            requests::Unread::NotForThisDevice => Unread::NotForThisComputer,
+                            requests::Unread::SentHere => Unread::SentFromHere,
+                            requests::Unread::KeyChanged { .. } => Unread::KeyChanged,
+                            u => Unread::Refused {
+                                detail: u.to_string(),
+                            },
+                        }),
+                    })
+                    .collect(),
+            })
+        })
+    }
+
+    fn accept_request(&self, id: Uuid) -> Call<'_, ()> {
+        self.call_request(move |store, client| async move {
+            requests::accept(&store, &client, id).await.map(|_| ())
+        })
+    }
+
+    fn decline_request(&self, id: Uuid) -> Call<'_, ()> {
+        self.call_request(move |store, client| async move {
+            requests::decline(&store, &client, id).await
+        })
+    }
+
+    fn key_change<'a>(&'a self, handle: &'a str, as_persona: Uuid) -> Call<'a, Option<KeyChange>> {
+        let handle = handle.to_owned();
+        self.call_with_store(move |store, client| async move {
+            let me = client
+                .personas()
+                .await?
+                .into_iter()
+                .find(|p| p.id == as_persona)
+                .ok_or_else(|| CoreError::Keys("that persona is gone".into()))?;
+            Ok(keys::key_change(&store, &client, &handle, &me)
+                .await?
+                .map(|c| KeyChange {
+                    handle: c.handle,
+                    words: c.words.into_iter().map(str::to_owned).collect(),
+                    fingerprint: c.now.0,
+                }))
+        })
+    }
+
+    fn identity_words<'a>(
+        &'a self,
+        handle: &'a str,
+        as_persona: Uuid,
+    ) -> Call<'a, Option<Vec<String>>> {
+        let handle = handle.trim().trim_start_matches('@').to_owned();
+        self.call_with_store(move |store, client| async move {
+            let me = client
+                .personas()
+                .await?
+                .into_iter()
+                .find(|p| p.id == as_persona)
+                .ok_or_else(|| CoreError::Keys("that persona is gone".into()))?;
+            Ok(keys::identity_words(&store, &client, &handle, &me)
+                .await?
+                .map(|w| w.into_iter().map(str::to_owned).collect()))
+        })
+    }
+
+    fn accept_key_change<'a>(&'a self, handle: &'a str, fingerprint: &'a str) -> Call<'a, ()> {
+        let (handle, fingerprint) = (handle.to_owned(), fingerprint.to_owned());
+        self.call_with_store(move |store, client| async move {
+            keys::accept_change(&store, &client, &handle, &fingerprint).await
+        })
+    }
+
+    fn answers_seen(&self) -> Vec<Uuid> {
+        self.opened()
+            .ok()
+            .and_then(|o| requests::answers_seen(&o.store).ok())
+            .map(|s| s.into_iter().collect())
+            .unwrap_or_default()
+    }
+
+    fn set_answers_seen(&self, ids: &[Uuid]) -> Result<(), Problem> {
+        let open = self.opened()?;
+        requests::set_answers_seen(&open.store, &ids.iter().copied().collect()).map_err(failed)
     }
 
     fn upkeep(&self) -> Call<'_, Option<String>> {
