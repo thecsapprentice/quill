@@ -44,6 +44,28 @@ pub enum ValidationError {
     TagLimits,
 }
 
+impl ValidationError {
+    /// Its error code (Q-90xx), the same from the server and a client.
+    pub fn code(&self) -> crate::codes::ErrorCode {
+        use crate::codes::*;
+        match self {
+            Self::Username => BAD_LOGIN_NAME,
+            Self::Password => BAD_PASSWORD,
+            Self::Text { .. } => TEXT_TOO_LONG,
+            Self::Required { .. } => REQUIRED_MISSING,
+            Self::TagSlug(_) => BAD_TAG_NAME,
+            Self::TagSpec(_) => BAD_TAG_FORM,
+            Self::Namespace => BAD_TAG_TYPE_NAME,
+            Self::TooManyTags => TOO_MANY_TAGS,
+            Self::Color(_) => BAD_COLOUR,
+            Self::ReservedEntry(_) => BAD_RESERVED_HANDLE,
+            Self::Channel(_) => BAD_CHANNEL,
+            Self::StaffName => BAD_STAFF_NAME,
+            Self::TagLimits => BAD_TAG_LIMITS,
+        }
+    }
+}
+
 /// The longest channel name (protocol draft, section 5).
 pub const CHANNEL_MAX_CHARS: usize = 32;
 /// Channels every session has.

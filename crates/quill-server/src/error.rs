@@ -95,6 +95,7 @@ impl IntoResponse for ApiError {
                 Self::Internal(_) => None,
                 other => Some(other.to_string()),
             },
+            code: None,
         };
         let body = serde_json::to_vec(&problem).unwrap_or_default();
         (status, [(header::CONTENT_TYPE, PROBLEM_CONTENT_TYPE)], body).into_response()
