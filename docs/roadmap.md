@@ -1132,10 +1132,10 @@ part of its "done when".
 | Sub-phase | Scope | Status |
 | --- | --- | --- |
 | 3a | Spike: the session view (channels, the long-form editor with Markdown live preview, an image attachment) in Dioxus on desktop and in the browser, at narrow and wide window sizes; IME, spellcheck and screen readers; confirm Dioxus or fall back to Leptos + Tauri 2 | done (#23) |
-| 3b | [#25](https://github.com/thecsapprentice/quill/issues/25) `quill-ui` and the `quill-gui` shell: first run (sign up or in, a persona, keys made and published without being asked), unlocking the store, personas, settings, advanced mode, the server rules | in review (#63) |
-| 3c | [#26](https://github.com/thecsapprentice/quill/issues/26) The board in the GUI: browse, search, post and edit prompts, through the board's shared components | planned |
-| 3d | [#27](https://github.com/thecsapprentice/quill/issues/27) Keys and devices: identity keys, linking by QR code or words, the device list, revoking, safety numbers | planned |
-| 3e | [#28](https://github.com/thecsapprentice/quill/issues/28) Requests: sending with a pitch, the inbox, accepting and declining, status, the changed-key stop, and comparing words before a session ([#72](https://github.com/thecsapprentice/quill/issues/72)) | in review (#73) |
+| 3b | [#25](https://github.com/thecsapprentice/quill/issues/25) `quill-ui` and the `quill-gui` shell: first run (sign up or in, a persona, keys made and published without being asked), unlocking the store, personas, settings, advanced mode, the server rules | done (#63) |
+| 3c | [#26](https://github.com/thecsapprentice/quill/issues/26) The board in the GUI: browse, search, post and edit prompts, through the board's shared components | done (#67) |
+| 3d | [#27](https://github.com/thecsapprentice/quill/issues/27) Keys and devices: identity keys, linking by QR code or words, the device list, revoking, safety numbers | done (#68, #78) |
+| 3e | [#28](https://github.com/thecsapprentice/quill/issues/28) Requests: sending with a pitch, the inbox, accepting and declining, status, the changed-key stop, and comparing words before a session ([#72](https://github.com/thecsapprentice/quill/issues/72)) | done (#73, #78) |
 | 3f | [#29](https://github.com/thecsapprentice/quill/issues/29) Sessions: the session list, reading and writing, channels, replies, edits and deletions with their history, live updates | planned |
 | 3g | [#30](https://github.com/thecsapprentice/quill/issues/30) Attachments: attaching, opening and saving files; images shown inline, with metadata stripped before sending (deferred from 2i); storage use | planned |
 | 3h | [#31](https://github.com/thecsapprentice/quill/issues/31) Backup and recovery, history sync and rejoining, notices; anything the CLI does that the GUI doesn't yet | planned |
