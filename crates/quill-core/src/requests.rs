@@ -678,7 +678,47 @@ pub async fn tidy(store: &Store, client: &Client) -> Result<usize, CoreError> {
     Ok(dropped)
 }
 
+// ---- What a client has shown ---------------------------------------------------------------
+
+/// Where [`answers_seen`] lives in the store.
+const ANSWERS_SEEN: &[u8] = b"requests:answers-seen";
+
+/// The login's requests whose answer (a session, or no response) a client
+/// has shown the writer, so it can tell new answers apart.
+pub fn answers_seen(store: &Store) -> Result<HashSet<Uuid>, CoreError> {
+    Ok(match store.get(Table::Meta, ANSWERS_SEEN)? {
+        Some(v) => serde_json::from_slice(&v).map_err(|_| err("a stored note is damaged"))?,
+        None => HashSet::new(),
+    })
+}
+
+/// Replaces [`answers_seen`]: the answered requests the writer has seen.
+pub fn set_answers_seen(store: &Store, ids: &HashSet<Uuid>) -> Result<(), CoreError> {
+    let v = serde_json::to_vec(ids).map_err(|_| err("encoding"))?;
+    Ok(store.apply(&[Op::Put {
+        table: Table::Meta,
+        key: ANSWERS_SEEN,
+        value: &v,
+    }])?)
+}
+
 /// The group id of a request that became a session on this device, if any.
 pub fn session_group(store: &Store, id: Uuid) -> Result<Option<String>, CoreError> {
     Ok(held(store, id)?.filter(|h| h.accepted).map(|h| h.group_id))
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    #[test]
+    fn answers_seen_round_trip() {
+        let store = Store::in_memory();
+        assert!(answers_seen(&store).unwrap().is_empty());
+        let ids: HashSet<Uuid> = [Uuid::new_v4(), Uuid::new_v4()].into();
+        set_answers_seen(&store, &ids).unwrap();
+        assert_eq!(answers_seen(&store).unwrap(), ids);
+    }
 }

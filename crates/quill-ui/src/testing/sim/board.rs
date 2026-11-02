@@ -398,6 +398,23 @@ impl SimServer {
             .ok_or(Problem::Gone)
     }
 
+    /// A prompt still on the board: its title, its owner's login, its
+    /// state and its author's handle.
+    pub(super) fn prompt_info(&self, id: Uuid) -> Option<(String, String, PromptState, String)> {
+        self.board
+            .prompts
+            .iter()
+            .find(|p| p.prompt.id == id && !p.removed)
+            .map(|p| {
+                (
+                    p.prompt.title.clone(),
+                    p.owner.clone(),
+                    p.prompt.state,
+                    p.prompt.author.handle.clone(),
+                )
+            })
+    }
+
     pub(super) fn post(&mut self, login: &str, body: &CreatePrompt) -> Result<Prompt, Problem> {
         self.require_accepted(login)?;
         let title = validate::prompt_title(&body.title).map_err(invalid)?;
