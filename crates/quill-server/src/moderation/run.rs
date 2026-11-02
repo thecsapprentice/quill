@@ -15,6 +15,7 @@ use quill_proto::automod::{
     UNCHECKED_REFUSAL,
 };
 use quill_proto::board::{AdminAction, ReportReason};
+use quill_proto::codes;
 use quill_proto::notices::{NoticeFields, NoticeKind};
 use rhai::Dynamic;
 use rhai::serde::to_dynamic;
@@ -354,7 +355,7 @@ async fn refuse(
             .await?;
     }
     tx.commit().await?;
-    Ok(ApiError::ContentRejected(message))
+    Ok(ApiError::ContentRejected(codes::CONTENT_REJECTED, message))
 }
 
 /// Runs a chain, or one script, without doing anything: every script runs,

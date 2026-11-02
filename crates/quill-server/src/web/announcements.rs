@@ -16,6 +16,7 @@ use quill_proto::{
         CreateAnnouncement, UpdateAnnouncement,
     },
     board::UpdateServerSettings,
+    codes,
     limits::MAX_PAGE_SIZE,
 };
 use serde::Deserialize;
@@ -439,7 +440,10 @@ pub async fn admin_comment_visibility(
     }
     let Some(visibility) = opt(&form.visibility).and_then(|v| v.parse::<CommentVisibility>().ok())
     else {
-        return error_page(&c, ApiError::BadRequest("Choose a setting.".into()));
+        return error_page(
+            &c,
+            ApiError::BadRequest(codes::FORM_NO_CHOICE, "Choose a setting.".into()),
+        );
     };
     let body = UpdateServerSettings {
         comment_visibility: Some(visibility),
@@ -490,7 +494,12 @@ pub async fn admin_comments(
     let open = match opt(&form.comments) {
         Some("on") => true,
         Some("off") => false,
-        _ => return error_page(&c, ApiError::BadRequest("Choose a setting.".into())),
+        _ => {
+            return error_page(
+                &c,
+                ApiError::BadRequest(codes::FORM_NO_CHOICE, "Choose a setting.".into()),
+            );
+        }
     };
     let body = UpdateAnnouncement {
         comments_open: Some(open),
@@ -529,7 +538,12 @@ pub async fn admin_sticky(
     let sticky = match opt(&form.sticky) {
         Some("on") => true,
         Some("off") => false,
-        _ => return error_page(&c, ApiError::BadRequest("Choose a setting.".into())),
+        _ => {
+            return error_page(
+                &c,
+                ApiError::BadRequest(codes::FORM_NO_CHOICE, "Choose a setting.".into()),
+            );
+        }
     };
     let body = UpdateAnnouncement {
         sticky: Some(sticky),
@@ -567,7 +581,10 @@ pub async fn admin_delete(
     if form.confirm.as_deref() != Some("yes") {
         return error_page(
             &c,
-            ApiError::BadRequest("Tick the box to confirm deleting the announcement.".into()),
+            ApiError::BadRequest(
+                codes::FORM_NOT_CONFIRMED,
+                "Tick the box to confirm deleting the announcement.".into(),
+            ),
         );
     }
     match announcements::delete(&state, s.account_id, id).await {

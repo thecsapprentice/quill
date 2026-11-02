@@ -8,6 +8,7 @@ use axum::{
     http::StatusCode,
 };
 use quill_proto::{
+    codes,
     events::Event,
     keys::{actor_uri, b64, unb64},
     sessions::{Ack, DeviceWelcome, LeaveWelcome, Rejoin, SendRejoin, Session, SessionMember},
@@ -30,7 +31,9 @@ pub fn router() -> OpenApiRouter<AppState> {
 }
 
 fn decode(field: &str, text: &str) -> Result<Vec<u8>, ApiError> {
-    unb64(text).ok_or_else(|| ApiError::BadRequest(format!("{field} is not base64url")))
+    unb64(text).ok_or_else(|| {
+        ApiError::BadRequest(codes::GROUP_NOT_BASE64, format!("{field} is not base64url"))
+    })
 }
 
 fn as_u64(v: i64) -> u64 {
@@ -197,7 +200,10 @@ async fn leave_welcome(
         return Err(ApiError::PayloadTooLarge);
     }
     if welcome.get(..4) != Some(&[0, 1, 0, 3]) {
-        return Err(ApiError::BadRequest("welcome is not an MLS Welcome".into()));
+        return Err(ApiError::BadRequest(
+            codes::NOT_A_WELCOME,
+            "welcome is not an MLS Welcome".into(),
+        ));
     }
     let mut tx = state.pool.begin().await?;
     member(&mut tx, authed.account_id, &group).await?;
@@ -218,7 +224,7 @@ async fn leave_welcome(
     .fetch_one(&mut *tx)
     .await?;
     if !own {
-        return Err(ApiError::BadRequest(
+        return Err(ApiError::BadRequest(codes::SESSION_WELCOME_NOT_ALLOWED,
             "Welcomes can only be left for your own persona's devices in the session, or a device asking to rejoin.".into(),
         ));
     }
@@ -342,8 +348,9 @@ async fn ack(
     ApiJson(body): ApiJson<Ack>,
 ) -> Result<StatusCode, ApiError> {
     let group = decode("session id", &id)?;
-    let seq =
-        i64::try_from(body.seq).map_err(|_| ApiError::BadRequest("seq out of range".into()))?;
+    let seq = i64::try_from(body.seq).map_err(|_| {
+        ApiError::BadRequest(codes::SYNC_ACK_OUT_OF_RANGE, "seq out of range".into())
+    })?;
     let mut tx = state.pool.begin().await?;
     member(&mut tx, authed.account_id, &group).await?;
     let own: bool = sqlx::query_scalar(
@@ -359,6 +366,7 @@ async fn ack(
     .await?;
     if !own {
         return Err(ApiError::BadRequest(
+            codes::SYNC_ACK_NOT_YOURS,
             "Acknowledge for your own persona's devices in the session only.".into(),
         ));
     }
@@ -368,6 +376,7 @@ async fn ack(
         .await?;
     if seq > last {
         return Err(ApiError::BadRequest(
+            codes::SYNC_ACK_OUT_OF_RANGE,
             "That's past the end of the log.".into(),
         ));
     }
@@ -480,16 +489,29 @@ async fn rejoin(
     .await?;
     let (actor, handle, key, ended) = persona.ok_or(ApiError::NotFound)?;
     if ended {
-        return Err(ApiError::Forbidden("The session has ended.".into()));
+        return Err(ApiError::Forbidden(
+            codes::SESSION_ENDED,
+            "The session has ended.".into(),
+        ));
     }
-    let key = key.ok_or_else(|| ApiError::BadRequest("the persona has no identity key".into()))?;
+    let key = key.ok_or_else(|| {
+        ApiError::BadRequest(
+            codes::KEYS_NO_IDENTITY,
+            "the persona has no identity key".into(),
+        )
+    })?;
     quill_certs::RejoinRequest::verify(
         &request,
         &actor_uri(&state.config.domain, &handle),
         &group,
         &key,
     )
-    .map_err(|e| ApiError::BadRequest(format!("rejoin request refused: {e}")))?;
+    .map_err(|e| {
+        ApiError::BadRequest(
+            codes::SESSION_REJOIN_REFUSED,
+            format!("rejoin request refused: {e}"),
+        )
+    })?;
     drop_old_rejoins(&mut tx).await?;
     sqlx::query(
         "INSERT INTO session_rejoins (id, group_id, actor_id, request) VALUES ($1, $2, $3, $4)

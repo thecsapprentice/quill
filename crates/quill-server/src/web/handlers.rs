@@ -21,6 +21,7 @@ use quill_proto::{
         CreatePrompt, CreateReport, Maturity, PromptQuery, PromptState, ReportReason, Resolution,
         TagQuery, UpdateAccountSettings, UpdatePrompt,
     },
+    codes,
     limits::{FREQUENT_TAGS, MAX_PAGE_SIZE},
     validate,
 };
@@ -49,11 +50,11 @@ fn parse_opt<T: FromStr>(value: &Option<String>) -> Option<T> {
 /// Errors the visitor can fix by changing the form.
 pub(super) fn form_error(err: &ApiError) -> Option<String> {
     match err {
-        ApiError::BadRequest(m)
-        | ApiError::Conflict(m)
-        | ApiError::Forbidden(m)
-        | ApiError::ContentRejected(m)
-        | ApiError::RulesNotAccepted(m) => Some(m.clone()),
+        ApiError::BadRequest(_, m)
+        | ApiError::Conflict(_, m)
+        | ApiError::Forbidden(_, m)
+        | ApiError::ContentRejected(_, m)
+        | ApiError::RulesNotAccepted(_, m) => Some(m.clone()),
         _ => None,
     }
 }
@@ -140,7 +141,7 @@ pub async fn board(
     let viewer = session.as_ref().map(|s| s.account_id);
     let (items, next_cursor, error) = match prompts::search_prompts(&state, viewer, &query).await {
         Ok(page) => (page.items, page.next_cursor, None),
-        Err(ApiError::BadRequest(m)) => (Vec::new(), None, Some(m)),
+        Err(ApiError::BadRequest(_, m)) => (Vec::new(), None, Some(m)),
         Err(e) => return error_page(&c, e),
     };
     let (sticky_announcements, announcement) =
@@ -430,6 +431,7 @@ async fn own_prompt(
     }
     if p.removed {
         return Err(ApiError::Forbidden(
+            codes::PROMPT_REMOVED,
             "A server administrator removed this prompt, so it can't be changed.".into(),
         ));
     }
@@ -536,7 +538,10 @@ pub async fn set_state(
         return error_page(&c, ApiError::NotFound);
     };
     let Some(new_state) = parse_opt::<PromptState>(&form.state) else {
-        return error_page(&c, ApiError::BadRequest("Choose a status.".into()));
+        return error_page(
+            &c,
+            ApiError::BadRequest(codes::FORM_NO_CHOICE, "Choose a status.".into()),
+        );
     };
     let update = UpdatePrompt {
         state: Some(new_state),
@@ -567,7 +572,10 @@ pub async fn delete(
     if form.confirm.as_deref() != Some("yes") {
         return error_page(
             &c,
-            ApiError::BadRequest("Tick the box to confirm deleting the prompt.".into()),
+            ApiError::BadRequest(
+                codes::FORM_NOT_CONFIRMED,
+                "Tick the box to confirm deleting the prompt.".into(),
+            ),
         );
     }
     match prompts::remove_own_prompt(&state, s.account_id, id).await {
@@ -664,8 +672,8 @@ pub async fn report_submit(
     };
     match reports::file_report(&state, session.as_ref().map(|s| s.account_id), &report).await {
         Ok(()) => redirect(&format!("/p/{}?notice=reported", prompt.id)),
-        Err(ApiError::BadRequest(m)) => rerender(format!("Details {m}.")),
-        Err(ApiError::ContentRejected(m)) => rerender(m),
+        Err(ApiError::BadRequest(_, m)) => rerender(format!("Details {m}.")),
+        Err(ApiError::ContentRejected(_, m)) => rerender(m),
         Err(e) => error_page(&c, e),
     }
 }
@@ -821,7 +829,10 @@ pub async fn persona_delete(
     if form.confirm.as_deref() != Some("yes") {
         return error_page(
             &c,
-            ApiError::BadRequest("Tick the box to confirm deleting the persona.".into()),
+            ApiError::BadRequest(
+                codes::FORM_NOT_CONFIRMED,
+                "Tick the box to confirm deleting the persona.".into(),
+            ),
         );
     }
     match routes::remove_persona(&state, s.account_id, id).await {
@@ -1051,9 +1062,9 @@ pub async fn register_submit(
             Ok(cookie) => with_cookie(cookie, "/personas?notice=registered"),
             Err(e) => error_page(&chrome(&state, None, Nav::SignIn, None), e),
         },
-        Err(ApiError::Conflict(_)) => fail("That login name is taken. Try another."),
-        Err(ApiError::Forbidden(_)) => fail("This server isn't accepting new accounts right now."),
-        Err(ApiError::RulesNotAccepted(m)) => fail(&m),
+        Err(ApiError::Conflict(..)) => fail("That login name is taken. Try another."),
+        Err(ApiError::Forbidden(..)) => fail("This server isn't accepting new accounts right now."),
+        Err(ApiError::RulesNotAccepted(_, m)) => fail(&m),
         Err(e) => error_page(&chrome(&state, None, Nav::SignIn, None), e),
     }
 }
@@ -1149,7 +1160,7 @@ pub async fn admin_resolve(
         return error_page(&c, ApiError::NotFound);
     };
     match reports::resolve(&state, s.account_id, id, action).await {
-        Ok(_) | Err(ApiError::Conflict(_)) => redirect("/admin/reports?notice=resolved"),
+        Ok(_) | Err(ApiError::Conflict(..)) => redirect("/admin/reports?notice=resolved"),
         Err(e) => error_page(&c, e),
     }
 }

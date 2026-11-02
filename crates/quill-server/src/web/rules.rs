@@ -8,6 +8,7 @@ use axum::{
     response::Response,
 };
 use quill_board_ui::{ADMIN_RULES_PATH, AdminRulesView, Nav, RULES_PATH, RulesView};
+use quill_proto::codes;
 use quill_proto::{board::UpdateServerSettings, rules::UpdateRules};
 use serde::Deserialize;
 
@@ -60,12 +61,15 @@ pub async fn accept(
         return csrf_failed(&c);
     }
     let Some(version) = opt(&form.version).and_then(|v| v.parse().ok()) else {
-        return error_page(&c, ApiError::BadRequest("Which version?".into()));
+        return error_page(
+            &c,
+            ApiError::BadRequest(codes::FORM_NO_CHOICE, "Which version?".into()),
+        );
     };
     match rules::accept(&state, s.account_id, version).await {
         Ok(()) => redirect("/?notice=rules-accepted"),
         // The rules changed while they read: show the new ones.
-        Err(e @ ApiError::Conflict(_)) => {
+        Err(e @ ApiError::Conflict(..)) => {
             let found = rules::get(&state, Some(s.account_id)).await.ok().flatten();
             html(
                 StatusCode::CONFLICT,
@@ -207,7 +211,10 @@ pub async fn admin_acceptance(
         return csrf_failed(&c);
     }
     let Some(acceptance) = opt(&form.acceptance).and_then(|v| v.parse().ok()) else {
-        return error_page(&c, ApiError::BadRequest("Choose a setting.".into()));
+        return error_page(
+            &c,
+            ApiError::BadRequest(codes::FORM_NO_CHOICE, "Choose a setting.".into()),
+        );
     };
     let body = UpdateServerSettings {
         rules_acceptance: Some(acceptance),

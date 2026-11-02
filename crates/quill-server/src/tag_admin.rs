@@ -13,6 +13,7 @@ use quill_proto::{
         AdminAction, AdminTag, AdminTagQuery, ChipColor, CreateNamespace, CreateTag, DeletedTag,
         Tag, TagNamespace, TagStatus, UpdateNamespace, UpdateTag, limit_label,
     },
+    codes,
     limits::{MAX_PAGE_SIZE, PROMPT_MAX_TAGS},
     validate,
 };
@@ -101,10 +102,13 @@ async fn check_limits(
         .fetch_one(&mut *conn)
         .await?;
         if i64::from(min) > visible {
-            return Err(ApiError::BadRequest(format!(
-                "{display} is curated-only and has {visible} visible {}, so writers couldn't pick {min}. Add tags first, or lower the minimum.",
-                if visible == 1 { "tag" } else { "tags" }
-            )));
+            return Err(ApiError::BadRequest(
+                codes::TAG_TYPE_MIN_UNREACHABLE,
+                format!(
+                    "{display} is curated-only and has {visible} visible {}, so writers couldn't pick {min}. Add tags first, or lower the minimum.",
+                    if visible == 1 { "tag" } else { "tags" }
+                ),
+            ));
         }
     }
     let others: i64 = sqlx::query_scalar(
@@ -115,10 +119,13 @@ async fn check_limits(
     .await?;
     let cap = i64::try_from(PROMPT_MAX_TAGS).unwrap_or(i64::MAX);
     if others + i64::from(min) > cap {
-        return Err(ApiError::BadRequest(format!(
-            "Together the tag types would need {} tags on every prompt, but a prompt can have at most {PROMPT_MAX_TAGS}.",
-            others + i64::from(min)
-        )));
+        return Err(ApiError::BadRequest(
+            codes::TAG_TYPES_MIN_TOO_HIGH,
+            format!(
+                "Together the tag types would need {} tags on every prompt, but a prompt can have at most {PROMPT_MAX_TAGS}.",
+                others + i64::from(min)
+            ),
+        ));
     }
     Ok(())
 }
@@ -196,9 +203,10 @@ pub async fn create_namespace(
     match result {
         Ok(_) => {}
         Err(e) if is_unique_violation(&e) => {
-            return Err(ApiError::Conflict(format!(
-                "a tag type named \"{name}\" already exists"
-            )));
+            return Err(ApiError::Conflict(
+                codes::TAG_TYPE_EXISTS,
+                format!("a tag type named \"{name}\" already exists"),
+            ));
         }
         Err(e) => return Err(e.into()),
     }
@@ -414,7 +422,12 @@ pub async fn create_tag(state: &AppState, admin: Uuid, body: &CreateTag) -> Resu
     let mut tx = state.pool.begin().await?;
     load_namespace(&mut tx, &namespace, false)
         .await
-        .map_err(|_| ApiError::BadRequest(format!("unknown tag type \"{namespace}\"")))?;
+        .map_err(|_| {
+            ApiError::BadRequest(
+                codes::TAG_TYPE_UNKNOWN,
+                format!("unknown tag type \"{namespace}\""),
+            )
+        })?;
     let existing: Option<String> = sqlx::query_scalar(
         "SELECT origin FROM tags WHERE instance = '' AND namespace = $1 AND slug = $2",
     )
@@ -423,9 +436,10 @@ pub async fn create_tag(state: &AppState, admin: Uuid, body: &CreateTag) -> Resu
     .fetch_optional(&mut *tx)
     .await?;
     if existing.as_deref() == Some("server") {
-        return Err(ApiError::Conflict(format!(
-            "\"{namespace}:{slug}\" is already a curated tag"
-        )));
+        return Err(ApiError::Conflict(
+            codes::TAG_ALREADY_CURATED,
+            format!("\"{namespace}:{slug}\" is already a curated tag"),
+        ));
     }
     sqlx::query(
         "INSERT INTO tags (namespace, slug, display, origin) VALUES ($1, $2, $3, 'server')
@@ -504,6 +518,7 @@ pub async fn update_tag(
 
     if body.status == Some(TagStatus::Pending) {
         return Err(ApiError::BadRequest(
+            codes::TAG_NOT_AWAITING,
             "only writers' new tags can be awaiting approval".into(),
         ));
     }
@@ -590,9 +605,12 @@ pub async fn update_tag(
         let target_id = *resolve_tags(&mut tx, std::slice::from_ref(&target_key), false)
             .await?
             .get(&target_key)
-            .ok_or_else(|| ApiError::BadRequest(format!("unknown tag \"{target}\"")))?;
+            .ok_or_else(|| {
+                ApiError::BadRequest(codes::TAG_UNKNOWN, format!("unknown tag \"{target}\""))
+            })?;
         if target_id == id {
             return Err(ApiError::BadRequest(
+                codes::TAG_SELF_ALIAS,
                 "a tag can't be an alias of itself".into(),
             ));
         }

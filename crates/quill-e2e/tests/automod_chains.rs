@@ -105,7 +105,7 @@ async fn count(state: &AppState, action: &str) -> i64 {
 
 fn refused(r: Result<impl std::fmt::Debug, ApiError>) -> String {
     match r {
-        Err(ApiError::BadRequest(m)) => m,
+        Err(ApiError::BadRequest(_, m)) => m,
         other => panic!("{other:?}"),
     }
 }
@@ -153,7 +153,7 @@ async fn uploads_are_checked() {
         .unwrap();
     assert_eq!(words.data, ["blocked_words"]);
     let taken = scripts::upload(&state, admin, &upload("words", "")).await;
-    assert!(matches!(taken, Err(ApiError::Conflict(_))), "{taken:?}");
+    assert!(matches!(taken, Err(ApiError::Conflict(..))), "{taken:?}");
 
     let actions: Vec<String> = sqlx::query_scalar(
         "SELECT action || ':' || script_name FROM admin_log
@@ -209,7 +209,8 @@ async fn a_chain_stops_at_the_first_script_that_handles() {
     assert_eq!(flag.reason, "Outside link to evil.biz");
 
     // Words runs first, so a post with both is refused, not flagged.
-    let Err(ApiError::ContentRejected(message)) = check("F R E E crypto", "See evil.biz/win").await
+    let Err(ApiError::ContentRejected(_, message)) =
+        check("F R E E crypto", "See evil.biz/win").await
     else {
         panic!("not refused");
     };
@@ -271,7 +272,7 @@ async fn a_failing_script_follows_the_chain_setting() {
     chain(&state, admin, OnError::Reject, &[runaway, after]).await;
     let refusal = check().await;
     assert!(
-        matches!(&refusal, Err(ApiError::ContentRejected(m)) if m.contains("couldn't be checked")),
+        matches!(&refusal, Err(ApiError::ContentRejected(_, m)) if m.contains("couldn't be checked")),
         "{refusal:?}"
     );
 

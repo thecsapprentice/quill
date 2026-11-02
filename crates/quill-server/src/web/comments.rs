@@ -13,6 +13,7 @@ use quill_board_ui::{
 use quill_proto::{
     announcements::{Comment, CommentVoice, CreateComment, ReportComment},
     board::ReportReason,
+    codes,
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -135,7 +136,10 @@ pub async fn delete(
     if form.confirm.as_deref() != Some("yes") {
         return error_page(
             &c,
-            ApiError::BadRequest("Tick the box to confirm deleting the comment.".into()),
+            ApiError::BadRequest(
+                codes::FORM_NOT_CONFIRMED,
+                "Tick the box to confirm deleting the comment.".into(),
+            ),
         );
     }
     // Where to go back to, looked up before the comment is gone.
@@ -235,7 +239,7 @@ pub async fn report_submit(
     let reporter = session.as_ref().map(|s| s.account_id);
     match crate::reports::file_comment_report(&state, reporter, comment.id, &report).await {
         Ok(()) => redirect(&at(comment.announcement, comment.id, "reported")),
-        Err(ApiError::BadRequest(m)) => rerender(format!("Details {m}.")),
+        Err(ApiError::BadRequest(_, m)) => rerender(format!("Details {m}.")),
         Err(e) => error_page(&c, e),
     }
 }
@@ -266,7 +270,10 @@ pub async fn admin_remove(
         return error_page(&c, ApiError::NotFound);
     };
     let Some(reason) = opt(&form.reason).and_then(|r| r.parse::<ReportReason>().ok()) else {
-        return error_page(&c, ApiError::BadRequest("Choose a reason.".into()));
+        return error_page(
+            &c,
+            ApiError::BadRequest(codes::FORM_NO_CHOICE, "Choose a reason.".into()),
+        );
     };
     match comments::remove(&state, s.account_id, id, reason).await {
         Ok(()) => match comments::announcement_of(&state, Some(s.account_id), id).await {

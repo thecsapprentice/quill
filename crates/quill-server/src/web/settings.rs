@@ -14,6 +14,7 @@ use quill_proto::board::{
     AdminTagQuery, ChipColor, CreateNamespace, CreateTag, TagPolicy, TagQuery, TagStatus,
     UpdateNamespace, UpdateServerSettings, UpdateTag,
 };
+use quill_proto::codes;
 use quill_proto::handles::{AddReserved, ReservedKind, ReservedQuery};
 use serde::Deserialize;
 
@@ -137,10 +138,12 @@ pub struct LimitFields {
 impl LimitFields {
     fn limits(&self) -> Result<(u32, Option<u32>), ApiError> {
         let number = |v: &Option<String>| {
-            opt(v)
-                .map(|v| v.parse::<u32>())
-                .transpose()
-                .map_err(|_| ApiError::BadRequest("Limits must be whole numbers.".into()))
+            opt(v).map(|v| v.parse::<u32>()).transpose().map_err(|_| {
+                ApiError::BadRequest(
+                    codes::SETTINGS_LIMITS_NOT_NUMBERS,
+                    "Limits must be whole numbers.".into(),
+                )
+            })
         };
         Ok(match opt(&self.preset) {
             Some("optional") => (0, None),
@@ -214,7 +217,10 @@ pub async fn new_tags_save(
         return csrf_failed(&c);
     }
     let Some(new_tags) = opt(&form.new_tags).and_then(|v| v.parse::<TagPolicy>().ok()) else {
-        return error_page(&c, ApiError::BadRequest("Choose a setting.".into()));
+        return error_page(
+            &c,
+            ApiError::BadRequest(codes::FORM_NO_CHOICE, "Choose a setting.".into()),
+        );
     };
     let body = UpdateServerSettings {
         new_tags: Some(new_tags),
@@ -284,7 +290,10 @@ pub async fn tag_status(
         return csrf_failed(&c);
     }
     let Some(status) = opt(&form.status).and_then(|v| v.parse::<TagStatus>().ok()) else {
-        return error_page(&c, ApiError::BadRequest("Choose a status.".into()));
+        return error_page(
+            &c,
+            ApiError::BadRequest(codes::FORM_NO_CHOICE, "Choose a status.".into()),
+        );
     };
     let before = match tag_admin::get_tag(&state, &namespace, &slug).await {
         Ok(t) => t.tag.status,
@@ -577,7 +586,7 @@ async fn render_tags(
         let tags = tag_admin::list_tags(state, &query).await;
         // An unknown type in the URL just shows nothing.
         let tags = match tags {
-            Err(ApiError::BadRequest(_)) => Vec::new(),
+            Err(ApiError::BadRequest(..)) => Vec::new(),
             other => other?,
         };
         Ok::<_, ApiError>((namespaces, tags))
@@ -908,7 +917,10 @@ pub async fn tag_delete(
     if form.confirm.as_deref() != Some("yes") {
         return error_page(
             &c,
-            ApiError::BadRequest("Tick the box to confirm deleting the tag.".into()),
+            ApiError::BadRequest(
+                codes::FORM_NOT_CONFIRMED,
+                "Tick the box to confirm deleting the tag.".into(),
+            ),
         );
     }
     let rejecting = match tag_admin::get_tag(&state, &namespace, &slug).await {
@@ -961,7 +973,7 @@ async fn render_handles(
         None => None,
         Some(h) => Some(match reserved::check(state, h).await {
             Ok(c) => Ok(c),
-            Err(ApiError::BadRequest(m)) => Err(format!("“{h}” can't be a handle: {m}.")),
+            Err(ApiError::BadRequest(_, m)) => Err(format!("“{h}” can't be a handle: {m}.")),
             Err(e) => return error_page(&c, e),
         }),
     };
@@ -1125,7 +1137,12 @@ pub async fn attachments_save(
     let on = match opt(&form.attachments) {
         Some("on") => true,
         Some("off") => false,
-        _ => return error_page(&c, ApiError::BadRequest("Choose a setting.".into())),
+        _ => {
+            return error_page(
+                &c,
+                ApiError::BadRequest(codes::FORM_NO_CHOICE, "Choose a setting.".into()),
+            );
+        }
     };
     let body = UpdateServerSettings {
         attachments: Some(on),
