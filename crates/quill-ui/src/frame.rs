@@ -3,7 +3,7 @@
 
 use std::{future::poll_fn, rc::Rc, task::Poll};
 
-use dioxus::prelude::*;
+use dioxus::{html::geometry::PixelsVector2D, prelude::*};
 use uuid::Uuid;
 
 use crate::{
@@ -36,10 +36,28 @@ pub fn Frame() -> Element {
     let notice = m.notice.clone();
     let problem = m.problem.clone();
     drop(m);
+    // A new section starts at the top, not wherever the last one was left.
+    let mut main_el = use_signal(|| None::<Rc<MountedData>>);
+    let mut shown = use_signal(|| section);
+    use_effect(move || {
+        let now = model.read().section;
+        if now == *shown.peek() {
+            return;
+        }
+        shown.set(now);
+        if let Some(el) = main_el.peek().clone() {
+            spawn(async move {
+                let _ = el
+                    .scroll(PixelsVector2D::new(0.0, 0.0), ScrollBehavior::Instant)
+                    .await;
+            });
+        }
+    });
     rsx! {
         div { class: "frame",
             Nav {}
             main { class: "main", id: "main",
+                onmounted: move |e| main_el.set(Some(e.data())),
                 div { class: if matches!(section, Section::Board | Section::MyPrompts | Section::Reference) { "page wide" } else { "page" },
                     if rules_banner {
                         div { class: "nudge", role: "status",
