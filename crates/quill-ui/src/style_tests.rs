@@ -96,3 +96,16 @@ fn each_theme_says_the_same_wherever_it_is_written() {
         colours(".quill[data-theme=\"dark\"]")
     );
 }
+
+/// Found by hand (#69): `.sr-only` text inside the scrolling `.main` was
+/// placed against the window, not `.main`, so it stretched the window and
+/// the whole frame slid up past the end of a long page. `.main` must be
+/// the containing block for anything positioned inside it.
+#[test]
+fn hidden_text_stays_inside_the_scrolling_page() {
+    let rule = crate::STYLE
+        .lines()
+        .find(|l| l.starts_with(".main {"))
+        .expect("a .main rule");
+    assert!(rule.contains("position: relative"), "{rule}");
+}
