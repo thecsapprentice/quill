@@ -66,11 +66,17 @@ const EDGES: [(&str, &str); 4] = [
 fn check(theme: &str, c: &HashMap<String, String>) {
     for (fg, bg) in TEXT {
         let r = contrast(&c[fg], &c[bg]);
-        assert!(r >= 4.5, "{theme}: --{fg} on --{bg} is {r:.2}:1; text needs 4.5:1");
+        assert!(
+            r >= 4.5,
+            "{theme}: --{fg} on --{bg} is {r:.2}:1; text needs 4.5:1"
+        );
     }
     for (fg, bg) in EDGES {
         let r = contrast(&c[fg], &c[bg]);
-        assert!(r >= 3.0, "{theme}: --{fg} on --{bg} is {r:.2}:1; a control's edge needs 3:1");
+        assert!(
+            r >= 3.0,
+            "{theme}: --{fg} on --{bg} is {r:.2}:1; a control's edge needs 3:1"
+        );
     }
 }
 

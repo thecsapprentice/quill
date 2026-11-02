@@ -40,7 +40,7 @@ pub fn Frame() -> Element {
         div { class: "frame",
             Nav {}
             main { class: "main", id: "main",
-                div { class: if matches!(section, Section::Board | Section::MyPrompts) { "page wide" } else { "page" },
+                div { class: if matches!(section, Section::Board | Section::MyPrompts | Section::Reference) { "page wide" } else { "page" },
                     if rules_banner {
                         div { class: "nudge", role: "status",
                             p { "The server rules have changed. Read and accept them to keep posting, editing, commenting and reporting." }
@@ -96,6 +96,7 @@ fn Sections(section: Section) -> Element {
                         Section::Settings => rsx! { SettingsPage {} },
                         Section::Rules => rsx! { RulesPage {} },
                         Section::Devices => rsx! { DevicesPage {} },
+                        Section::Reference => rsx! { crate::reference::ReferencePage {} },
                     }
     }
 }
