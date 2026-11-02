@@ -177,7 +177,7 @@ scripts/rebrand-to-plait.sh brand    # every other quill/Quill/QUILL outside the
 scripts/rebrand-to-plait.sh audit    # what's left, which should be only the keep list
 ```
 
-Tried on `main` at 6c38e3f: the two phases change 268 files. `cargo
+Tried on `main` at 08cea36: the two phases change 280 files. `cargo
 metadata` resolves all eleven renamed packages. The audit then lists only
 the keep list below plus `test-vectors/*.json`, which is regenerated.
 Nothing was compiled, because the pinned toolchain wasn't available where
