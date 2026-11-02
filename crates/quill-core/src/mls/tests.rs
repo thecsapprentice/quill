@@ -147,7 +147,10 @@ fn a_failed_batch_leaves_no_mls_state() {
                 &openmls::prelude::LeafNodeIndex::new(3),
             )
             .unwrap();
-        Err(CoreError::Keys("boom".into()))
+        Err(CoreError::Keys(
+            quill_proto::codes::MLS_FAILED,
+            "boom".into(),
+        ))
     });
     assert!(result.is_err());
     assert_eq!(store.scan_count(Table::Mls), 0);

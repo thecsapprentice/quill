@@ -212,9 +212,23 @@ async fn main() {
     // Boxed: the future holding every command is larger than the main
     // thread's 1 MiB stack on Windows in debug builds.
     if let Err(err) = Box::pin(run(cli)).await {
-        eprintln!("error: {err:#}");
+        eprintln!("error {}: {err:#}", error_code(&err));
         std::process::exit(1);
     }
+}
+
+/// The code to print with an error (`docs/error-codes.md`): core's (or the
+/// server's) when the cause is a `CoreError`, else the CLI's own refusals.
+fn error_code(err: &anyhow::Error) -> quill_proto::codes::ErrorCode {
+    err.chain()
+        .find_map(|e| e.downcast_ref::<quill_core::CoreError>())
+        .map(quill_core::CoreError::code)
+        .or_else(|| {
+            err.chain()
+                .find_map(|e| e.downcast_ref::<quill_core::StoreError>())
+                .map(quill_core::StoreError::code)
+        })
+        .unwrap_or(quill_proto::codes::CLI_USAGE)
 }
 
 async fn run(cli: Cli) -> Result<()> {

@@ -23,7 +23,7 @@ pub const WORK_FACTOR: u8 = 15;
 pub const MAX_WORK_FACTOR: u8 = 20;
 
 fn err(msg: impl Into<String>) -> CoreError {
-    CoreError::Keys(msg.into())
+    CoreError::Keys(quill_proto::codes::BACKUP_DAMAGED, msg.into())
 }
 
 /// Seals and opens backup files with a passphrase.

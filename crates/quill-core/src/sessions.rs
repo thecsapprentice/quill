@@ -56,7 +56,7 @@ pub const STORY: &str = "story";
 pub const MAX_MESSAGE_CHARS: usize = 20_000;
 
 fn err(msg: impl Into<String>) -> CoreError {
-    CoreError::Keys(msg.into())
+    CoreError::Keys(quill_proto::codes::SESSION_CHECK_FAILED, msg.into())
 }
 
 fn conflict(e: &CoreError) -> bool {

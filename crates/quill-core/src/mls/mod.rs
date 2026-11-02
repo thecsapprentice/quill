@@ -33,7 +33,7 @@ pub const KEY_PACKAGE_DAYS: u64 = 28;
 const DAY_SECS: u64 = 86_400;
 
 pub(crate) fn mls_err(what: &str, e: impl std::fmt::Display) -> CoreError {
-    CoreError::Keys(format!("{what}: {e}"))
+    CoreError::Keys(quill_proto::codes::MLS_FAILED, format!("{what}: {e}"))
 }
 
 /// OpenMLS's provider: RustCrypto, and storage in the encrypted store.
@@ -228,7 +228,12 @@ pub struct PackageExpect<'a> {
 /// naming the persona, this device's signature key, our capabilities, and
 /// a device certificate that verifies under the persona's identity key.
 pub fn check_key_package(bytes: &[u8], e: &PackageExpect<'_>) -> Result<KeyPackage, CoreError> {
-    let refuse = |why: String| CoreError::Keys(format!("KeyPackage refused: {why}"));
+    let refuse = |why: String| {
+        CoreError::Keys(
+            quill_proto::codes::KEY_PACKAGE_REFUSED,
+            format!("KeyPackage refused: {why}"),
+        )
+    };
     let message =
         MlsMessageIn::tls_deserialize_exact(bytes).map_err(|err| refuse(err.to_string()))?;
     let MlsMessageBodyIn::KeyPackage(package) = message.extract() else {
