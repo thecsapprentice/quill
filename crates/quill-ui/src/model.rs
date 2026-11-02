@@ -53,6 +53,8 @@ pub enum Section {
     Rules,
     /// The login's devices: reached from Settings, not the sidebar.
     Devices,
+    /// The design reference: reached from Settings in advanced mode.
+    Reference,
 }
 
 impl Section {
@@ -79,6 +81,7 @@ impl Section {
             Section::Settings => "Settings",
             Section::Rules => "Server rules",
             Section::Devices => "Devices",
+            Section::Reference => "Design reference",
         }
     }
 }

@@ -1141,6 +1141,12 @@ part of its "done when".
 | 3h | [#31](https://github.com/thecsapprentice/quill/issues/31) Backup and recovery, history sync and rejoining, notices; anything the CLI does that the GUI doesn't yet | planned |
 | 3i | [#32](https://github.com/thecsapprentice/quill/issues/32) Packaging for Windows, macOS and Linux | planned |
 
+Every GUI screen follows one design language:
+`docs/design/gui-design-language.md` ([#69](https://github.com/thecsapprentice/quill/issues/69)),
+with a reference page in the app under advanced mode. Bringing the screens
+built so far up to it is [#70](https://github.com/thecsapprentice/quill/issues/70);
+screens from 3e on are built to it from the start.
+
 Gate: the GUI does everything the CLI does, and the end-to-end tests that
 drive `quill-core` pass unchanged. A new user can go from installing to
 writing in a session without seeing an id or a key, and without leaving

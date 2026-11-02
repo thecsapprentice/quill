@@ -17,8 +17,11 @@ pub mod markdown;
 pub mod model;
 mod notices;
 mod personas;
+mod reference;
 mod server_rules;
 mod settings;
+#[cfg(test)]
+mod style_tests;
 #[cfg(feature = "testing")]
 pub mod testing;
 #[cfg(test)]
