@@ -236,3 +236,28 @@ async fn requests() {
     d.wait_for_text("@gull sees these same 12 words").await;
     d.assert_accessible("Personas, comparing words");
 }
+
+#[tokio::test]
+async fn sessions() {
+    let sim = Sim::new().with_server(SERVER).rc();
+    let mut d = first_run(&sim).await;
+    d.click("Sessions").await;
+    d.wait_for_text("No sessions yet.").await;
+    d.assert_accessible("Sessions, none yet");
+    sim.take_handle(SERVER, "wren");
+    let id = sim.session_with(SERVER, "ink_fox", "wren", "The ledger");
+    let first = sim.write_as(SERVER, &id, "wren", "story", "Chapter one.");
+    sim.reply_as(SERVER, &id, "wren", "planning", "About chapter one.", first);
+    d.click("Home").await;
+    d.wait_for_text("new notes in your session").await;
+    d.assert_accessible("Home, new notes");
+    d.click("Sessions 2 unread").await;
+    d.wait_for_text("On “The ledger”").await;
+    d.assert_accessible("Sessions");
+    d.click("Open the session with @wren on “The ledger”").await;
+    d.wait_for_text("Chapter one.").await;
+    d.assert_accessible("a session, reading");
+    d.click_containing("Planning").await;
+    d.wait_for_text("In answer to").await;
+    d.assert_accessible("a session, another channel");
+}

@@ -309,6 +309,15 @@ impl Backend for Fake {
     fn set_answers_seen(&self, _: &[Uuid]) -> Result<(), Problem> {
         Ok(())
     }
+    fn sessions(&self) -> Call<'_, Vec<crate::backend::SessionSummary>> {
+        ready(Ok(Vec::new()))
+    }
+    fn session<'a>(&'a self, _: &'a str) -> Call<'a, crate::backend::SessionView> {
+        ready(Err(Problem::Gone))
+    }
+    fn mark_shown<'a>(&'a self, _: &'a str, _: &'a str, _: u64) -> Result<(), Problem> {
+        Ok(())
+    }
     fn upkeep(&self) -> Call<'_, Option<Problem>> {
         ready(Ok(None))
     }

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::backend::{
     AppSettings, Backend, Keys, Persona, PersonaState, Problem, RequestStatus, SentRequest,
-    ServerEntry, ServerRules, Standing, WaitingPrompt,
+    ServerEntry, ServerRules, SessionSummary, Standing, WaitingPrompt,
 };
 
 /// What fills the window.
@@ -133,6 +133,27 @@ pub struct Model {
     pub upkeep_round: u32,
     /// The open server's requests, as last loaded (3e).
     pub requests: Requests,
+    /// The open server's sessions, as last loaded (3f).
+    pub sessions: Sessions,
+}
+
+/// The login's sessions, reloaded on each live notice like requests, so
+/// Home, the side bar and the Sessions screen agree.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Sessions {
+    pub loaded: bool,
+    pub list: Vec<SessionSummary>,
+    /// Bumped on each load, so an open session reads itself again.
+    pub epoch: u32,
+    /// The session open on the Sessions screen, by id.
+    pub open: Option<String>,
+}
+
+impl Sessions {
+    /// Notes not yet shown here, across every session.
+    pub fn unseen(&self) -> usize {
+        self.list.iter().map(|s| s.unseen).sum()
+    }
 }
 
 /// What the login's requests come to: kept in the model so Home, the side
@@ -200,6 +221,7 @@ impl Model {
             backup_nudge_dismissed: false,
             upkeep_round: 0,
             requests: Requests::default(),
+            sessions: Sessions::default(),
         }
     }
 
@@ -250,6 +272,7 @@ impl Model {
             self.rules = None;
             self.unread = 0;
             self.requests = Requests::default();
+            self.sessions = Sessions::default();
         }
         self.current = Some(id);
         self.standing = None;
@@ -523,6 +546,23 @@ impl Model {
         r.sent = sent;
         r.seen = seen;
         r.epoch = r.epoch.wrapping_add(1);
+    }
+
+    /// Server `id`'s sessions, as upkeep or the Sessions screen loaded them.
+    pub fn sessions_loaded(&mut self, id: Uuid, list: Vec<SessionSummary>) {
+        if self.current != Some(id) {
+            return;
+        }
+        let s = &mut self.sessions;
+        s.loaded = true;
+        s.list = list;
+        s.epoch = s.epoch.wrapping_add(1);
+    }
+
+    /// Opens the Sessions screen, at one session if `id`.
+    pub fn open_sessions(&mut self, id: Option<String>) {
+        self.sessions.open = id;
+        self.go(Section::Sessions);
     }
 
     /// Opens the Requests screen, at one prompt's queue if `prompt`.

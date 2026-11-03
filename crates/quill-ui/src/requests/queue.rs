@@ -29,6 +29,8 @@ pub fn PromptQueue(prompt: Uuid) -> Element {
     let mut held = use_signal(|| false);
     let mut busy_held = use_signal(|| false);
     let mut said = use_signal(|| None::<String>);
+    // Whose request was just accepted, to lead to the session.
+    let mut accepted = use_signal(|| None::<String>);
 
     let b = backend.clone();
     use_hook(move || {
@@ -66,8 +68,9 @@ pub fn PromptQueue(prompt: Uuid) -> Element {
         });
     };
     let b = backend.clone();
-    let done = use_callback(move |line: String| {
+    let done = use_callback(move |(line, with): (String, Option<String>)| {
         said.set(Some(line));
+        accepted.set(with);
         reload(b.clone(), model);
     });
 
@@ -95,6 +98,11 @@ pub fn PromptQueue(prompt: Uuid) -> Element {
         }
         if let Some(line) = said() {
             p { class: "hint", role: "status", "{line}" }
+        }
+        if let Some(with) = accepted() {
+            div { class: "actions",
+                crate::sessions::OpenSession { prompt: Some(prompt), partner: Some(with), class: "primary" }
+            }
         }
         match inbox() {
             None => rsx! { p { class: "coming", "Reading the requests…" } },
@@ -131,7 +139,11 @@ pub fn PromptQueue(prompt: Uuid) -> Element {
 
 /// One request: who, when, the pitch, and the answer.
 #[component]
-fn Incoming(r: IncomingRequest, author: Option<Uuid>, done: EventHandler<String>) -> Element {
+fn Incoming(
+    r: IncomingRequest,
+    author: Option<Uuid>,
+    done: EventHandler<(String, Option<String>)>,
+) -> Element {
     let (backend, model) = use_ui();
     let mut declining = use_signal(|| false);
     // "Not now" on a changed key: the pitch stays unread.
@@ -148,10 +160,12 @@ fn Incoming(r: IncomingRequest, author: Option<Uuid>, done: EventHandler<String>
     let lapses = short_date(r.expires_at);
 
     let b = backend.clone();
+    let requester = handle.clone();
     let mut answer = move |accept: bool| {
         busy.set(Some(if accept { "accept" } else { "decline" }));
         let b = b.clone();
         let who = who.clone();
+        let handle = requester.clone();
         spawn(async move {
             let result = if accept {
                 b.accept_request(id).await
@@ -160,13 +174,15 @@ fn Incoming(r: IncomingRequest, author: Option<Uuid>, done: EventHandler<String>
             };
             busy.set(None);
             match result {
-                Ok(()) if accept => done.call(format!(
-                    "Accepted {who}'s request: it's a writing session now, under Sessions."
+                Ok(()) if accept => done.call((
+                    format!("Accepted {who}'s request: it's a writing session now."),
+                    Some(handle),
                 )),
-                Ok(()) => done.call(format!("Declined {who}'s request.")),
-                Err(Problem::Gone) => {
-                    done.call("That request is gone: it was withdrawn, or it lapsed.".into())
-                }
+                Ok(()) => done.call((format!("Declined {who}'s request."), None)),
+                Err(Problem::Gone) => done.call((
+                    "That request is gone: it was withdrawn, or it lapsed.".into(),
+                    None,
+                )),
                 Err(p) => problem.set(Some(p)),
             }
         });

@@ -11,7 +11,9 @@ use std::{
 
 use quill_certs::RevocationReason;
 use quill_core::{
-    Client, CoreError, Store, StoreError, devices, keys, requests,
+    Client, CoreError, Store, StoreError, devices, history,
+    hlc::Hlc,
+    keys, requests, sessions,
     store::{KdfParams, KeySetup, KeySource, Unlock, vault::Vault},
 };
 use quill_proto::{
@@ -27,7 +29,10 @@ use quill_ui::backend::{
     Problem, Protection, ServerEntry, ServerInfo, ServerRules, Standing, Step, Theme,
 };
 use quill_ui::backend::{Approval, Device, LinkStart, PersonaKeys, RemoveReason, codes};
-use quill_ui::backend::{Inbox, IncomingRequest, KeyChange, SentRequest, Unread, WaitingPrompt};
+use quill_ui::backend::{
+    ChannelView, Inbox, IncomingRequest, KeyChange, Note, SentRequest, SessionStanding,
+    SessionSummary, SessionView, Unread, WaitingPrompt, Writer,
+};
 use tokio::runtime::Handle;
 use uuid::Uuid;
 
@@ -78,6 +83,8 @@ pub struct NativeBackend {
     upkeep_log: Mutex<Vec<String>>,
     /// The link this computer opened, waiting for an answer.
     link: Mutex<Option<String>>,
+    /// This computer's offset from UTC, read at start (`with_utc_offset`).
+    offset: time::UtcOffset,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -191,6 +198,104 @@ fn request_problem(server: &str, e: CoreError) -> Problem {
     }
 }
 
+/// Prompt titles for sessions, fetched once each; `None` once deleted.
+#[derive(Default)]
+struct Titles(HashMap<Uuid, Option<String>>);
+
+impl Titles {
+    async fn of(
+        &mut self,
+        client: &Client,
+        prompt: Option<Uuid>,
+    ) -> Result<Option<(Uuid, String)>, CoreError> {
+        let Some(id) = prompt else {
+            return Ok(None);
+        };
+        if let Some(t) = self.0.get(&id) {
+            return Ok(t.clone().map(|t| (id, t)));
+        }
+        let title = match client.prompt(id).await {
+            Ok(p) => Some(p.title),
+            Err(e) if matches!(e.status(), Some(404 | 410)) => None,
+            Err(e) => return Err(e),
+        };
+        self.0.insert(id, title.clone());
+        Ok(title.map(|t| (id, t)))
+    }
+}
+
+/// When a note was written, from its hybrid clock.
+fn note_time(hlc: &str) -> Option<time::OffsetDateTime> {
+    let h: Hlc = hlc.parse().ok()?;
+    time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(h.ms) * 1_000_000).ok()
+}
+
+fn writer(m: &quill_proto::sessions::SessionMember) -> Writer {
+    Writer {
+        handle: m.handle.clone(),
+        display_name: m.display_name.clone(),
+    }
+}
+
+/// The writer behind a note's sender, by the session's members (or the
+/// handle core names when they've left).
+fn writer_of(s: &quill_proto::sessions::Session, uri: &str) -> Writer {
+    s.members
+        .iter()
+        .find(|m| m.actor_uri == uri)
+        .map(writer)
+        .unwrap_or_else(|| Writer {
+            handle: sessions::sender_name(s, uri),
+            display_name: None,
+        })
+}
+
+fn standing(s: sessions::Standing) -> SessionStanding {
+    match s {
+        sessions::Standing::Joined => SessionStanding::Joined,
+        sessions::Standing::Waiting => SessionStanding::Waiting,
+        sessions::Standing::NoKeys => SessionStanding::NoKeys,
+        sessions::Standing::Rejoining => SessionStanding::Rejoining,
+        sessions::Standing::Broken(detail) => SessionStanding::Broken {
+            code: codes::SESSION_CHECK_FAILED,
+            detail,
+        },
+    }
+}
+
+fn channel_view(c: &history::ChannelInfo) -> ChannelView {
+    ChannelView {
+        name: c.name.clone(),
+        summary: c.summary.clone(),
+        notes: c.notes,
+        unseen: c.unseen,
+    }
+}
+
+fn summary(
+    s: &quill_proto::sessions::Session,
+    standing: SessionStanding,
+    prompt: Option<(Uuid, String)>,
+    channels: &[history::ChannelInfo],
+    latest: Option<time::OffsetDateTime>,
+) -> SessionSummary {
+    let me = s.members.iter().find(|m| m.persona.is_some());
+    SessionSummary {
+        id: s.id.clone(),
+        me: me.map(writer).unwrap_or(Writer {
+            handle: String::new(),
+            display_name: None,
+        }),
+        partner: s.members.iter().find(|m| m.persona.is_none()).map(writer),
+        prompt,
+        standing,
+        ended: s.ended,
+        notes: channels.iter().map(|c| c.notes).sum(),
+        unseen: channels.iter().map(|c| c.unseen).sum(),
+        latest,
+    }
+}
+
 /// Whether a typed address without a scheme names this computer.
 fn is_local(address: &str) -> bool {
     let host = match address.strip_prefix('[') {
@@ -252,6 +357,13 @@ fn entry(s: &Server) -> ServerEntry {
 
 impl NativeBackend {
     /// `vault` is the OS keychain in the app, a memory vault in tests.
+    /// Shows times at `offset` from UTC. Read it before any threads start:
+    /// on Unix, the `time` crate only reads the local offset then.
+    pub fn with_utc_offset(mut self, offset: time::UtcOffset) -> Self {
+        self.offset = offset;
+        self
+    }
+
     pub fn new(
         paths: Paths,
         vault: Option<Arc<dyn Vault>>,
@@ -268,6 +380,7 @@ impl NativeBackend {
             locked: Mutex::new(None),
             upkeep_log: Mutex::new(Vec::new()),
             link: Mutex::new(None),
+            offset: time::UtcOffset::UTC,
         })
     }
 
@@ -1441,6 +1554,100 @@ impl Backend for NativeBackend {
         })
     }
 
+    fn sessions(&self) -> Call<'_, Vec<SessionSummary>> {
+        Box::pin(async move {
+            let open = self.opened()?;
+            let name = open.name.clone();
+            self.run(async move {
+                // Syncing sends in each session's group: one task at a time.
+                let _lock = open.exclusive().await;
+                let work = async {
+                    let (store, client) = (&open.store, &open.client);
+                    let mut titles = Titles::default();
+                    let mut out = Vec::new();
+                    for l in sessions::list(store, client).await? {
+                        let gid = quill_proto::keys::unb64(&l.session.id).unwrap_or_default();
+                        let channels = history::channels(store, &gid)?;
+                        let latest = history::messages(store, &gid)?
+                            .last()
+                            .and_then(|m| note_time(&m.hlc));
+                        let prompt = titles.of(client, l.session.prompt).await?;
+                        out.push(summary(
+                            &l.session,
+                            standing(l.standing),
+                            prompt,
+                            &channels,
+                            latest,
+                        ));
+                    }
+                    out.sort_by_key(|s| std::cmp::Reverse(s.latest));
+                    Ok(out)
+                };
+                work.await.map_err(|e| problem(&name, e))
+            })
+            .await
+        })
+    }
+
+    fn session<'a>(&'a self, id: &'a str) -> Call<'a, SessionView> {
+        let id = id.to_owned();
+        Box::pin(async move {
+            let open = self.opened()?;
+            let name = open.name.clone();
+            self.run(async move {
+                let _lock = open.exclusive().await;
+                let work = async {
+                    let (store, client) = (&open.store, &open.client);
+                    let reading = sessions::read(store, client, &id).await?;
+                    let s = &reading.session;
+                    let gid = quill_proto::keys::unb64(&s.id).unwrap_or_default();
+                    let channels = history::channels(store, &gid)?;
+                    let prompt = Titles::default().of(client, s.prompt).await?;
+                    let by_id: std::collections::HashMap<&str, u64> = reading
+                        .messages
+                        .iter()
+                        .map(|m| (m.id.as_str(), m.seq))
+                        .collect();
+                    let notes = reading
+                        .messages
+                        .iter()
+                        .map(|m| Note {
+                            seq: m.seq,
+                            mine: s
+                                .members
+                                .iter()
+                                .any(|w| w.persona.is_some() && w.actor_uri == m.sender),
+                            author: writer_of(s, &m.sender),
+                            channel: m.channel.clone(),
+                            content: m.content.clone(),
+                            deleted: m.deleted,
+                            edited: m.edited(),
+                            reply_to: m.in_reply_to.as_deref().and_then(|r| by_id.get(r).copied()),
+                            at: note_time(&m.hlc).unwrap_or(time::OffsetDateTime::UNIX_EPOCH),
+                            attachments: m.attachments.len(),
+                        })
+                        .collect::<Vec<_>>();
+                    let latest = notes.last().map(|n| n.at);
+                    Ok(SessionView {
+                        summary: summary(s, SessionStanding::Joined, prompt, &channels, latest),
+                        channels: channels.iter().map(channel_view).collect(),
+                        notes,
+                        held_back: !reading.gaps.is_empty(),
+                        history_missing: reading.history_missing.is_some(),
+                    })
+                };
+                work.await.map_err(|e| problem(&name, e))
+            })
+            .await
+        })
+    }
+
+    fn mark_shown<'a>(&'a self, id: &'a str, channel: &'a str, upto: u64) -> Result<(), Problem> {
+        let open = self.opened()?;
+        let gid = quill_proto::keys::unb64(id).ok_or_else(|| failed("bad session id"))?;
+        history::mark_shown(&open.store, &gid, channel, upto).map_err(|e| problem(&open.name, e))
+    }
+
     fn answers_seen(&self) -> Vec<Uuid> {
         self.opened()
             .ok()
@@ -1696,6 +1903,10 @@ impl Backend for NativeBackend {
             }
             Ok(())
         })
+    }
+
+    fn utc_offset(&self) -> time::UtcOffset {
+        self.offset
     }
 
     fn sleep(&self, ms: u64) -> std::pin::Pin<Box<dyn Future<Output = ()> + '_>> {

@@ -469,6 +469,20 @@ fieldset > .hint { margin-bottom: var(--space-3); }
   font-family: var(--write); font-size: var(--text-read);
 }
 
+/* ---- Sessions (3f) ---- */
+.channels { display: flex; gap: var(--space-1); flex-wrap: wrap; border-bottom: 1px solid var(--line); margin: var(--space-4) 0 var(--space-3); }
+.channels [role="tab"] { border: 0; background: none; padding: var(--space-2) var(--space-3); min-height: var(--control); color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; font: inherit; }
+.channels [role="tab"]:hover { color: var(--ink); }
+.channels .badge { margin-left: var(--space-2); }
+.channels [role="tab"][aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.channel { max-width: var(--width-read); }
+.notes { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+.note header { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.note .name { font-weight: 600; }
+.note .pitch { font-family: var(--write); font-size: var(--text-read); line-height: 1.6; margin-top: var(--space-1); }
+.note.mine .name { color: var(--accent); }
+.note .answering { font-size: var(--text-sm); color: var(--muted); }
+
 /* ---- The design reference (advanced mode) ---- */
 .ref-themes { display: grid; grid-template-columns: repeat(auto-fit, minmax(26rem, 1fr)); gap: var(--space-5); align-items: start; }
 .ref-theme { min-height: 0; padding: var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--paper); }

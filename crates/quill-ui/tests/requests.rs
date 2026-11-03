@@ -414,7 +414,7 @@ async fn an_answer_shows_on_home_until_requests_is_opened() {
         .await;
     assert!(d.has_button("Requests 1 new"));
 
-    d.click("See your requests").await;
+    d.click("Requests 1 new").await;
     d.wait_for_text("Writing together").await;
     d.click("Home").await;
     assert!(!d.has_text("was accepted"));

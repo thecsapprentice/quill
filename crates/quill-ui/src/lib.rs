@@ -20,6 +20,7 @@ mod personas;
 mod reference;
 mod requests;
 mod server_rules;
+mod sessions;
 mod settings;
 #[cfg(test)]
 mod style_tests;
