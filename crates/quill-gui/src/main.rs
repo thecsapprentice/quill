@@ -8,6 +8,9 @@ use quill_core::store::vault::{OsKeychain, Vault};
 use quill_gui::{NativeBackend, settings::Paths};
 use quill_ui::{App, STYLE, Ui};
 
+/// A label added to the window's title, for development.
+const LABEL_ENV: &str = "QUILL_GUI_LABEL";
+
 fn main() {
     let (dom, config, _runtime) = match setup() {
         Ok(parts) => parts,
@@ -37,13 +40,19 @@ fn setup() -> anyhow::Result<(VirtualDom, dioxus_desktop::Config, tokio::runtime
 
     let dom = VirtualDom::new(Root);
     dom.provide_root_context(Ui(Rc::new(backend)));
+    // For development: tells apart windows started side by side
+    // (`scripts/dev-gui.py --guis 2`).
+    let title = match std::env::var(LABEL_ENV) {
+        Ok(label) if !label.trim().is_empty() => format!("Quill ({})", label.trim()),
+        _ => "Quill".to_owned(),
+    };
     let config = dioxus_desktop::Config::new()
         .with_menu(None)
         .with_custom_head(format!("<style>{STYLE}</style>"))
         .with_background_color((238, 241, 244, 255))
         .with_window(
             dioxus_desktop::WindowBuilder::new()
-                .with_title("Quill")
+                .with_title(title)
                 .with_inner_size(dioxus_desktop::LogicalSize::new(1180.0, 780.0))
                 .with_min_inner_size(dioxus_desktop::LogicalSize::new(360.0, 480.0)),
         );

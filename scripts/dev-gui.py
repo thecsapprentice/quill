@@ -10,14 +10,18 @@ For trying the GUI by hand. Each run:
      writers, all sharing one password, with personas and prompts.
   3. Optionally sets server rules, and when accounts must accept them.
   4. Starts the GUI with an empty settings folder, so it opens on first run.
-     It's built while the server starts.
-  5. When the GUI window closes, stops the server and deletes its database.
+     It's built while the server starts. With --guis 2 (or more), starts
+     that many windows, each with a folder of its own, to try several
+     accounts against each other.
+  5. When the last GUI window closes, stops the server and deletes its
+     database.
 
 Needs Docker (with Compose) and Rust, as for building Quill. Uses only
 Python's standard library, so it runs the same on Windows, macOS and Linux:
 
     python scripts/dev-gui.py                    # the usual run
     python scripts/dev-gui.py --rules on-join    # sign-up asks to accept rules
+    python scripts/dev-gui.py --guis 2           # two windows, two accounts
     python scripts/dev-gui.py --reuse-gui        # keep the GUI's settings and stores
     python scripts/dev-gui.py --no-gui           # just the server; --stop ends it
     python scripts/dev-gui.py --help             # everything else
@@ -149,9 +153,22 @@ def finish_gui_build(build: subprocess.Popen, log: Path) -> None:
         fail(f"building the GUI failed; the whole log is in {log}")
 
 
-def gui_env(args: argparse.Namespace, gui_dir: Path) -> dict[str, str]:
+def gui_dirs(args: argparse.Namespace) -> list[Path]:
+    """One settings folder per window: --gui-dir itself for one window,
+    numbered beside it (profile-1, profile-2, ...) for several."""
+    if args.guis == 1:
+        return [args.gui_dir]
+    return [args.gui_dir.with_name(f"{args.gui_dir.name}-{i}")
+            for i in range(1, args.guis + 1)]
+
+
+def gui_env(args: argparse.Namespace, gui_dir: Path,
+            label: str | None = None) -> dict[str, str]:
     env = dict(os.environ)
     env["QUILL_GUI_DIR"] = str(gui_dir)
+    if label:
+        # Shown in the window's title, to tell the windows apart.
+        env["QUILL_GUI_LABEL"] = label
     if args.safe_render:
         # WebKitGTK on some Linux GPUs, VMs and virtual displays draws a
         # blank window unless it renders without GPU buffers.
@@ -184,7 +201,11 @@ def parse_args() -> argparse.Namespace:
                    help="set server rules, and when accounts must accept them")
     p.add_argument("--rules-file", help="Markdown for the rules (default: a short sample)")
     p.add_argument("--gui-dir", type=Path, default=target_dir() / "dev-gui" / "profile",
-                   help="the GUI's settings and stores folder, QUILL_GUI_DIR (default: %(default)s)")
+                   help="the GUI's settings and stores folder, QUILL_GUI_DIR (default: %(default)s); "
+                        "with --guis, numbered folders beside it")
+    p.add_argument("--guis", type=int, default=1, metavar="N",
+                   help="start N GUI windows, each with its own folder, "
+                        "to try several accounts at once (default: %(default)s)")
     p.add_argument("--reuse-gui", action="store_true",
                    help="keep the GUI folder from last time instead of starting at first run")
     p.add_argument("--release", action="store_true", help="build the GUI in release mode")
@@ -195,6 +216,10 @@ def parse_args() -> argparse.Namespace:
         p.error("--rules needs the seeded admin account; drop --no-seed")
     if args.rules_file and not args.rules:
         p.error("--rules-file goes with --rules")
+    if not 1 <= args.guis <= 4:
+        p.error("--guis takes 1 to 4")
+    if args.guis > 1 and args.no_gui:
+        p.error("--guis goes without --no-gui")
     return args
 
 
@@ -246,12 +271,29 @@ def main() -> None:
         assert build is not None
         say("Waiting for the GUI build")
         finish_gui_build(build, log)
-        if not args.reuse_gui and args.gui_dir.exists():
-            shutil.rmtree(args.gui_dir)
-        args.gui_dir.mkdir(parents=True, exist_ok=True)
-        say(f"Starting the GUI (its folder: {args.gui_dir}); close the window to finish")
-        subprocess.run([str(gui_binary(args.release))], cwd=ROOT,
-                       env=gui_env(args, args.gui_dir))
+        dirs = gui_dirs(args)
+        for d in dirs:
+            if not args.reuse_gui and d.exists():
+                shutil.rmtree(d)
+            d.mkdir(parents=True, exist_ok=True)
+        if len(dirs) == 1:
+            say(f"Starting the GUI (its folder: {dirs[0]}); close the window to finish")
+            subprocess.run([str(gui_binary(args.release))], cwd=ROOT,
+                           env=gui_env(args, dirs[0]))
+        else:
+            say(f"Starting {len(dirs)} GUI windows; close them all to finish")
+            for i, d in enumerate(dirs, 1):
+                print(f"    Quill ({i}): {d}")
+            windows = [subprocess.Popen([str(gui_binary(args.release))], cwd=ROOT,
+                                        env=gui_env(args, d, str(i)))
+                       for i, d in enumerate(dirs, 1)]
+            try:
+                for w in windows:
+                    w.wait()
+            finally:
+                for w in windows:
+                    if w.poll() is None:
+                        w.terminate()
     except KeyboardInterrupt:
         print("\nInterrupted.")
     finally:
