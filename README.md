@@ -70,6 +70,7 @@ close the window, it stops the server and deletes its database.
 ```sh
 python scripts/dev-gui.py                   # server on localhost:8090, then the GUI
 python scripts/dev-gui.py --rules on-join   # sign-up asks to accept server rules
+python scripts/dev-gui.py --guis 2          # two windows, to try two accounts at once
 python scripts/dev-gui.py --help            # the other options
 ```
 
@@ -77,6 +78,10 @@ It needs Docker and Rust. It uses its own Compose project (`quill-gui-dev`),
 so the database from `docker compose up` above is left alone. In the GUI,
 type `localhost:8090` as the server, then make a login or sign in as one of
 the demo accounts it lists.
+
+With `--guis 2`, the windows are titled "Quill (1)" and "Quill (2)", each with
+its own settings and stores, so each can be a different login. The server
+stops once both are closed.
 
 ## Development
 
