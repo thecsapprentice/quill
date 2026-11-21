@@ -1,6 +1,6 @@
 """Plait's interface icons: 24px line icons, one path each.
 
-They follow the board's existing nav icons (quill-board-ui layout.rs):
+They follow the board's existing nav icons (plait-board-ui layout.rs):
 24 by 24, no fill, 2px round strokes in currentColor, so each `d` string
 drops straight into that `match`. Names and titles use the interface's own
 words (prompt, session, persona); the weaving lives only in the drawings.
@@ -156,7 +156,7 @@ def sprite() -> str:
 
 
 def rust_module() -> str:
-    """icons.rs for quill-ui / quill-board-ui: an enum and its path data."""
+    """icons.rs for plait-ui / plait-board-ui: an enum and its path data."""
     def variant(n: str) -> str:
         return "".join(p.capitalize() for p in n.split("-"))
 

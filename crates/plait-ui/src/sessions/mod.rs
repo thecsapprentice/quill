@@ -118,6 +118,7 @@ pub fn SessionsPage() -> Element {
             p { class: "coming",
                 "No sessions yet. When a request to write together is accepted, the session starts here."
             }
+            p { class: "flavour", "Nothing on the loom yet." }
             div { class: "actions",
                 button {
                     class: "secondary",

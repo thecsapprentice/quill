@@ -947,6 +947,13 @@ input.position {
   color: var(--muted);
 }
 
+/* An empty state's optional second line, in the brand's weaving words. */
+.empty .flavour {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.875rem;
+}
+
 /* ---- Lists and tables (personas, admin) ---- */
 
 .rows {

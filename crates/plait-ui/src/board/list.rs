@@ -286,6 +286,7 @@ fn BoardList() -> Element {
                         } else if loaded && !next {
                             {illustration(Illustration::EmptyBoard)}
                             "No prompts on the board yet."
+                            span { class: "flavour", "The warp is strung and waiting." }
                         }
                     }
                 }

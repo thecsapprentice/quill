@@ -129,6 +129,9 @@ pub fn RequestsPage() -> Element {
                     p { class: "coming",
                         "You haven't asked to write on a prompt yet. Find one on the Board, and ask from it."
                     }
+                    if r.waiting.is_empty() {
+                        p { class: "flavour", "The shuttle is at rest." }
+                    }
                     div { class: "actions",
                         button { class: "secondary", onclick: move |_| model.write().go(Section::Board), "Go to the Board" }
                     }

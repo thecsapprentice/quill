@@ -103,6 +103,27 @@ fn board_escapes_text_and_keeps_sanitized_html() {
 }
 
 #[test]
+fn an_empty_board_says_so_plainly_before_the_flavour() {
+    for signed_in in [false, true] {
+        let html = board_page(
+            &chrome(signed_in, false),
+            board(vec![], BoardFilters::default()),
+        );
+        let plain = html.find("No prompts yet.").unwrap();
+        let flavour = html.find("The warp is strung and waiting.").unwrap();
+        assert!(plain < flavour, "signed in: {signed_in}");
+    }
+    // Filters that match nothing are a different message, without flavour.
+    let filters = BoardFilters {
+        q: "zebra".into(),
+        ..BoardFilters::default()
+    };
+    let html = board_page(&chrome(false, false), board(vec![], filters));
+    assert!(html.contains("No prompts match these filters."));
+    assert!(!html.contains("The warp"));
+}
+
+#[test]
 fn filter_urls_round_trip_and_open_the_panel() {
     let f = BoardFilters {
         include: "genre:horror,theme:sea".into(),

@@ -202,9 +202,19 @@ pub fn ServerStep() -> Element {
                     button { class: "quiet", onclick: cancel, "Cancel" }
                 }
             }
+            // The name explained, closed until asked: nothing later needs it.
+            if !adding {
+                details { class: "why-plait",
+                    summary { "Why Plait?" }
+                    p { "{WHY_PLAIT}" }
+                }
+            }
         }
     }
 }
+
+/// The one onboarding line in the brand's weaving words (docs/rebrand-plait.md).
+pub(crate) const WHY_PLAIT: &str = "Writing together is like weaving: a prompt is the warp, strung up for others to weave through.";
 
 #[component]
 pub fn UnlockStep() -> Element {

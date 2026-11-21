@@ -14,6 +14,22 @@ and servers federate over ActivityPub.
 > work through the web board, the API and the CLI. Encrypted sessions and federation come in later phases. Not
 > ready for real use.
 
+## About the name
+
+A plait is separate strands worked into one piece, and that's what writing
+together is. The app keeps plain writing words on every screen; the weaving
+is in its art and here:
+
+- **Prompts** (the warp) are strung up in public, for others to weave through.
+- **Requests** (shuttles) carry a writer across to someone else's prompt.
+- **Sessions** (looms) are where two writers work a prompt together, in private.
+- **Contributions** (strands) are what each of them adds.
+- **Personas** (threads) are the names people write under, each a colour of
+  its own.
+
+Why the project was renamed from Quill, and which words appear where, is in
+[the rename guide](docs/rebrand-plait.md).
+
 ## Workspace
 
 | Crate | Kind | Role |

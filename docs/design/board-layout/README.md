@@ -1,6 +1,6 @@
 # Board layout mockups
 
-Mockups for the responsive layout of the server's web board (`crates/quill-board-ui`). They were chosen over three rounds of review on 2026-10-27. Each screen is here in two forms:
+Mockups for the responsive layout of the server's web board (`crates/plait-board-ui`). They were chosen over three rounds of review on 2026-10-27. Each screen is here in two forms:
 
 - `html/`: the mockup itself, standalone HTML and CSS with no scripts. Open it in a browser. The layout and the exact colours, spacing and type sizes are in its `<style>` block and inline styles.
 - `png/`: a screenshot at the mockup's size. Desktop is 1440×900 and mobile is 390×844.

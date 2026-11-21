@@ -88,8 +88,10 @@ pub fn board_page(chrome: &Chrome, view: BoardView) -> String {
                             } else if signed_in {
                                 "No prompts yet. "
                                 a { href: "/new", "Post the first one." }
+                                span { class: "flavour", "The warp is strung and waiting." }
                             } else {
                                 "No prompts yet."
+                                span { class: "flavour", "The warp is strung and waiting." }
                             }
                         }
                     }

@@ -10,7 +10,7 @@ import math
 
 # ---- Palette -------------------------------------------------------------
 # The accent teal and the ink/paper neutrals are the client's existing
-# tokens (crates/quill-ui/src/style.css), so the art sits in the app as is.
+# tokens (crates/plait-ui/src/style.css), so the art sits in the app as is.
 # The other three are the "thread" colours: one per writer in the art.
 
 LIGHT = {

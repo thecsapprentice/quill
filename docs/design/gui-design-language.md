@@ -1,12 +1,12 @@
-# Quill's design language for the desktop app
+# Plait's design language for the desktop app
 
 This is how every screen in the desktop app looks, behaves and speaks. The web client (Phase 4) inherits it. It turns the Phase 3 design principles (`docs/roadmap.md`: friendly first, responsive and alive, a pleasant place to write) into rules a screen can be checked against. The board mockups in `docs/design/board-layout/` set the layouts the review chose; this sets the parts they're built from.
 
-The tokens and components live in `crates/quill-ui/src/style.css`, tokens first. The design reference page shows every component in every state, in light and dark: open Settings with advanced mode on, then "Design reference". Use it for hand checks with `scripts/dev-gui.py`.
+The tokens and components live in `crates/plait-ui/src/style.css`, tokens first. The design reference page shows every component in every state, in light and dark: open Settings with advanced mode on, then "Design reference". Use it for hand checks with `scripts/dev-gui.py`.
 
 ## The idea: quiet chrome, the writing is the subject
 
-Quill is a place to write with someone. Everything around the writing (navigation, settings, keys, the board's lists) stays calm and gets out of the way. The writing itself gets the type and the space.
+Plait is a place to write with someone. Everything around the writing (navigation, settings, keys, the board's lists) stays calm and gets out of the way. The writing itself gets the type and the space.
 
 - **Two voices of type.** A plain system sans-serif for the app's chrome, and a book serif for anything written: prompts, pitches, session notes, and the headings that name them. A glance tells you which is which.
 - **One accent, used sparingly.** A deep teal marks the one thing to do next (the primary button), where you are (the current section), and links. It never decorates.
@@ -199,7 +199,7 @@ Any limit known ahead of time is shown while the person types, never only after 
 
 - **Hint:** the field's hint states the rule while empty ("Up to 200 characters."), then how much is used ("12 of 200 characters."), then what's wrong once over ("201 of 200 characters: 1 too many.").
 - **Action:** the action waits, disabled, and the line under it says what it's waiting for ("Needs a title, 1 length tag before posting.").
-- **Code:** `quill-ui`'s `checks` module holds these rules, counted as the server counts.
+- **Code:** `plait-ui`'s `checks` module holds these rules, counted as the server counts.
 
 ### One plain question
 
@@ -224,12 +224,12 @@ A list that's replaced (Refresh, a new search, a filter) starts at its top. Load
 
 ### A changed key
 
-Quill keeps the identity key it first sees for each writer (core's pins). When a writer's key isn't the one kept, nothing goes to them and nothing from them is read until the person says so. This happens before a request is sent, before a pitch is shown, and, from 3f, in sessions. The app stops in place with a `.panel` (`requests::KeyCheck`), never a dialog:
+Plait keeps the identity key it first sees for each writer (core's pins). When a writer's key isn't the one kept, nothing goes to them and nothing from them is read until the person says so. This happens before a request is sent, before a pitch is shown, and, from 3f, in sessions. The app stops in place with a `.panel` (`requests::KeyCheck`), never a dialog:
 
 - **What happened**, plainly: "@wren's identity key changed."
-- **Why it usually happens, and why it matters:** they started over on a new computer without their old keys; or someone is using the server to pass as them. Quill's promise is that the server can't read what's written, and a server that swapped a key could. This is the one place that promise depends on the writer.
-- **What to do:** compare the 12 words with the other writer some other way than Quill's requests. Both apps derive them from both personas' keys, so they match only if neither key was swapped (core's identity number, 2j). A fingerprint would ask people to compare 32 hex digits; words are easier to read aloud.
-- **Where the other writer finds them (#72):** the stop names the place. "Compare words with @name" sits wherever two writers meet before a session (the reader, on someone else's prompt; each request in a queue), and the Personas page finds them for any handle, so they can be read out even when nothing brings the two together yet. The CLI prints them with `quill keys words`. Without this, the stop's advice couldn't be followed until a shared session existed.
+- **Why it usually happens, and why it matters:** they started over on a new computer without their old keys; or someone is using the server to pass as them. Plait's promise is that the server can't read what's written, and a server that swapped a key could. This is the one place that promise depends on the writer.
+- **What to do:** compare the 12 words with the other writer some other way than Plait's requests. Both apps derive them from both personas' keys, so they match only if neither key was swapped (core's identity number, 2j). A fingerprint would ask people to compare 32 hex digits; words are easier to read aloud.
+- **Where the other writer finds them (#72):** the stop names the place. "Compare words with @name" sits wherever two writers meet before a session (the reader, on someone else's prompt; each request in a queue), and the Personas page finds them for any handle, so they can be read out even when nothing brings the two together yet. The CLI prints them with `plait keys words`. Without this, the stop's advice couldn't be followed until a shared session existed.
 - **Two buttons:** "The words match: carry on" pins the new key and does what was asked (sends, or shows the pitch). "Not now" leaves it, and keeps everything typed. A request from a writer whose key changed can still be declined unread, since declining tells the server nothing about the pitch.
 - **Only the compared key is trusted.** Accepting names the new key's fingerprint, and core refuses if the published key changed again meanwhile, so the screen shows new words rather than trusting a key nobody saw.
 
