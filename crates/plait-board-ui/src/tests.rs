@@ -14,6 +14,7 @@ use super::*;
 fn chrome(signed_in: bool, admin: bool) -> Chrome {
     Chrome {
         site_name: "alpha.test".into(),
+        origin: "https://alpha.test".into(),
         viewer: signed_in.then(|| Viewer {
             csrf: "csrf-token-123".into(),
             is_admin: admin,

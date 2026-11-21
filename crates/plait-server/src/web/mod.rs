@@ -226,12 +226,32 @@ pub fn router() -> Router<AppState> {
         )
         .route(plait_board_ui::STYLESHEET_PATH, get(stylesheet))
         .route(plait_board_ui::chips::TAG_COLORS_PATH, get(tag_colors))
-        // No icon; answering keeps browsers from logging a 404 on every page.
-        .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
+        .merge(brand_assets())
         .fallback(not_found)
         .layer(middleware::from_fn(reject_cross_site_posts))
         .layer(middleware::from_fn(security_headers))
         .layer(DefaultBodyLimit::max(FORM_BODY_LIMIT))
+}
+
+/// The favicons, header mark, sign-in hero and social card, each at its
+/// fixed path (`plait_board_ui::brand`).
+fn brand_assets() -> Router<AppState> {
+    plait_board_ui::brand::ALL
+        .into_iter()
+        .fold(Router::new(), |router, asset| {
+            router.route(
+                asset.path,
+                get(move || async move {
+                    (
+                        [
+                            (header::CONTENT_TYPE, asset.content_type),
+                            (header::CACHE_CONTROL, plait_board_ui::brand::CACHE_CONTROL),
+                        ],
+                        asset.bytes,
+                    )
+                }),
+            )
+        })
 }
 
 async fn stylesheet() -> impl IntoResponse {
@@ -382,6 +402,7 @@ pub(crate) fn chrome(
 ) -> Chrome {
     Chrome {
         site_name: state.config.domain.clone(),
+        origin: format!("https://{}", state.config.domain),
         viewer: session.map(|s| Viewer {
             csrf: s.csrf.clone(),
             is_admin: s.is_admin,

@@ -13,6 +13,7 @@
 mod admin;
 mod announcements;
 pub mod art;
+pub mod brand;
 pub mod chips;
 mod filters;
 // Generated (assets/brand/src/build.py) and kept identical to its source.
@@ -108,6 +109,9 @@ pub struct Viewer {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chrome {
     pub site_name: String,
+    /// Where the board is served, as `https://host`, for absolute links
+    /// such as the social card's in link previews.
+    pub origin: String,
     pub viewer: Option<Viewer>,
     /// Where users can get this server's source code (required by the AGPL).
     pub source_url: String,
@@ -561,6 +565,10 @@ fn page_notices(chrome: &Chrome) -> Element {
     }
 }
 
+/// What a link to any board page says under its title when shared.
+pub const SOCIAL_DESCRIPTION: &str =
+    "Writing prompts, and people to write them with, on a Plait server.";
+
 fn document(doc: Doc) -> Element {
     let Doc {
         title,
@@ -579,6 +587,19 @@ fn document(doc: Doc) -> Element {
                 meta { name: "viewport", content: "width=device-width, initial-scale=1" }
                 meta { name: "referrer", content: "same-origin" }
                 title { "{page_title}" }
+                link { rel: "icon", href: brand::FAVICON_ICO.path, sizes: "32x32" }
+                link { rel: "icon", href: brand::FAVICON_SVG.path, r#type: "image/svg+xml" }
+                link { rel: "apple-touch-icon", href: brand::APPLE_TOUCH_ICON.path }
+                // The link preview: the page's title and the social card.
+                meta { property: "og:type", content: "website" }
+                meta { property: "og:site_name", content: "{chrome.site_name}" }
+                meta { property: "og:title", content: "{page_title}" }
+                meta { property: "og:description", content: SOCIAL_DESCRIPTION }
+                meta { property: "og:image", content: "{chrome.origin}{brand::SOCIAL_CARD.path}" }
+                meta { property: "og:image:width", content: "1200" }
+                meta { property: "og:image:height", content: "630" }
+                meta { property: "og:image:alt", content: "Plait: threads of four colours woven into one cloth" }
+                meta { name: "twitter:card", content: "summary_large_image" }
                 link { rel: "stylesheet", href: "{STYLESHEET_PATH}?v={stylesheet_version()}" }
                 link { rel: "stylesheet", href: "{chips::TAG_COLORS_PATH}" }
             }

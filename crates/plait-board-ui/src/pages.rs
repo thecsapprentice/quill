@@ -377,6 +377,7 @@ pub fn auth_page(chrome: &Chrome, view: AuthView) -> String {
         let register = v.mode == AuthMode::Register;
         let action = if register { "/register" } else { "/login" };
         rsx! {
+            {crate::brand::hero()}
             h1 { "{title}" }
             if register {
                 p { class: "lede",

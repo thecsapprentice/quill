@@ -25,6 +25,8 @@ uuid.workspace = true
 
 [dev-dependencies]
 plait-core = { workspace = true, features = ["test-tools"] }
+# The brand files the board serves, to compare byte for byte.
+plait-board-ui.workspace = true
 ed25519-dalek.workspace = true
 plait-certs = { workspace = true, features = ["sign"] }
 reqwest = { workspace = true, features = ["rustls"] }

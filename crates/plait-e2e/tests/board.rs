@@ -168,6 +168,85 @@ impl Browser {
 }
 
 #[tokio::test]
+async fn the_board_serves_its_icons_and_social_card() {
+    use plait_board_ui::brand;
+    let server = server!();
+    let http = reqwest::Client::new();
+    // The three paths browsers and phones ask for by name, and the rest.
+    let named = ["/favicon.ico", "/favicon.svg", "/apple-touch-icon.png"];
+    for path in named {
+        assert!(brand::ALL.iter().any(|a| a.path == path), "{path}");
+    }
+    for asset in brand::ALL {
+        let res = http
+            .get(format!("{}{}", server.url(), asset.path))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{}", asset.path);
+        let headers = res.headers().clone();
+        assert_eq!(headers[header::CONTENT_TYPE], asset.content_type);
+        assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=604800");
+        // Served SVGs get the same locked-down policy as pages.
+        assert!(
+            headers[header::CONTENT_SECURITY_POLICY]
+                .to_str()
+                .unwrap()
+                .contains("default-src 'none'")
+        );
+        assert_eq!(
+            &res.bytes().await.unwrap()[..],
+            asset.bytes,
+            "{}",
+            asset.path
+        );
+    }
+}
+
+#[tokio::test]
+async fn pages_carry_the_icon_links_preview_tags_mark_and_hero() {
+    let server = server!();
+    let mut b = Browser::new(&server);
+    let home = b.get("/").await;
+    for tag in [
+        r#"<link rel="icon" href="/favicon.ico" sizes="32x32""#,
+        r#"<link rel="icon" href="/favicon.svg" type="image/svg+xml""#,
+        r#"<link rel="apple-touch-icon" href="/apple-touch-icon.png""#,
+        r#"<meta property="og:title" content="localhost""#,
+        r#"<meta property="og:description" content="Writing prompts, and people to write them with, on a Plait server.""#,
+        r#"<meta property="og:image" content="https://localhost/static/brand/social-card.png""#,
+        r#"<meta name="twitter:card" content="summary_large_image""#,
+        r#"<img src="/static/brand/plait-mark.svg" alt="""#,
+    ] {
+        assert!(home.body.contains(tag), "missing {tag}");
+    }
+    assert!(
+        !home.body.contains("auth-hero"),
+        "the hero is for signing in"
+    );
+    for path in ["/login", "/register"] {
+        let page = b.get(path).await;
+        assert!(
+            page.body
+                .contains(r#"<img src="/static/brand/hero-light.svg" alt="""#),
+            "{path}"
+        );
+        assert!(
+            page.body
+                .contains(r#"srcset="/static/brand/hero-dark.svg""#),
+            "{path}"
+        );
+    }
+    // A page's own title is the preview's title.
+    let login = b.get("/login").await;
+    assert!(
+        login
+            .body
+            .contains(r#"<meta property="og:title" content="Sign in – localhost""#)
+    );
+}
+
+#[tokio::test]
 async fn public_pages_and_security_headers() {
     let server = server!();
     let mut b = Browser::new(&server);
@@ -198,7 +277,6 @@ async fn public_pages_and_security_headers() {
             .unwrap()
             .starts_with("text/css")
     );
-    assert_eq!(b.get("/favicon.ico").await.status, StatusCode::NO_CONTENT);
 
     let missing = b.get("/no/such/page").await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);

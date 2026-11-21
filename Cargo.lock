@@ -5537,6 +5537,7 @@ dependencies = [
  "boon",
  "clap",
  "ed25519-dalek",
+ "plait-board-ui",
  "plait-certs",
  "plait-core",
  "plait-gui",

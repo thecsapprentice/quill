@@ -56,7 +56,10 @@ pub(crate) fn header(chrome: &Chrome) -> Element {
     rsx! {
         header { class: if chrome.viewer.is_some() { "site-header member" } else { "site-header" },
             div { class: "wrap",
-                a { class: "site-name", href: "/", "{chrome.site_name}" }
+                a { class: "site-name", href: "/",
+                    {crate::brand::mark()}
+                    span { "{chrome.site_name}" }
+                }
                 if let Some(viewer) = &chrome.viewer {
                     form { class: "sign-out", method: "post", action: "/logout",
                         input { r#type: "hidden", name: CSRF_FIELD, value: "{viewer.csrf}" }

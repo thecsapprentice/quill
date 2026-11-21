@@ -228,6 +228,10 @@ The web board fits the screen it's on (#51); the mockups and the review behind t
 - **The filter builder is one GET form** at `/filters`. Hidden fields carry the filter so far; the tags on screen have Any / Has / Hide radios and are named in a `shown` field; type, letter and page are submit buttons. On every request the server drops what the hidden fields said about the shown tags and applies their radios, so switching type or page never loses a choice, and only tags the page showed can be set. Show prompts redirects to the board with the usual `include`, `exclude`, `maturity`, `state` and `q`. Tag counts come from one query per page over the `tag_ids` GIN index.
 - **The filter summary** above the list shows a few tags of each kind and "+N", and never grows, so a long filter can't push the list off the screen.
 - **The stylesheet's URL carries a fingerprint of its contents**, because it's cached for a day: a changed stylesheet must reach browsers at once, even within one release.
+- **Brand files** (`plait_board_ui::brand`, #88): the favicons at the paths browsers ask for by name, and the mark, sign-in hero and social card under `/static/brand/`, served as compiled in. Their URLs carry no fingerprint (browsers and link-preview sites ask for fixed names), so they're cached for a week rather than for good: a new drawing reaches visitors within that week.
+- **The header keeps the server's name.** Each board belongs to the server running it, so the Plait mark sits beside the server's name rather than replacing it with the Plait lockup.
+- **The mark and the hero are images, not inline SVG.** Inlined, the mark would add 10KB to every page, twice over for the dark drawing. As images they're cached once, and a `picture` element switches to the dark drawing by the system theme, as the stylesheet does.
+- **Link previews** use the page's title, one fixed description and the light social card (the sharing site's theme isn't known). `og:image` must be an absolute URL, so pages get the origin (`https://` and the server's domain) in `Chrome`.
 
 ### Server rules
 
